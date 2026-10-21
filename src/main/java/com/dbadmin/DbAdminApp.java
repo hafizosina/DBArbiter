@@ -24,6 +24,8 @@ public class DbAdminApp extends Application {
         }
         stage.setTitle("DBAdmin");
         stage.setScene(scene);
+        // 1200x760 is the size used when the user un-maximizes the window
+        stage.setMaximized(true);
         stage.show();
     }
 

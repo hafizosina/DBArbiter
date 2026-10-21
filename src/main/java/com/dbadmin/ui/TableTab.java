@@ -1,10 +1,11 @@
 package com.dbadmin.ui;
 
+import com.dbadmin.model.ConnectionConfig;
 import com.dbadmin.model.DbType;
+import com.dbadmin.model.StatementResult;
 import com.dbadmin.model.TableData;
 import com.dbadmin.model.TableRef;
 import com.dbadmin.service.DatabaseSession;
-import com.dbadmin.service.SqlSplitter;
 import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
 import javafx.geometry.Pos;
@@ -15,20 +16,14 @@ import javafx.scene.control.SplitPane;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
 import javafx.scene.control.Tooltip;
-import javafx.scene.input.KeyCode;
-import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
-import org.fxmisc.flowless.VirtualizedScrollPane;
-import org.fxmisc.richtext.CodeArea;
 
-import java.time.Duration;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
@@ -57,8 +52,12 @@ class TableTab extends Tab {
     private final Label pageInfo = new Label();
     private final Button prev = new Button("◀ Prev");
     private final Button next = new Button("Next ▶");
-    /** Temporary, never-saved query box above the data; defaults to "select * from <table>". */
-    private final CodeArea queryEditor = new CodeArea();
+    /**
+     * Temporary, never-saved query box above the data, defaulting to "select * from <table>".
+     * Same editor and runner as a script tab, minus saving.
+     */
+    private final SqlEditor queryEditor;
+    private final ScriptRunner runner;
     private final Label queryMessage = new Label();
     private String defaultQuery;
     /** True while the grid shows a custom query's result instead of the paged table. */
@@ -67,10 +66,13 @@ class TableTab extends Tab {
     private long totalRows = -1;
     private boolean dataLoaded;
 
-    TableTab(DatabaseSession session, TableRef table) {
+    TableTab(DatabaseSession session, TableRef table, SessionProvider sessions, SqlCompleter completer) {
         super(table.name());
         this.session = session;
         this.table = table;
+        this.queryEditor = new SqlEditor(completer, sessions, session::getConfig, this::runQuery);
+        this.runner = new ScriptRunner(sessions, completer);
+        setOnSelectionChanged(e -> queryEditor.hidePopup());
         setTooltip(new javafx.scene.control.Tooltip(session.getConfig().getName() + " · " + table.displayName()));
 
         addSection("Columns", () -> session.listColumns(table));
@@ -207,38 +209,35 @@ class TableTab extends Tab {
 
     private BorderPane buildQueryBox() {
         defaultQuery = "select * from " + qualified();
-        queryEditor.getStyleClass().addAll("sql-editor", "quick-query");
-        queryEditor.replaceText(defaultQuery);
-        queryEditor.getUndoManager().forgetHistory();
-        highlightQuery();
-        queryEditor.multiPlainChanges().successionEnds(Duration.ofMillis(150)).subscribe(x -> highlightQuery());
-        queryEditor.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
-            if (e.getCode() == KeyCode.ENTER && e.isShortcutDown()) {
-                e.consume();
-                runQuery();
-            }
-        });
+        queryEditor.getStyleClass().add("quick-query");
+        queryEditor.setText(defaultQuery);
 
         Button run = new Button("▶ Run");
-        run.setTooltip(new Tooltip("Run this query (Ctrl+Enter). Not saved; up to " + QUERY_MAX_ROWS + " rows."));
+        run.setTooltip(new Tooltip("Run the selection, or all of it (Ctrl+Enter). Not saved; up to "
+                + ScriptRunner.MAX_ROWS + " rows."));
         run.setMaxWidth(Double.MAX_VALUE);
         run.setOnAction(e -> runQuery());
+        run.disableProperty().bind(runner.runningProperty());
+        Button stop = new Button("■ Stop");
+        stop.setMaxWidth(Double.MAX_VALUE);
+        stop.setOnAction(e -> runner.stop());
+        stop.disableProperty().bind(runner.runningProperty().not());
         Button reset = new Button("Reset");
         reset.setTooltip(new Tooltip("Back to: " + defaultQuery));
         reset.setMaxWidth(Double.MAX_VALUE);
         reset.setOnAction(e -> {
-            queryEditor.replaceText(defaultQuery);
+            queryEditor.setText(defaultQuery);
             runQuery();
         });
-        VBox buttons = new VBox(4, run, reset);
+        VBox buttons = new VBox(4, run, stop, reset);
         buttons.setPadding(new Insets(0, 0, 0, 6));
 
         queryMessage.getStyleClass().add("hint-small");
-        BorderPane box = new BorderPane(new VirtualizedScrollPane<>(queryEditor));
+        BorderPane box = new BorderPane(queryEditor);
         box.setRight(buttons);
         box.setBottom(queryMessage);
         box.setPadding(new Insets(6, 6, 2, 6));
-        box.setMinHeight(84);
+        box.setMinHeight(110);
         return box;
     }
 
@@ -250,16 +249,12 @@ class TableTab extends Tab {
         return prefix == null ? name : SqlCompleter.quoteIfNeeded(prefix, type) + "." + name;
     }
 
-    private void highlightQuery() {
-        queryEditor.setStyleSpans(0, SqlHighlighter.highlight(queryEditor.getText(), session.getConfig().getType()));
-    }
-
     /**
-     * Runs the query box. The unchanged default query shows the paged table again;
-     * anything else replaces the grid with its result (one statement, up to QUERY_MAX_ROWS rows).
+     * Runs the query box (the selection, or all of it). The unchanged default query shows the paged
+     * table again; anything else runs like a script and the grid shows the last result set.
      */
     private void runQuery() {
-        String sql = queryEditor.getText().strip();
+        String sql = queryEditor.sqlToRun().strip();
         if (sql.isEmpty() || normalize(sql).equals(normalize(defaultQuery))) {
             customMode = false;
             queryMessage.setText("");
@@ -268,31 +263,52 @@ class TableTab extends Tab {
             loadPage();
             return;
         }
-        List<String> statements = SqlSplitter.split(sql, session.getConfig().getType());
-        if (statements.size() != 1) {
-            queryMessage.setText(statements.isEmpty() ? "Nothing to run." : "Only one statement here; use a script for more.");
-            return;
+        if (runner.run(sql, session.getConfig(), getTabPane().getScene().getWindow(), new GridResults())
+                == ScriptRunner.Outcome.NOTHING_TO_RUN) {
+            queryMessage.setText("Nothing to run.");
         }
-        customMode = true;
-        prev.setDisable(true);
-        next.setDisable(true);
-        pageInfo.setText("Running…");
-        queryMessage.setText("");
-        Async.run(session, () -> session.execute(statements.get(0), QUERY_MAX_ROWS), r -> {
+    }
+
+    /** Shows a run of the query box in the data grid: the last result set, or the error. */
+    private class GridResults implements ScriptRunner.Listener {
+        private int statements;
+
+        @Override
+        public void started(ConnectionConfig config, int statements, Map<String, String> values) {
+            this.statements = statements;
+            customMode = true;
+            prev.setDisable(true);
+            next.setDisable(true);
+            pageInfo.setText("Running…");
+            queryMessage.setText("");
+        }
+
+        @Override
+        public void result(int number, StatementResult r) {
             if (r.data() != null) {
                 dataGrid.show(r.data());
                 dataGrid.setPlaceholder(new Label("No rows"));
                 pageInfo.setText(r.data().rows().size() + " row(s)"
-                        + (r.truncated() ? " (first " + QUERY_MAX_ROWS + ")" : "") + " · " + r.millis() + " ms");
+                        + (r.truncated() ? " (first " + ScriptRunner.MAX_ROWS + ")" : "") + " · " + r.millis() + " ms");
             } else {
-                dataGrid.getItems().clear();
                 pageInfo.setText((r.updateCount() >= 0 ? r.updateCount() + " row(s) affected" : "OK") + " · " + r.millis() + " ms");
             }
-        }, ex -> {
+        }
+
+        @Override
+        public void failed(int number, String sql, Throwable error) {
             dataGrid.getItems().clear();
-            dataGrid.setPlaceholder(errorLabel(ex));
+            dataGrid.setPlaceholder(errorLabel(statements > 1
+                    ? new Exception("Statement " + number + ": " + error.getMessage()) : error));
             pageInfo.setText("Error");
-        });
+        }
+
+        @Override
+        public void finished(String summary) {
+            // one successful statement: the pager line says it all
+            boolean plain = statements == 1 && summary.startsWith("Done");
+            queryMessage.setText(plain ? "" : summary + (statements > 1 ? " The grid shows the last result." : ""));
+        }
     }
 
     private static String normalize(String sql) {

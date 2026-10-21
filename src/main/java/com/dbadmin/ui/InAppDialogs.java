@@ -1,5 +1,6 @@
 package com.dbadmin.ui;
 
+import javafx.animation.FadeTransition;
 import javafx.application.Platform;
 import javafx.event.ActionEvent;
 import javafx.geometry.Pos;
@@ -17,6 +18,7 @@ import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.util.Callback;
+import javafx.util.Duration;
 
 import java.util.Optional;
 import java.util.function.Consumer;
@@ -103,6 +105,13 @@ final class InAppDialogs {
         });
 
         host.getChildren().add(layer);
+        // size and place the card now, so the first frame does not show it unstyled at 0x0 (flicker)
+        host.applyCss();
+        host.layout();
+        layer.setOpacity(0);
+        FadeTransition fade = new FadeTransition(Duration.millis(120), layer);
+        fade.setToValue(1);
+        fade.play();
         if (dialog.getOnShown() != null) {
             dialog.getOnShown().handle(new DialogEvent(dialog, DialogEvent.DIALOG_SHOWN));
         } else {

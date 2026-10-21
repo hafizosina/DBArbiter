@@ -26,7 +26,7 @@ class ParamDialog extends Dialog<Map<String, String>> {
         GridPane grid = new GridPane();
         grid.setHgap(10);
         grid.setVgap(8);
-        grid.setPadding(new Insets(16));
+        grid.setPadding(new Insets(16, 0, 4, 0));
         ColumnConstraints field = new ColumnConstraints();
         field.setHgrow(Priority.ALWAYS);
         field.setMinWidth(260);
@@ -52,10 +52,12 @@ class ParamDialog extends Dialog<Map<String, String>> {
         }
         Label hint = new Label("Values are converted to the column's type by the database. Text needs no quotes.");
         hint.getStyleClass().add("hint-small");
-        hint.setWrapText(true);
-        grid.add(hint, 0, row, 3, 1);
 
-        getDialogPane().setContent(grid);
+        // below the grid and not wrapped: a wrapping label spanning grid columns makes the rows
+        // jump on every layout pass (e.g. each caret blink)
+        javafx.scene.layout.VBox content = new javafx.scene.layout.VBox(4, grid, hint);
+        content.setPadding(new Insets(0, 16, 12, 16));
+        getDialogPane().setContent(content);
         getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
         setResultConverter(b -> {
             if (b != ButtonType.OK) return null;

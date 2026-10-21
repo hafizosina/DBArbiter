@@ -490,7 +490,7 @@ public class MainWindow implements SessionProvider {
                 return;
             }
         }
-        TableTab tab = new TableTab(session, node.table());
+        TableTab tab = new TableTab(session, node.table(), this, completer);
         tabs.getTabs().add(tab);
         tabs.getSelectionModel().select(tab);
     }

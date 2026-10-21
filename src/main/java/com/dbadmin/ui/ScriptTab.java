@@ -1,21 +1,13 @@
 package com.dbadmin.ui;
 
 import com.dbadmin.model.ConnectionConfig;
-import com.dbadmin.model.DbType;
 import com.dbadmin.model.StatementResult;
-import com.dbadmin.service.CompletionContext;
 import com.dbadmin.service.DatabaseSession;
-import com.dbadmin.service.NamedParams;
-import com.dbadmin.service.NamedParams.ParsedSql;
 import com.dbadmin.service.ScriptBindings;
 import com.dbadmin.service.ScriptFolder;
-import com.dbadmin.service.SqlSplitter;
-import javafx.application.Platform;
 import javafx.beans.property.ReadOnlyBooleanProperty;
-import javafx.beans.property.ReadOnlyBooleanWrapper;
 import javafx.collections.ListChangeListener;
 import javafx.collections.ObservableList;
-import javafx.geometry.Bounds;
 import javafx.geometry.Orientation;
 import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
@@ -31,80 +23,51 @@ import javafx.scene.control.TabPane;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.ToolBar;
 import javafx.scene.control.Tooltip;
-import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
-import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.BorderPane;
-import javafx.scene.layout.Priority;
-import javafx.scene.layout.VBox;
 import javafx.stage.Window;
-import org.fxmisc.flowless.VirtualizedScrollPane;
-import org.fxmisc.richtext.CodeArea;
-import org.fxmisc.richtext.LineNumberFactory;
-import org.fxmisc.richtext.model.StyleSpans;
-import org.fxmisc.richtext.model.StyleSpansBuilder;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Duration;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
-import java.util.Collection;
 import java.util.HashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.function.Consumer;
-import java.util.regex.Pattern;
 
 /** A SQL editor bound to a connection, with results and messages below. */
 class ScriptTab extends Tab {
 
-    private static final int MAX_ROWS = 1000;
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm:ss");
-    /** Statements that change the schema, after which cached autocomplete metadata is stale. */
-    private static final Pattern DDL = Pattern.compile("\\b(create|alter|drop|rename|truncate)\\b", Pattern.CASE_INSENSITIVE);
 
-    private final SessionProvider sessions;
-    private final SqlCompleter completer;
     private final ScriptBindings bindings;
     /** Id of the connection this script was saved for; null for a script never saved from here. */
     private String boundId;
     private final Label bindingWarning = new Label();
-    private final CompletionPopup popup = new CompletionPopup();
-    private final FindBar findBar;
-    private int completionRequest;
-    /** Connections that failed to open while typing; only Ctrl+Space retries them. */
-    private final Set<String> autoConnectFailed = new java.util.HashSet<>();
     private final ComboBox<ConnectionConfig> connection = new ComboBox<>();
-    private final CodeArea editor = new CodeArea();
+    /** The same editor and runner as a table's query box; this tab adds saving and results tabs. */
+    private final SqlEditor editor;
+    private final ScriptRunner runner;
     private final TextArea messages = new TextArea();
     private final TabPane results = new TabPane();
     private final Tab messagesTab = new Tab("Messages", messages);
     private final Button runButton = new Button("▶ Run");
     private final Button stopButton = new Button("■ Stop");
-    private final ReadOnlyBooleanWrapper running = new ReadOnlyBooleanWrapper();
-    /** Last values entered for each parameter name (null = SQL NULL), pre-filled next time. */
-    private final Map<String, String> paramValues = new HashMap<>();
 
     private final String untitledName;
     private Path file;
     private boolean dirty;
-    private boolean cancelRequested;
-    private DatabaseSession runningSession;
 
     ScriptTab(String untitledName, Path file, String content,
               ObservableList<ConnectionConfig> connections, ConnectionConfig initial,
               SessionProvider sessions, SqlCompleter completer, ScriptBindings bindings) {
         this.untitledName = untitledName;
         this.file = file;
-        this.sessions = sessions;
-        this.completer = completer;
-        this.findBar = new FindBar(editor, this::rehighlight);
+        this.editor = new SqlEditor(completer, sessions, connection::getValue, this::run);
+        this.runner = new ScriptRunner(sessions, completer);
         this.bindings = bindings;
         this.boundId = file == null ? null : bindings.connectionFor(file);
 
@@ -124,15 +87,14 @@ class ScriptTab extends Tab {
 
         runButton.setTooltip(new Tooltip("Run selection, or the whole script (Ctrl+Enter)"));
         runButton.setOnAction(e -> run());
-        runButton.disableProperty().bind(running.getReadOnlyProperty());
+        runButton.disableProperty().bind(runner.runningProperty());
         stopButton.setOnAction(e -> stop());
-        stopButton.disableProperty().bind(running.getReadOnlyProperty().not());
+        stopButton.disableProperty().bind(runner.runningProperty().not());
         Label mode = new Label();
         connection.valueProperty().addListener((o, a, c) -> {
             showMode(mode, c);
             updateBindingWarning();
-            rehighlight();
-            popup.hide();
+            editor.connectionChanged();
         });
         showMode(mode, initial);
         ToolBar bar = new ToolBar(runButton, stopButton, new Separator(Orientation.VERTICAL),
@@ -141,36 +103,9 @@ class ScriptTab extends Tab {
         bindingWarning.getStyleClass().add("binding-warning");
         updateBindingWarning();
 
-        editor.getStyleClass().add("sql-editor");
-        editor.setParagraphGraphicFactory(LineNumberFactory.get(editor));
-        editor.replaceText(content);
-        rehighlight();
-        editor.getUndoManager().forgetHistory();
-        editor.textProperty().addListener((o, a, b) -> setDirty(true));
-        // re-highlight once typing pauses, not on every keystroke
-        editor.multiPlainChanges()
-                .successionEnds(Duration.ofMillis(150))
-                .subscribe(ignore -> rehighlight());
-        editor.addEventFilter(KeyEvent.KEY_PRESSED, this::completionKeys);
-        editor.plainTextChanges().subscribe(change -> {
-            String inserted = change.getInserted();
-            if (inserted.length() == 1 && change.getRemoved().isEmpty() && isCompletionTrigger(inserted.charAt(0))) {
-                Platform.runLater(() -> requestCompletion(false));
-            } else if (inserted.isEmpty() && popup.isShowing()) {
-                Platform.runLater(() -> requestCompletion(false)); // backspace: refilter
-            } else {
-                popup.hide();
-            }
-        });
-        editor.addEventFilter(MouseEvent.MOUSE_PRESSED, e -> popup.hide());
-        setOnSelectionChanged(e -> popup.hide());
-        // a filter, so the text area never sees Ctrl+Enter and inserts a newline
-        editor.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
-            if (e.getCode() == KeyCode.ENTER && e.isShortcutDown()) {
-                e.consume();
-                run();
-            }
-        });
+        editor.setText(content);
+        editor.area().textProperty().addListener((o, a, b) -> setDirty(true));
+        setOnSelectionChanged(e -> editor.hidePopup());
 
         messages.setEditable(false);
         messages.getStyleClass().add("sql-messages");
@@ -178,21 +113,15 @@ class ScriptTab extends Tab {
         results.getTabs().add(messagesTab);
         results.getStyleClass().add("sub-tabs");
 
-        VirtualizedScrollPane<CodeArea> editorScroll = new VirtualizedScrollPane<>(editor);
-        VBox editorPane = new VBox(findBar, editorScroll);
-        VBox.setVgrow(editorScroll, Priority.ALWAYS);
-        SplitPane split = new SplitPane(editorPane, results);
+        SplitPane split = new SplitPane(editor, results);
         split.setOrientation(Orientation.VERTICAL);
         split.setDividerPositions(0.55);
 
         BorderPane pane = new BorderPane(split);
         pane.setTop(bar);
+        // find/replace also from the results area
         pane.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
-            if (e.isShortcutDown() && !e.isShiftDown() && e.getCode() == KeyCode.F) findBar.open(false);
-            else if (e.isShortcutDown() && !e.isShiftDown() && e.getCode() == KeyCode.R) findBar.open(true);
-            else if (e.getCode() == KeyCode.F3) findBar.move(!e.isShiftDown());
-            else return;
-            e.consume();
+            if (editor.handleFindKeys(e)) e.consume();
         });
         setContent(pane);
 
@@ -235,118 +164,13 @@ class ScriptTab extends Tab {
         return InAppDialogs.showAndWait(alert).orElse(ButtonType.CANCEL) == runAnyway;
     }
 
-    // ---- autocomplete ----------------------------------------------------
-
-    private static boolean isCompletionTrigger(char c) {
-        return c == '.' || c == '_' || Character.isLetterOrDigit(c);
-    }
-
-    private void completionKeys(KeyEvent e) {
-        if (e.getCode() == KeyCode.SPACE && e.isShortcutDown()) {
-            e.consume();
-            requestCompletion(true);
-            return;
-        }
-        if (!popup.isShowing()) return;
-        switch (e.getCode()) {
-            case UP -> popup.move(-1);
-            case DOWN -> popup.move(1);
-            case PAGE_UP -> popup.move(-8);
-            case PAGE_DOWN -> popup.move(8);
-            case ENTER, TAB -> {
-                if (e.isShortcutDown()) return; // Ctrl+Enter still runs the script
-                popup.acceptSelected();
-            }
-            case ESCAPE -> popup.hide();
-            default -> {
-                if (e.getCode().isNavigationKey()) popup.hide();
-                return;
-            }
-        }
-        e.consume();
-    }
-
-    /**
-     * Shows suggestions for the word at the caret. Typing triggers it after two characters or a '.';
-     * Ctrl+Space ("explicit") always shows it. Both open the connection if needed, except that a
-     * connection which failed while typing is only retried by Ctrl+Space.
-     */
-    private void requestCompletion(boolean explicit) {
-        int request = ++completionRequest;
-        ConnectionConfig config = connection.getValue();
-        DbType type = config == null ? null : config.getType();
-        CompletionContext ctx = CompletionContext.analyze(editor.getText(), editor.getCaretPosition(), type);
-        if (ctx == null || !explicit && ctx.qualifier() == null && ctx.prefix().length() < 2) {
-            popup.hide();
-            return;
-        }
-        Consumer<DatabaseSession> complete = session -> completer.complete(ctx, session, items -> {
-            if (request == completionRequest) showCompletions(ctx, type, items, explicit);
-        });
-        if (config == null) {
-            complete.accept(null);
-        } else if (explicit || !autoConnectFailed.contains(config.getId())) {
-            sessions.withSession(config, session -> {
-                autoConnectFailed.remove(config.getId());
-                complete.accept(session);
-            }, ex -> {
-                autoConnectFailed.add(config.getId());
-                complete.accept(null);
-            });
-        } else {
-            complete.accept(sessions.openSession(config).orElse(null));
-        }
-    }
-
-    private void showCompletions(CompletionContext ctx, DbType type, List<SqlCompleter.Suggestion> items, boolean explicit) {
-        boolean alreadyComplete = items.size() == 1 && items.get(0).text().equalsIgnoreCase(ctx.prefix());
-        Bounds caret = editor.getCaretBounds().orElse(null);
-        if (items.isEmpty() || !explicit && alreadyComplete || caret == null || !editor.isFocused()) {
-            popup.hide();
-            return;
-        }
-        popup.show(editor, caret.getMinX(), caret.getMaxY() + 2, items, s -> accept(s, type));
-    }
-
-    private void accept(SqlCompleter.Suggestion s, DbType type) {
-        // re-read the word at the caret: the text may have changed since the list was built
-        int caret = editor.getCaretPosition();
-        CompletionContext now = CompletionContext.analyze(editor.getText(), caret, type);
-        if (now == null) return;
-        editor.replaceText(now.start(), caret, SqlCompleter.insertText(s, now.prefix(), type));
-    }
-
-    private void rehighlight() {
-        ConnectionConfig c = connection.getValue();
-        StyleSpans<Collection<String>> spans = SqlHighlighter.highlight(editor.getText(), c == null ? null : c.getType());
-        List<int[]> found = findBar.matchRanges();
-        if (!found.isEmpty()) {
-            // add "search-match" on top of the syntax colors
-            StyleSpansBuilder<Collection<String>> marks = new StyleSpansBuilder<>();
-            int last = 0;
-            for (int[] m : found) {
-                marks.add(List.of(), m[0] - last);
-                marks.add(List.of("search-match"), m[1] - m[0]);
-                last = m[1];
-            }
-            marks.add(List.of(), editor.getLength() - last);
-            spans = spans.overlay(marks.create(), (syntax, mark) -> {
-                if (mark.isEmpty()) return syntax;
-                List<String> both = new java.util.ArrayList<>(syntax);
-                both.addAll(mark);
-                return both;
-            });
-        }
-        editor.setStyleSpans(0, spans);
-    }
-
     private static void showMode(Label mode, ConnectionConfig c) {
         mode.setText(c == null ? "" : c.isReadOnly() ? "read-only" : "read-write");
         mode.getStyleClass().setAll("label", c != null && !c.isReadOnly() ? "mode-write" : "hint-small");
     }
 
     ReadOnlyBooleanProperty runningProperty() {
-        return running.getReadOnlyProperty();
+        return runner.runningProperty();
     }
 
     /** The file this script was opened from or saved to; null if never saved. */
@@ -359,75 +183,50 @@ class ScriptTab extends Tab {
     }
 
     void focusEditor() {
-        editor.requestFocus();
+        editor.focusEditor();
     }
 
     // ---- running ---------------------------------------------------------
 
     void run() {
-        if (running.get()) return;
         ConnectionConfig config = connection.getValue();
         if (config == null) {
             log("Select a connection first.");
             return;
         }
+        if (runner.runningProperty().get()) return;
         if (boundId != null && !boundId.equals(config.getId()) && !confirmOtherConnection(config)) return;
-        String selected = editor.getSelectedText();
-        String sql = selected.isBlank() ? editor.getText() : selected;
-        List<ParsedSql> statements = SqlSplitter.split(sql, config.getType()).stream()
-                .map(s -> NamedParams.parse(s, config.getType()))
-                .toList();
-        if (statements.isEmpty()) {
+        if (runner.run(editor.sqlToRun(), config, window(), new Results()) == ScriptRunner.Outcome.NOTHING_TO_RUN) {
             log("Nothing to run.");
-            return;
         }
-        Set<String> names = new LinkedHashSet<>();
-        statements.forEach(s -> names.addAll(s.names()));
-        Map<String, String> values = Map.of();
-        if (!names.isEmpty()) {
-            values = InAppDialogs.showAndWait(new ParamDialog(window(), names, paramValues)).orElse(null);
-            if (values == null) return;
-            paramValues.putAll(values);
-        }
-        Map<String, String> bound = values;
-
-        results.getTabs().retainAll(messagesTab);
-        messages.clear();
-        results.getSelectionModel().select(messagesTab);
-        running.set(true);
-        cancelRequested = false;
-        log("Running " + statements.size() + " statement(s) on " + config.getName() + "…");
-        bound.forEach((name, value) -> log("  :" + name + " = " + (value == null ? "NULL" : "'" + value + "'")));
-        sessions.withSession(config, session -> {
-            runningSession = session;
-            runNext(session, statements, bound, 0, System.nanoTime());
-        }, ex -> finish("Could not connect: " + ex.getMessage()));
     }
 
-    private void runNext(DatabaseSession session, List<ParsedSql> statements, Map<String, String> values,
-                         int index, long startNanos) {
-        if (cancelRequested) {
-            finish("Stopped after " + index + " of " + statements.size() + " statement(s).");
-            return;
-        }
-        if (index == statements.size()) {
-            finish("Done: " + statements.size() + " statement(s) in " + (System.nanoTime() - startNanos) / 1_000_000 + " ms.");
-            return;
-        }
-        String sql = statements.get(index).sql();
-        // ArrayList, not toList(): values may be null (SQL NULL)
-        List<String> params = new java.util.ArrayList<>();
-        statements.get(index).names().forEach(name -> params.add(values.get(name)));
-        Async.run(session, () -> session.execute(sql, params, MAX_ROWS), result -> {
-            if (runningSession != session) return;
-            showResult(index + 1, result);
-            runNext(session, statements, values, index + 1, startNanos);
-        }, ex -> {
-            if (runningSession != session) return;
-            log("Statement " + (index + 1) + " failed: " + ex.getMessage() + "\n    " + abbreviate(sql));
+    /** Shows a run as a log in Messages plus one tab per result set. */
+    private class Results implements ScriptRunner.Listener {
+        @Override
+        public void started(ConnectionConfig config, int statements, Map<String, String> values) {
+            results.getTabs().retainAll(messagesTab);
+            messages.clear();
             results.getSelectionModel().select(messagesTab);
-            finish(cancelRequested ? "Stopped." : "Stopped at the first error.");
-        });
+            log("Running " + statements + " statement(s) on " + config.getName() + "…");
+            values.forEach((name, value) -> log("  :" + name + " = " + (value == null ? "NULL" : "'" + value + "'")));
+        }
+
+        @Override
+        public void result(int number, StatementResult r) {
+            showResult(number, r);
+        }
+
+        @Override
+        public void failed(int number, String sql, Throwable error) {
+            log("Statement " + number + " failed: " + error.getMessage() + "\n    " + abbreviate(sql));
+            results.getSelectionModel().select(messagesTab);
+        }
+
+        @Override
+        public void finished(String summary) {
+            log(summary);
+        }
     }
 
     private void showResult(int number, StatementResult r) {
@@ -438,7 +237,7 @@ class ScriptTab extends Tab {
         }
         int rows = r.data().rows().size();
         log("Statement " + number + ": " + rows + " row(s) fetched" +
-                (r.truncated() ? " (limited to " + MAX_ROWS + ")" : "") + " (" + r.millis() + " ms)");
+                (r.truncated() ? " (limited to " + ScriptRunner.MAX_ROWS + ")" : "") + " (" + r.millis() + " ms)");
         DataView view = new DataView();
         view.grid().show(r.data());
         Tab tab = new Tab("Result " + number, view);
@@ -448,31 +247,12 @@ class ScriptTab extends Tab {
     }
 
     void stop() {
-        if (!running.get()) return;
-        cancelRequested = true;
-        DatabaseSession session = runningSession;
-        if (session != null) {
-            // cancel from another thread: the session's own worker is busy running the statement
-            Async.run(() -> {
-                session.cancelRunning();
-                return null;
-            }, x -> { }, x -> { });
-        }
+        runner.stop();
     }
 
     /** Called when a session is closed (disconnect), so a script running on it does not hang. */
     void sessionClosed(DatabaseSession session) {
-        if (running.get() && runningSession == session) {
-            cancelRequested = true;
-            finish("Connection was closed.");
-        }
-    }
-
-    private void finish(String message) {
-        if (DDL.matcher(editor.getText()).find()) completer.invalidate(runningSession);
-        log(message);
-        running.set(false);
-        runningSession = null;
+        runner.sessionClosed(session);
     }
 
     private void log(String line) {
@@ -535,7 +315,7 @@ class ScriptTab extends Tab {
 
     private boolean writeTo(Path path) {
         try {
-            Files.writeString(path, editor.getText(), StandardCharsets.UTF_8);
+            Files.writeString(path, editor.area().getText(), StandardCharsets.UTF_8);
             setDirty(false);
             ConnectionConfig c = connection.getValue();
             if (c != null) {
