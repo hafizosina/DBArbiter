@@ -8,8 +8,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Splits a script into statements on ';', ignoring semicolons inside quotes,
- * comments and PostgreSQL dollar-quoted bodies. Comment-only fragments are dropped.
+ * Splits a script into statements on ';' and on blank lines (as DBeaver does), ignoring both inside
+ * quotes, comments and PostgreSQL dollar-quoted bodies, and blank lines inside parentheses (a
+ * subquery or CTE laid out with blank lines stays whole). Comment-only fragments are dropped.
  */
 public final class SqlSplitter {
 
@@ -32,6 +33,7 @@ public final class SqlSplitter {
         List<Statement> statements = new ArrayList<>();
         int segmentStart = 0;
         boolean hasCode = false;
+        int depth = 0;
         int n = script.length();
         int i = 0;
         while (i < n) {
@@ -53,9 +55,18 @@ public final class SqlSplitter {
                 if (hasCode) statements.add(trimmed(script, segmentStart, i));
                 segmentStart = i + 1;
                 hasCode = false;
+                depth = 0;
+                i++;
+                continue;
+            } else if (c == '\n' && hasCode && depth == 0 && blankLineAfter(script, i)) {
+                statements.add(trimmed(script, segmentStart, i));
+                segmentStart = i + 1;
+                hasCode = false;
                 i++;
                 continue;
             } else {
+                if (c == '(') depth++;
+                else if (c == ')' && depth > 0) depth--;
                 hasCode |= !Character.isWhitespace(c);
                 end = i + 1;
             }
@@ -63,6 +74,13 @@ public final class SqlSplitter {
         }
         if (hasCode) statements.add(trimmed(script, segmentStart, n));
         return statements;
+    }
+
+    /** True if the line after the line break at {@code i} is empty or only whitespace. */
+    private static boolean blankLineAfter(String script, int i) {
+        int j = i + 1;
+        while (j < script.length() && (script.charAt(j) == ' ' || script.charAt(j) == '\t' || script.charAt(j) == '\r')) j++;
+        return j < script.length() && script.charAt(j) == '\n';
     }
 
     private static Statement trimmed(String script, int from, int to) {

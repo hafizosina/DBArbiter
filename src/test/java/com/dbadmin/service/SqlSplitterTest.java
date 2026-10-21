@@ -24,6 +24,31 @@ class SqlSplitterTest {
     }
 
     @Test
+    void aBlankLineEndsAStatement() {
+        assertEquals(List.of("select 1", "select 2"), pg("select 1\n\nselect 2"));
+        assertEquals(List.of("select 1", "select 2"), pg("select 1\r\n \t\r\nselect 2")); // whitespace-only line
+        assertEquals(List.of("select *\nfrom t\nwhere a = 1", "select 2"), pg("select *\nfrom t\nwhere a = 1\n\n\nselect 2"));
+        assertEquals(List.of("select 1 -- note", "select 2"), pg("select 1 -- note\n\nselect 2"));
+        assertEquals(List.of("select 1", "select 2"), pg("select 1\n\n;select 2"));
+    }
+
+    @Test
+    void aBlankLineInsideParenthesesQuotesOrCommentsDoesNotSplit() {
+        String cte = "with x as (\n  select 1\n\n  union all select 2\n)\n\nselect * from x";
+        assertEquals(List.of("with x as (\n  select 1\n\n  union all select 2\n)", "select * from x"), pg(cte));
+        assertEquals(List.of("select 'a\n\nb'"), pg("select 'a\n\nb'"));
+        assertEquals(List.of("select /* a\n\nb */ 1"), pg("select /* a\n\nb */ 1"));
+        assertEquals(List.of("do $$\nbegin\n\nend $$"), pg("do $$\nbegin\n\nend $$"));
+        // a comment above a statement stays with it
+        assertEquals(List.of("-- header\n\nselect 1"), pg("-- header\n\nselect 1"));
+    }
+
+    @Test
+    void unbalancedParenthesesDoNotJoinTheNextStatements() {
+        assertEquals(List.of("select (1", "select 2", "select 3"), pg("select (1;\nselect 2\n\nselect 3"));
+    }
+
+    @Test
     void ignoresSemicolonsInQuotesAndComments() {
         assertEquals(List.of("select ';', \"a;b\"", "select 2"), pg("select ';', \"a;b\"; select 2"));
         assertEquals(List.of("select 'a''b;c'", "select 2"), pg("select 'a''b;c'; select 2"));
@@ -70,6 +95,14 @@ class SqlSplitterTest {
         assertEquals("select 2", SqlSplitter.statementAt(script, 11, DbType.POSTGRESQL).sql());
         assertEquals("select 2", SqlSplitter.statementAt(script, script.length(), DbType.POSTGRESQL).sql());
         assertNull(SqlSplitter.statementAt("-- only a comment", 3, DbType.POSTGRESQL));
+    }
+
+    @Test
+    void statementAtCaretWithoutSemicolons() {
+        String script = "select 1\nfrom a\n\nselect 2\nfrom b";
+        assertEquals("select 1\nfrom a", SqlSplitter.statementAt(script, 12, DbType.POSTGRESQL).sql()); // in "from a"
+        assertEquals("select 1\nfrom a", SqlSplitter.statementAt(script, 16, DbType.POSTGRESQL).sql()); // blank line
+        assertEquals("select 2\nfrom b", SqlSplitter.statementAt(script, script.length(), DbType.POSTGRESQL).sql());
     }
 
     @ParameterizedTest
