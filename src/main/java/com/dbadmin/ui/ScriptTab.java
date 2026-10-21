@@ -232,7 +232,7 @@ class ScriptTab extends Tab {
         alert.setHeaderText("Different connection");
         ((Button) alert.getDialogPane().lookupButton(runAnyway)).setDefaultButton(false);
         ((Button) alert.getDialogPane().lookupButton(ButtonType.CANCEL)).setDefaultButton(true);
-        return alert.showAndWait().orElse(ButtonType.CANCEL) == runAnyway;
+        return InAppDialogs.showAndWait(alert).orElse(ButtonType.CANCEL) == runAnyway;
     }
 
     // ---- autocomplete ----------------------------------------------------
@@ -385,7 +385,7 @@ class ScriptTab extends Tab {
         statements.forEach(s -> names.addAll(s.names()));
         Map<String, String> values = Map.of();
         if (!names.isEmpty()) {
-            values = new ParamDialog(window(), names, paramValues).showAndWait().orElse(null);
+            values = InAppDialogs.showAndWait(new ParamDialog(window(), names, paramValues)).orElse(null);
             if (values == null) return;
             paramValues.putAll(values);
         }
@@ -507,9 +507,9 @@ class ScriptTab extends Tab {
         bindings.all().forEach((path, id) -> {
             if (Files.isRegularFile(path)) counts.merge(id, 1, Integer::sum);
         });
-        SaveScriptDialog.Target target = new SaveScriptDialog(window(), home, start, connection.getItems(), counts,
-                connection.getValue(), file == null ? null : file.getFileName().toString(), this::defaultFileName)
-                .showAndWait().orElse(null);
+        SaveScriptDialog dialog = new SaveScriptDialog(window(), home, start, connection.getItems(), counts,
+                connection.getValue(), file == null ? null : file.getFileName().toString(), this::defaultFileName);
+        SaveScriptDialog.Target target = InAppDialogs.showAndWait(dialog).orElse(null);
         if (target == null) return false;
         // the script now belongs to the connection chosen in the dialog
         if (connection.getValue() != target.connection()) connection.setValue(target.connection());
@@ -552,7 +552,7 @@ class ScriptTab extends Tab {
             Alert alert = new Alert(Alert.AlertType.ERROR, e.getMessage(), ButtonType.OK);
             alert.initOwner(window());
             alert.setHeaderText("Could not save " + path);
-            alert.showAndWait();
+            InAppDialogs.showAndWait(alert);
             return false;
         }
     }
@@ -567,7 +567,7 @@ class ScriptTab extends Tab {
                 "\"" + displayName() + "\" has unsaved changes.", save, discard, ButtonType.CANCEL);
         alert.initOwner(window());
         alert.setHeaderText("Save changes?");
-        ButtonType answer = alert.showAndWait().orElse(ButtonType.CANCEL);
+        ButtonType answer = InAppDialogs.showAndWait(alert).orElse(ButtonType.CANCEL);
         if (answer == save) return save();
         return answer == discard;
     }

@@ -279,7 +279,7 @@ final class SqlCompleter {
         };
     }
 
-    private static String quoteIfNeeded(String name, DbType type) {
+    static String quoteIfNeeded(String name, DbType type) {
         if (type == DbType.MYSQL) {
             return name.matches("[A-Za-z0-9_$]+") ? name : "`" + name.replace("`", "``") + "`";
         }

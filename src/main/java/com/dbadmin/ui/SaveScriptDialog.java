@@ -212,7 +212,7 @@ class SaveScriptDialog extends Dialog<SaveScriptDialog.Target> {
         ask.setTitle("New Folder");
         ask.setHeaderText("Create a folder in " + dir);
         ask.setContentText("Name:");
-        ask.showAndWait().map(String::trim).filter(s -> !s.isEmpty()).ifPresent(name -> {
+        InAppDialogs.showAndWait(ask).map(String::trim).filter(s -> !s.isEmpty()).ifPresent(name -> {
             try {
                 Path created = Files.createDirectories(dir.resolve(name));
                 navigate(created);
@@ -244,7 +244,7 @@ class SaveScriptDialog extends Dialog<SaveScriptDialog.Target> {
                     name + " already exists. Replace it?", ButtonType.YES, ButtonType.NO);
             confirm.initOwner(getDialogPane().getScene().getWindow());
             confirm.setHeaderText(null);
-            if (confirm.showAndWait().orElse(ButtonType.NO) != ButtonType.YES) return null;
+            if (InAppDialogs.showAndWait(confirm).orElse(ButtonType.NO) != ButtonType.YES) return null;
         }
         return file;
     }

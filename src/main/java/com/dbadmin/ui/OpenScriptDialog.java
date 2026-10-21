@@ -91,8 +91,11 @@ class OpenScriptDialog extends Dialog<List<Path>> {
         table.setPlaceholder(new Label("No scripts saved for this connection"));
         table.setOnMouseClicked(e -> {
             if (e.getClickCount() == 2 && table.getSelectionModel().getSelectedItem() != null) {
-                setResult(selectedPaths());
-                close();
+                // fire Open (rather than closing directly) so it also works when shown inside the main window
+                getDialogPane().getButtonTypes().stream()
+                        .filter(t -> t.getButtonData() == ButtonBar.ButtonData.OK_DONE)
+                        .map(t -> (javafx.scene.control.Button) getDialogPane().lookupButton(t))
+                        .findFirst().ifPresent(javafx.scene.control.Button::fire);
             }
         });
 

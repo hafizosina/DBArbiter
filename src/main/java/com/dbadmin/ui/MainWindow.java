@@ -67,6 +67,8 @@ public class MainWindow implements SessionProvider {
     private final TabPane tabs = new TabPane();
     private final Label status = new Label("Ready");
     private final BorderPane root = new BorderPane();
+    /** Holds the window content plus in-window dialogs layered on top (see InAppDialogs). */
+    private final StackPane shell = new StackPane(root);
 
     private final MenuItem editItem = new MenuItem("Edit Connection…");
     private final MenuItem deleteItem = new MenuItem("Delete Connection");
@@ -79,6 +81,7 @@ public class MainWindow implements SessionProvider {
 
     public MainWindow(Stage stage) {
         this.stage = stage;
+        InAppDialogs.install(shell);
         this.connections = FXCollections.observableArrayList(loadConnections());
         connections.sort(BY_NAME);
         stage.setOnCloseRequest(e -> {
@@ -128,7 +131,7 @@ public class MainWindow implements SessionProvider {
     }
 
     public Parent getRoot() {
-        return root;
+        return shell;
     }
 
     public void shutdown() {
@@ -186,13 +189,15 @@ public class MainWindow implements SessionProvider {
         disconnect.setOnAction(e -> selectedConnection().ifPresent(this::disconnect));
         MenuItem refresh = new MenuItem("Refresh (F5)");
         refresh.setOnAction(e -> refreshSelected());
+        MenuItem reconnect = new MenuItem("Reconnect");
+        reconnect.setOnAction(e -> selectedConnection().ifPresent(this::reconnect));
         // scripts for the right-clicked connection (the tree selects the row on right-click)
         MenuItem newScript = new MenuItem("New Script");
         newScript.setOnAction(e -> newScript());
         MenuItem openScript = new MenuItem("Open Script…");
         openScript.setOnAction(e -> openScript());
         SeparatorMenuItem scriptSeparator = new SeparatorMenuItem();
-        ContextMenu menu = new ContextMenu(open, newScript, openScript, scriptSeparator, edit, delete, disconnect,
+        ContextMenu menu = new ContextMenu(open, newScript, openScript, scriptSeparator, edit, delete, disconnect, reconnect,
                 new SeparatorMenuItem(), refresh);
         menu.setOnShowing(e -> {
             NavNode n = selectedNode();
@@ -205,6 +210,7 @@ public class MainWindow implements SessionProvider {
             edit.setVisible(onConnection);
             delete.setVisible(onConnection);
             disconnect.setVisible(n != null && sessions.containsKey(idOf(n)));
+            reconnect.setVisible(n != null && sessions.containsKey(idOf(n)));
             refresh.setDisable(n == null);
         });
         return menu;
@@ -322,7 +328,7 @@ public class MainWindow implements SessionProvider {
                 ButtonType.OK, ButtonType.CANCEL);
         confirm.initOwner(stage);
         confirm.setHeaderText(null);
-        if (confirm.showAndWait().orElse(ButtonType.CANCEL) != ButtonType.OK) return;
+        if (InAppDialogs.showAndWait(confirm).orElse(ButtonType.CANCEL) != ButtonType.OK) return;
         disconnect(c);
         tabs.getTabs().removeIf(t -> t instanceof ConnectionTab ct && c.getId().equals(ct.editedId()));
         connections.remove(c);
@@ -347,6 +353,17 @@ public class MainWindow implements SessionProvider {
         tree.refresh();
         updateMenuItems();
         status.setText("Disconnected from " + c.getName());
+    }
+
+    /** Closes and reopens a connection, then reloads its tree. */
+    private void reconnect(ConnectionConfig c) {
+        disconnect(c);
+        for (TreeItem<NavNode> item : treeRoot.getChildren()) {
+            if (item.getValue().connection() == c) {
+                tree.getSelectionModel().select(item);
+                item.setExpanded(true);
+            }
+        }
     }
 
     // ---- tree loading ----------------------------------------------------
@@ -416,6 +433,8 @@ public class MainWindow implements SessionProvider {
                 return;
             }
             sessions.put(c.getId(), s);
+            s.setOnReconnect(name -> javafx.application.Platform.runLater(
+                    () -> status.setText("Connection to " + name + " was lost; reconnected")));
             status.setText("Connected to " + c.getName() + (c.isReadOnly() ? " (read-only)" : " (read-write)"));
             tree.refresh();
             updateMenuItems();
@@ -487,8 +506,8 @@ public class MainWindow implements SessionProvider {
     }
 
     private void openScript() {
-        List<Path> files = new OpenScriptDialog(stage, connections, scriptBindings.all(), scriptDir(),
-                selectedConnection().orElse(null)).showAndWait().orElse(List.of());
+        List<Path> files = InAppDialogs.showAndWait(new OpenScriptDialog(stage, connections, scriptBindings.all(),
+                scriptDir(), selectedConnection().orElse(null))).orElse(List.of());
         for (Path f : files) {
             // already open: just switch to it
             Optional<Tab> open = tabs.getTabs().stream()
@@ -577,7 +596,7 @@ public class MainWindow implements SessionProvider {
         if (stage.isShowing()) alert.initOwner(stage);
         alert.setHeaderText(header);
         alert.getDialogPane().setMinWidth(480);
-        alert.show();
+        InAppDialogs.show(alert);
     }
 
     /** A tree item that fetches its children from the database the first time it is expanded. */

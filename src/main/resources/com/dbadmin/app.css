@@ -98,3 +98,15 @@
 .table-header-name { -fx-font-size: 15px; -fx-font-weight: bold; }
 .table-header-kind { -fx-font-size: 10px; -fx-text-fill: #546e7a; -fx-padding: 1 5 1 5; -fx-border-color: #b0bec5; -fx-border-radius: 3; }
 .nav-icon.matview, .table-header-icon.matview { -fx-text-fill: #00838f; }
+.quick-query { -fx-border-color: #c8c8c8; }
+
+/* dialogs shown inside the main window */
+.overlay-layer { -fx-background-color: rgba(30, 35, 45, 0.35); }
+.overlay-card {
+    -fx-background-color: -fx-background; -fx-background-radius: 6;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.35), 18, 0, 0, 4);
+}
+.overlay-title {
+    -fx-font-weight: bold; -fx-padding: 8 12 8 12; -fx-background-color: #e4e8ee;
+    -fx-background-radius: 6 6 0 0; -fx-border-color: transparent transparent #cfd5dc transparent;
+}

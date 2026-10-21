@@ -31,6 +31,7 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.function.Consumer;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -42,10 +43,19 @@ public class DatabaseSession implements AutoCloseable {
 
     private static final Set<String> WANTED_TABLE_TYPES = Set.of("TABLE", "VIEW", "MATERIALIZED VIEW");
 
+    /** A connection idle longer than this is checked (and reopened if dead) before it is used. */
+    private static final long IDLE_CHECK_NANOS = 30_000_000_000L;
+
     private final ConnectionConfig config;
-    private final Connection connection;
+    /** Replaced when a dead connection is reopened; only used on the worker thread (and by close). */
+    private volatile Connection connection;
     private final ExecutorService worker;
     private volatile Statement running;
+    private volatile Consumer<String> onReconnect;
+    // worker-thread state
+    private long lastUsedNanos = System.nanoTime();
+    /** Set when the current task sent a user statement, which must not be retried automatically. */
+    private boolean statementSent;
 
     private DatabaseSession(ConnectionConfig config, Connection connection) {
         this.config = config;
@@ -100,9 +110,63 @@ public class DatabaseSession implements AutoCloseable {
         return config;
     }
 
-    /** Runs a task on this session's worker thread. */
+    /** Called (on the worker thread) with the connection name after a dead connection was reopened. */
+    public void setOnReconnect(Consumer<String> listener) {
+        this.onReconnect = listener;
+    }
+
+    /**
+     * Runs a task on this session's worker thread. A dead connection is reopened first, or when the
+     * task fails because the connection died. Then the task is retried once, unless it had sent a
+     * user statement (script, query box): that might already have run, so it is reported instead.
+     * Only if reconnecting fails does the caller see an error.
+     */
     public <T> Future<T> submit(Callable<T> task) {
-        return worker.submit(task);
+        return worker.submit(() -> {
+            statementSent = false;
+            try {
+                if (connection.isClosed() || System.nanoTime() - lastUsedNanos > IDLE_CHECK_NANOS && !isAlive()) {
+                    reopen();
+                }
+                try {
+                    return task.call();
+                } catch (Exception e) {
+                    if (isAlive()) throw e; // an ordinary error, e.g. bad SQL
+                    reopen();
+                    if (statementSent) {
+                        throw new SQLException("The connection was lost and has been re-opened. "
+                                + "The statement may not have run; run it again.", e);
+                    }
+                    return task.call();
+                }
+            } finally {
+                lastUsedNanos = System.nanoTime();
+            }
+        });
+    }
+
+    private boolean isAlive() {
+        try {
+            return !connection.isClosed() && connection.isValid(5);
+        } catch (SQLException e) {
+            return false;
+        }
+    }
+
+    private void reopen() throws SQLException {
+        try {
+            connection.close();
+        } catch (SQLException ignored) {
+            // already broken
+        }
+        try {
+            connection = openConnection(config);
+        } catch (SQLException e) {
+            throw new SQLException("Lost the connection to \"" + config.getName() + "\" and could not reconnect: "
+                    + e.getMessage(), e.getSQLState(), e);
+        }
+        Consumer<String> listener = onReconnect;
+        if (listener != null) listener.accept(config.getName());
     }
 
     // ---- structure -------------------------------------------------------
@@ -480,6 +544,7 @@ public class DatabaseSession implements AutoCloseable {
      */
     public StatementResult execute(String sql, List<String> params, int maxRows) throws SQLException {
         long start = System.nanoTime();
+        statementSent = true;
         try (Statement st = params.isEmpty() ? connection.createStatement() : connection.prepareStatement(sql)) {
             running = st;
             st.setMaxRows(maxRows + 1);
