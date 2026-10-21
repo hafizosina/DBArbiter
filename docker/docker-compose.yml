@@ -1,0 +1,42 @@
+# Local test databases for DBAdmin.
+#   docker compose -f docker/docker-compose.yml up -d
+name: antam
+
+services:
+  antam-uat:
+    image: postgres:16
+    container_name: AntamUAT
+    environment:
+      POSTGRES_DB: antam
+      POSTGRES_USER: antam
+      POSTGRES_PASSWORD: antam_uat
+    ports:
+      - "5433:5432"
+    volumes:
+      - antam-uat-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U antam -d antam"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  antam-prod:
+    image: postgres:16
+    container_name: AntamProd
+    environment:
+      POSTGRES_DB: antam
+      POSTGRES_USER: antam
+      POSTGRES_PASSWORD: antam_prod
+    ports:
+      - "5434:5432"
+    volumes:
+      - antam-prod-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U antam -d antam"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  antam-uat-data:
+  antam-prod-data:
