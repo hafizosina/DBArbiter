@@ -1,5 +1,6 @@
 package com.dbadmin.ui;
 
+import com.dbadmin.model.BlobValue;
 import com.dbadmin.model.StatementResult;
 import com.dbadmin.service.DatabaseSession;
 import com.dbadmin.service.SqlSplitter;
@@ -109,8 +110,41 @@ class DataView extends BorderPane {
                 pairPanel.getItems().clear();
                 inspectorHost.getChildren().setAll(inspector);
             }
-            inspector.show(cell);
+            inspector.show(cell, cell == null ? null : cellEdits());
         }
+    }
+
+    /** Edits of the focused cell through the value panel, or null when it cannot be edited there. */
+    private CellInspector.Edits cellEdits() {
+        DataGrid.EditableCell cell = grid.focusedEditableCell();
+        if (cell == null) return null;
+        List<Object> row = cell.row();
+        int column = cell.column();
+        // binary values are not edited as text; booleans have their checkbox in the grid
+        if (row.get(column) instanceof BlobValue || row.get(column) instanceof Boolean) return null;
+        return new CellInspector.Edits() {
+            @Override
+            public Object value() {
+                return row.get(column);
+            }
+
+            @Override
+            public void set(Object value) {
+                editCell(row, column, value);
+                grid.refresh();
+            }
+
+            @Override
+            public void revert() {
+                revertCell(row, column);
+                grid.refresh();
+            }
+
+            @Override
+            public boolean isEdited() {
+                return isCellEdited(row, column);
+            }
+        };
     }
 
     // ---- editing -----------------------------------------------------------
@@ -151,18 +185,23 @@ class DataView extends BorderPane {
 
             @Override
             public boolean isEdited(List<Object> row, int column) {
-                return originals.containsKey(row) && originals.get(row).containsKey(column);
+                return isCellEdited(row, column);
             }
 
             @Override
             public void revert(List<Object> row, int column) {
-                Map<Integer, Object> cells = originals.get(row);
-                if (cells == null || !cells.containsKey(column)) return;
-                row.set(column, cells.remove(column));
-                if (cells.isEmpty()) originals.remove(row);
-                updateEditBar();
+                revertCell(row, column);
+            }
+
+            @Override
+            public void editMultiLine() {
+                SHOW_VALUE_PANEL.set(true);
+                // after the double-click is done, or the grid takes the focus back
+                Platform.runLater(inspector::focusText);
             }
         });
+        // a cell selected before editing was on becomes editable in the value panel too
+        showCell(grid.selectedCellProperty().get());
         if (target.readOnlyConnection()) {
             editInfo.setText("🔒 Read-only connection: untick \"Read-only\" in Edit Connection to edit these rows.");
         } else if (!keyShown) {
@@ -172,12 +211,13 @@ class DataView extends BorderPane {
     }
 
     boolean hasEdits() {
+        inspector.applyPending(); // text typed in the value panel counts too
         return !originals.isEmpty();
     }
 
     /** Asks before dropping unsaved edits (paging, refresh, closing). True if there are none left. */
     boolean confirmDiscard() {
-        if (originals.isEmpty()) return true;
+        if (!hasEdits()) return true;
         int cells = originals.values().stream().mapToInt(Map::size).sum();
         Alert ask = new Alert(Alert.AlertType.CONFIRMATION,
                 cells + " edited cell(s) in " + originals.size() + " row(s) are not saved. Discard them?",
@@ -203,6 +243,18 @@ class DataView extends BorderPane {
         updateEditBar();
     }
 
+    private boolean isCellEdited(List<Object> row, int column) {
+        return originals.containsKey(row) && originals.get(row).containsKey(column);
+    }
+
+    private void revertCell(List<Object> row, int column) {
+        Map<Integer, Object> cells = originals.get(row);
+        if (cells == null || !cells.containsKey(column)) return;
+        row.set(column, cells.remove(column));
+        if (cells.isEmpty()) originals.remove(row);
+        updateEditBar();
+    }
+
     private void revertAll() {
         originals.forEach((row, cells) -> cells.forEach(row::set));
         originals.clear();
@@ -219,7 +271,7 @@ class DataView extends BorderPane {
         revertEdits.setVisible(!originals.isEmpty());
         if (!editable) return;
         if (originals.isEmpty()) {
-            editInfo.setText("✎ Editable: double-click a cell to change it (right-click: Set NULL / Revert). "
+            editInfo.setText("✎ Editable: double-click a cell or edit it in the value panel (right-click: Set NULL / Revert). "
                     + "Changes are saved only with Save.");
         } else {
             int cells = originals.values().stream().mapToInt(Map::size).sum();
@@ -229,7 +281,7 @@ class DataView extends BorderPane {
 
     /** Shows the UPDATE statements, asks, then applies them in one transaction. */
     private void saveEdits() {
-        if (originals.isEmpty() || editTarget == null) return;
+        if (!hasEdits() || editTarget == null) return;
         TableEditing.Target target = editTarget;
         List<String> names = grid.columnNames();
         List<DatabaseSession.RowUpdate> updates = new ArrayList<>();

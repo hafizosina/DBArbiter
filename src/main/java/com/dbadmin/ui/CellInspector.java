@@ -30,8 +30,26 @@ import java.util.List;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-/** Shows the selected cell's full value, auto-formatted (JSON, XML, hex) and highlighted. */
+/**
+ * Shows the selected cell's full value, auto-formatted (JSON, XML, hex) and highlighted. Given
+ * {@link Edits}, the text can also be edited and applied to the cell (a pending edit, like one made
+ * in the grid).
+ */
 class CellInspector extends VBox {
+
+    /** Changes the cell shown (see {@link #show(CellValue, Edits)}). */
+    interface Edits {
+        /** The cell's value now. */
+        Object value();
+
+        /** Gives the cell a new value: text, or null for NULL. */
+        void set(Object value);
+
+        /** Back to the value the cell had before it was edited. */
+        void revert();
+
+        boolean isEdited();
+    }
 
     private static final String AUTO = "Auto";
     private static final int MAX_HIGHLIGHT = 200_000;
@@ -60,6 +78,15 @@ class CellInspector extends VBox {
     private WebView web;
     private String webContent;
     private CellValue current;
+    private final Button apply = new Button("Apply");
+    private final Button setNull = new Button("Set NULL");
+    private final Button revert = new Button("Revert");
+    private final Label saveHint = new Label();
+    private final HBox editTools;
+    /** Null while the cell shown cannot be edited. */
+    private Edits edits;
+    /** The text as rendered; typing makes it differ (a change not applied yet). */
+    private String shownText = "";
 
     CellInspector() {
         getStyleClass().add("cell-inspector");
@@ -94,17 +121,41 @@ class CellInspector extends VBox {
 
         text.setEditable(false);
         text.getStyleClass().add("inspector-text");
+        text.textProperty().addListener((o, a, b) -> updateEditTools());
+        // like a grid cell editor: leaving the text applies it
+        text.focusedProperty().addListener((o, was, focused) -> {
+            if (!focused) applyPending();
+        });
         source = new VirtualizedScrollPane<>(text);
         body.getChildren().add(source);
         VBox.setVgrow(body, Priority.ALWAYS);
 
+        apply.setTooltip(new Tooltip("Put the edited text into the cell"));
+        apply.setOnAction(e -> applyPending());
+        setNull.setOnAction(e -> change(() -> edits.set(null)));
+        revert.setTooltip(new Tooltip("Back to the cell's original value"));
+        revert.setOnAction(e -> change(() -> edits.revert()));
+        saveHint.getStyleClass().add("hint-small");
+        editTools = new HBox(6, apply, setNull, revert, saveHint);
+        editTools.setAlignment(Pos.CENTER_LEFT);
+
         setSpacing(6);
         setPadding(new Insets(6));
-        getChildren().addAll(title, tools, body, info);
+        getChildren().addAll(title, tools, body, editTools, info);
         show(null);
     }
 
     void show(CellValue cell) {
+        show(cell, null);
+    }
+
+    /**
+     * Shows a cell; with {@code edits} its value can be edited here. Text typed for the cell shown
+     * before and not applied yet is applied to that cell first, as the grid does when a cell loses focus.
+     */
+    void show(CellValue cell, Edits edits) {
+        applyPending();
+        this.edits = cell == null ? null : edits;
         current = cell;
         loadImages.setSelected(false); // a new value never loads images by itself
         column.setText(cell == null ? "No cell selected" : cell.column());
@@ -112,7 +163,58 @@ class CellInspector extends VBox {
         render();
     }
 
+    /** Applies text typed but not applied yet to the cell, e.g. before the edits are saved. */
+    void applyPending() {
+        if (!hasPendingText()) return;
+        String typed = text.getText();
+        // the text area turns every line break into \n: keep the value's own \r\n
+        Object before = edits.value();
+        String edited = before != null && before.toString().contains("\r\n") ? typed.replace("\n", "\r\n") : typed;
+        change(() -> edits.set(edited));
+    }
+
+    /** Puts the caret into the value to edit it; an HTML preview is turned off for that. */
+    void focusText() {
+        if (edits == null) return;
+        if (preview.isVisible()) preview.setSelected(false);
+        text.requestFocus();
+    }
+
+    private boolean hasPendingText() {
+        return edits != null && !text.getText().equals(shownText);
+    }
+
+    /** Changes the cell through {@link #edits}, then shows its new value. */
+    private void change(Runnable action) {
+        action.run();
+        current = new CellValue(current.column(), current.type(), edits.value());
+        render();
+    }
+
+    private void updateEditTools() {
+        boolean editable = edits != null;
+        boolean pending = hasPendingText();
+        editTools.setVisible(editable);
+        editTools.setManaged(editable);
+        // switching format or preview re-renders the value: apply or revert the typing first
+        format.setDisable(pending);
+        preview.setDisable(pending);
+        if (!editable) return;
+        boolean previewing = body.getChildren().get(0) != source;
+        saveHint.setText(previewing ? "Turn off Preview to edit the HTML" : "The database is changed only with Save");
+        apply.setDisable(!pending);
+        setNull.setDisable(!pending && current.value() == null);
+        revert.setDisable(!pending && !edits.isEdited());
+    }
+
     private void render() {
+        renderValue();
+        shownText = text.getText();
+        text.setEditable(edits != null);
+        updateEditTools();
+    }
+
+    private void renderValue() {
         preview.setVisible(false);
         preview.setManaged(false);
         loadImages.setVisible(false);
@@ -130,10 +232,13 @@ class CellInspector extends VBox {
             return;
         }
         Format chosen = format.getValue() instanceof Format f ? f : ValueFormatter.detect(value, current.type());
+        // an editable value is shown as stored (only highlighted): an edit of a reformatted text would
+        // save the reformatting too. A format picked by hand still reformats.
+        boolean asStored = edits != null && !(format.getValue() instanceof Format);
         String formatted;
         String problem = null;
         try {
-            formatted = ValueFormatter.format(value, chosen);
+            formatted = asStored ? value.toString() : ValueFormatter.format(value, chosen);
         } catch (Exception e) {
             // the chosen format does not fit: show the raw text and say why
             problem = "Not valid " + chosen + ": " + e.getMessage();
@@ -141,7 +246,8 @@ class CellInspector extends VBox {
             formatted = value.toString();
         }
         setText(formatted, chosen);
-        info.setText(problem != null ? problem : describe(value, chosen, formatted));
+        info.setText(problem != null ? problem : describe(value, chosen, formatted)
+                + (asStored && chosen != Format.TEXT ? " · as stored (pick " + chosen + " to reformat)" : ""));
         if (chosen == Format.HTML) {
             preview.setVisible(true);
             preview.setManaged(true);

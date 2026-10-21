@@ -320,7 +320,7 @@ public class DatabaseSession implements AutoCloseable {
     /**
      * Applies row updates in one transaction. Each must change exactly one row (found by its primary
      * key); otherwise everything is rolled back and an exception says which row. New values are sent
-     * as text (the database converts them); key values with their original types.
+     * as text (the database converts them), booleans as booleans; key values with their original types.
      */
     public int applyUpdates(TableRef t, List<RowUpdate> updates) throws SQLException {
         String q = connection.getMetaData().getIdentifierQuoteString().trim();
@@ -340,6 +340,7 @@ public class DatabaseSession implements AutoCloseable {
                     int i = 1;
                     for (Object v : u.values().values()) {
                         if (v == null) ps.setNull(i++, java.sql.Types.VARCHAR);
+                        else if (v instanceof Boolean b) ps.setBoolean(i++, b); // e.g. MySQL reads 'true' as 0
                         else ps.setString(i++, v.toString());
                     }
                     for (Object k : u.key().values()) ps.setObject(i++, k);

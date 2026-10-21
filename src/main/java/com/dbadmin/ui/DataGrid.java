@@ -12,6 +12,7 @@ import javafx.scene.control.TablePosition;
 import javafx.scene.control.TextField;
 import javafx.scene.control.Label;
 import javafx.scene.control.SelectionMode;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.TableCell;
 import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
@@ -42,6 +43,9 @@ class DataGrid extends TableView<List<Object>> {
         boolean isEdited(List<Object> row, int column);
 
         void revert(List<Object> row, int column);
+
+        /** The focused cell holds several lines, which a one-line cell editor would lose: edit it elsewhere. */
+        void editMultiLine();
     }
 
     private final ReadOnlyObjectWrapper<CellValue> selectedCell = new ReadOnlyObjectWrapper<>();
@@ -54,16 +58,35 @@ class DataGrid extends TableView<List<Object>> {
         setFixedCellSize(ROW_HEIGHT);
         getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
         getSelectionModel().setCellSelectionEnabled(true);
-        getFocusModel().focusedCellProperty().addListener((o, a, pos) -> {
-            if (data == null || pos == null || pos.getRow() < 0 || pos.getTableColumn() == null
-                    || pos.getRow() >= getItems().size()) {
-                selectedCell.set(null);
-                return;
-            }
-            // the column's original index survives the user reordering columns
-            int c = (Integer) pos.getTableColumn().getUserData();
-            selectedCell.set(new CellValue(data.columns().get(c), data.type(c), getItems().get(pos.getRow()).get(c)));
-        });
+        getFocusModel().focusedCellProperty().addListener((o, a, pos) -> publishFocusedCell());
+    }
+
+    /** Publishes the focused cell, also again after its value was edited. */
+    private void publishFocusedCell() {
+        TablePosition<List<Object>, ?> pos = getFocusModel().getFocusedCell();
+        if (data == null || pos == null || pos.getRow() < 0 || pos.getTableColumn() == null
+                || pos.getRow() >= getItems().size()) {
+            selectedCell.set(null);
+            return;
+        }
+        // the column's original index survives the user reordering columns
+        int c = (Integer) pos.getTableColumn().getUserData();
+        selectedCell.set(new CellValue(data.columns().get(c), data.type(c), getItems().get(pos.getRow()).get(c)));
+    }
+
+    /** A cell that can be edited now: its row and original column index. */
+    record EditableCell(List<Object> row, int column) {
+    }
+
+    /** The focused cell if it is in an editable column, else null. */
+    EditableCell focusedEditableCell() {
+        TablePosition<List<Object>, ?> pos = getFocusModel().getFocusedCell();
+        if (editor == null || pos == null || pos.getTableColumn() == null || pos.getRow() < 0
+                || pos.getRow() >= getItems().size()) {
+            return null;
+        }
+        int c = (Integer) pos.getTableColumn().getUserData();
+        return editableColumns.contains(c) ? new EditableCell(getItems().get(pos.getRow()), c) : null;
     }
 
     ReadOnlyObjectProperty<CellValue> selectedCellProperty() {
@@ -105,12 +128,11 @@ class DataGrid extends TableView<List<Object>> {
     }
 
     private void forFocusedEditableCell(java.util.function.BiConsumer<List<Object>, Integer> action) {
-        TablePosition<List<Object>, ?> pos = getFocusModel().getFocusedCell();
-        if (pos == null || pos.getTableColumn() == null || pos.getRow() < 0 || pos.getRow() >= getItems().size()) return;
-        int c = (Integer) pos.getTableColumn().getUserData();
-        if (!editableColumns.contains(c)) return;
-        action.accept(getItems().get(pos.getRow()), c);
+        EditableCell cell = focusedEditableCell();
+        if (cell == null) return;
+        action.accept(cell.row(), cell.column());
         refresh();
+        publishFocusedCell();
     }
 
     void show(TableData data) {
@@ -132,6 +154,7 @@ class DataGrid extends TableView<List<Object>> {
             col.setOnEditCommit(e -> {
                 if (editor != null) editor.edited(e.getRowValue(), index, e.getNewValue());
                 refresh();
+                publishFocusedCell(); // the value panel shows the new value
             });
             col.setPrefWidth(preferredWidth(data, i));
             getColumns().add(col);
@@ -183,10 +206,29 @@ class DataGrid extends TableView<List<Object>> {
 
     private class ValueCell extends TableCell<List<Object>, Object> {
         private TextField field;
+        /** Shows a boolean; on an editable column a click toggles it (as a pending edit). */
+        private final CheckBox check = new CheckBox();
+
+        ValueCell() {
+            check.setFocusTraversable(false);
+            check.setOnAction(e -> {
+                List<Object> row = getTableRow() == null ? null : getTableRow().getItem();
+                if (row == null || editor == null) return;
+                editor.edited(row, (Integer) getTableColumn().getUserData(), check.isSelected());
+                getTableView().refresh();
+                publishFocusedCell();
+            });
+        }
 
         @Override
         public void startEdit() {
-            if (getItem() instanceof BlobValue) return; // binary values are not edited as text
+            // binary values are not edited as text; booleans are toggled with their checkbox
+            if (getItem() instanceof BlobValue || getItem() instanceof Boolean) return;
+            // a TextField drops line breaks, so committing it would join the lines (e.g. of HTML)
+            if (getItem() != null && getItem().toString().matches("(?s).*[\r\n].*")) {
+                if (editor != null && isEditable() && getTableColumn().isEditable()) editor.editMultiLine();
+                return;
+            }
             super.startEdit();
             if (!isEditing()) return;
             Object value = getItem();
@@ -237,8 +279,14 @@ class DataGrid extends TableView<List<Object>> {
                     && editor.isEdited(getTableRow().getItem(), (Integer) getTableColumn().getUserData())) {
                 getStyleClass().add("cell-edited");
             }
+            setGraphic(null);
             if (empty) {
                 setText(null);
+            } else if (value instanceof Boolean b) {
+                setText(null);
+                check.setSelected(b);
+                check.setMouseTransparent(!(editor != null && getTableView().isEditable() && getTableColumn().isEditable()));
+                setGraphic(check);
             } else if (value instanceof StatusValue sv) {
                 String color = Themes.statusColor(sv.status());
                 setText(sv.label());
