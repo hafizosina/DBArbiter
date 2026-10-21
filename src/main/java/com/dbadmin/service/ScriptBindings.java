@@ -25,8 +25,10 @@ public class ScriptBindings {
         if (Files.exists(file)) {
             try {
                 connectionByScript.putAll(mapper.readValue(file.toFile(), new TypeReference<Map<String, String>>() {}));
-            } catch (IOException ignored) {
+            } catch (IOException e) {
                 // unreadable index: scripts open without a connection, which is the safe default
+                AppLog.get(ScriptBindings.class).warning("Cannot read " + file + ", scripts open without a connection: "
+                        + e.getMessage());
             }
         }
     }

@@ -26,14 +26,9 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
-import java.util.IdentityHashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Set;
-import java.util.TreeMap;
 
 /** A data grid with the value panel beside it. The panel's visibility is shared by all views. */
 class DataView extends BorderPane {
@@ -77,7 +72,7 @@ class DataView extends BorderPane {
         // anything else showing data in the grid (e.g. a table page) ends the chunked result
         grid.itemsProperty().addListener((o, a, b) -> {
             // new rows: edits of the old ones are gone (callers ask first, see confirmDiscard)
-            originals.clear();
+            edits.clear();
             editTarget = null;
             notEditable = false;
             editInfo.setText("");
@@ -153,8 +148,7 @@ class DataView extends BorderPane {
     private TableEditing.Target editTarget;
     /** Set while editInfo says why the rows shown cannot be edited. */
     private boolean notEditable;
-    /** Edited rows -> original values of their edited columns (by column index). */
-    private final IdentityHashMap<List<Object>, Map<Integer, Object>> originals = new IdentityHashMap<>();
+    private final PendingEdits edits = new PendingEdits();
     private final Label editInfo = new Label();
     private final Button saveEdits = new Button("Save…");
     private final Button revertEdits = new Button("Revert all");
@@ -169,7 +163,7 @@ class DataView extends BorderPane {
         editTarget = target;
         notEditable = false;
         this.onSaved = onSaved;
-        originals.clear();
+        edits.clear();
         Set<Integer> columns = new HashSet<>();
         List<String> names = grid.columnNames();
         Set<String> pk = new HashSet<>();
@@ -223,15 +217,14 @@ class DataView extends BorderPane {
 
     boolean hasEdits() {
         inspector.applyPending(); // text typed in the value panel counts too
-        return !originals.isEmpty();
+        return !edits.isEmpty();
     }
 
     /** Asks before dropping unsaved edits (paging, refresh, closing). True if there are none left. */
     boolean confirmDiscard() {
         if (!hasEdits()) return true;
-        int cells = originals.values().stream().mapToInt(Map::size).sum();
         Alert ask = new Alert(Alert.AlertType.CONFIRMATION,
-                cells + " edited cell(s) in " + originals.size() + " row(s) are not saved. Discard them?",
+                edits.cellCount() + " edited cell(s) in " + edits.rowCount() + " row(s) are not saved. Discard them?",
                 ButtonType.YES, ButtonType.NO);
         ask.setHeaderText("Unsaved changes");
         if (InAppDialogs.showAndWait(ask).orElse(ButtonType.NO) != ButtonType.YES) return false;
@@ -240,35 +233,21 @@ class DataView extends BorderPane {
     }
 
     private void editCell(List<Object> row, int column, Object value) {
-        Map<Integer, Object> cells = originals.computeIfAbsent(row, r -> new HashMap<>());
-        Object original = cells.containsKey(column) ? cells.get(column) : row.get(column);
-        boolean same = original == null ? value == null : value != null && original.toString().equals(value.toString());
-        if (same) {
-            cells.remove(column);
-            row.set(column, original);
-        } else {
-            cells.putIfAbsent(column, original);
-            row.set(column, value);
-        }
-        if (cells.isEmpty()) originals.remove(row);
+        edits.set(row, column, value);
         updateEditBar();
     }
 
     private boolean isCellEdited(List<Object> row, int column) {
-        return originals.containsKey(row) && originals.get(row).containsKey(column);
+        return edits.isEdited(row, column);
     }
 
     private void revertCell(List<Object> row, int column) {
-        Map<Integer, Object> cells = originals.get(row);
-        if (cells == null || !cells.containsKey(column)) return;
-        row.set(column, cells.remove(column));
-        if (cells.isEmpty()) originals.remove(row);
+        edits.revert(row, column);
         updateEditBar();
     }
 
     private void revertAll() {
-        originals.forEach((row, cells) -> cells.forEach(row::set));
-        originals.clear();
+        edits.revertAll();
         grid.refresh();
         updateEditBar();
     }
@@ -278,15 +257,14 @@ class DataView extends BorderPane {
         boolean show = editable || (editTarget != null || notEditable) && !editInfo.getText().isEmpty();
         editBar.setVisible(show);
         editBar.setManaged(show);
-        saveEdits.setVisible(!originals.isEmpty());
-        revertEdits.setVisible(!originals.isEmpty());
+        saveEdits.setVisible(!edits.isEmpty());
+        revertEdits.setVisible(!edits.isEmpty());
         if (!editable) return;
-        if (originals.isEmpty()) {
+        if (edits.isEmpty()) {
             editInfo.setText("✎ Editable: double-click a cell or edit it in the value panel (right-click: Set NULL / Revert). "
                     + "Changes are saved only with Save.");
         } else {
-            int cells = originals.values().stream().mapToInt(Map::size).sum();
-            editInfo.setText(cells + " change(s) in " + originals.size() + " row(s), not saved yet");
+            editInfo.setText(edits.cellCount() + " change(s) in " + edits.rowCount() + " row(s), not saved yet");
         }
     }
 
@@ -294,18 +272,7 @@ class DataView extends BorderPane {
     private void saveEdits() {
         if (!hasEdits() || editTarget == null) return;
         TableEditing.Target target = editTarget;
-        List<String> names = grid.columnNames();
-        List<DatabaseSession.RowUpdate> updates = new ArrayList<>();
-        for (Map.Entry<List<Object>, Map<Integer, Object>> e : originals.entrySet()) {
-            Map<String, Object> key = new LinkedHashMap<>();
-            for (String k : target.primaryKey()) {
-                int i = indexOf(names, k);
-                key.put(k, e.getKey().get(i));
-            }
-            Map<String, Object> values = new LinkedHashMap<>();
-            new TreeMap<>(e.getValue()).keySet().forEach(c -> values.put(names.get(c), e.getKey().get(c)));
-            updates.add(new DatabaseSession.RowUpdate(key, values));
-        }
+        List<DatabaseSession.RowUpdate> updates = edits.updates(grid.columnNames(), target.primaryKey());
         DatabaseSession session = target.session();
         Async.run(session, () -> {
             List<String> sql = new ArrayList<>();
@@ -330,7 +297,7 @@ class DataView extends BorderPane {
             editInfo.setText("Saving…");
             Async.run(session, () -> session.applyUpdates(target.table(), updates), n -> {
                 saveEdits.setDisable(false);
-                originals.clear();
+                edits.clear();
                 grid.refresh();
                 updateEditBar();
                 editInfo.setText("✔ Saved " + n + " row(s).");
@@ -344,13 +311,6 @@ class DataView extends BorderPane {
                 InAppDialogs.show(error);
             });
         }, ex -> editInfo.setText("Could not prepare the changes: " + ex.getMessage()));
-    }
-
-    private static int indexOf(List<String> names, String column) {
-        for (int i = 0; i < names.size(); i++) {
-            if (names.get(i).equalsIgnoreCase(column)) return i;
-        }
-        return -1;
     }
 
     // ---- results fetched chunk by chunk -----------------------------------

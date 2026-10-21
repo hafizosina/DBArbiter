@@ -23,6 +23,7 @@ public class SettingsStore {
         try {
             return mapper.readValue(file.toFile(), AppSettings.class);
         } catch (IOException e) {
+            AppLog.get(SettingsStore.class).warning("Cannot read " + file + ", using default settings: " + e.getMessage());
             return new AppSettings();
         }
     }

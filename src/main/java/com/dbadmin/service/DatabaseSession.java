@@ -32,6 +32,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.function.Consumer;
+import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -41,6 +42,7 @@ import java.util.regex.Pattern;
  */
 public class DatabaseSession implements AutoCloseable {
 
+    private static final Logger LOG = AppLog.get(DatabaseSession.class);
     private static final Set<String> WANTED_TABLE_TYPES = Set.of("TABLE", "VIEW", "MATERIALIZED VIEW");
 
     /** A connection idle longer than this is checked (and reopened if dead) before it is used. */
@@ -68,7 +70,9 @@ public class DatabaseSession implements AutoCloseable {
     }
 
     public static DatabaseSession open(ConnectionConfig config) throws SQLException {
-        return new DatabaseSession(config, openConnection(config));
+        DatabaseSession session = new DatabaseSession(config, openConnection(config));
+        LOG.info("Connected to \"" + config.getName() + "\" (" + config.getType() + (config.isReadOnly() ? ", read-only)" : ", read-write)"));
+        return session;
     }
 
     /** Opens and closes a connection, throwing if anything is wrong. */
@@ -154,6 +158,7 @@ public class DatabaseSession implements AutoCloseable {
     }
 
     private void reopen() throws SQLException {
+        LOG.warning("Connection to \"" + config.getName() + "\" was lost; reopening it");
         try {
             connection.close();
         } catch (SQLException ignored) {
@@ -789,6 +794,7 @@ public class DatabaseSession implements AutoCloseable {
 
     @Override
     public void close() {
+        LOG.info("Disconnected from \"" + config.getName() + "\"");
         worker.shutdownNow();
         try {
             connection.close();

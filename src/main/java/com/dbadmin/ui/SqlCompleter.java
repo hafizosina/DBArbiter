@@ -4,6 +4,7 @@ import com.dbadmin.model.ColumnInfo;
 import com.dbadmin.model.DbType;
 import com.dbadmin.model.Namespace;
 import com.dbadmin.model.TableRef;
+import com.dbadmin.service.AppLog;
 import com.dbadmin.service.CompletionContext;
 import com.dbadmin.service.CompletionContext.TableMention;
 import com.dbadmin.service.DatabaseSession;
@@ -18,6 +19,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.function.Consumer;
+import java.util.logging.Logger;
 
 /**
  * Builds autocomplete suggestions from SQL keywords and database metadata. Metadata is
@@ -39,6 +41,7 @@ final class SqlCompleter {
             "ifnull", "date_format", "strftime", "datetime"
     };
     private static final int MAX_SUGGESTIONS = 200;
+    private static final Logger LOG = AppLog.get(SqlCompleter.class);
 
     private final Map<DatabaseSession, Cache> caches = new WeakHashMap<>();
     private Consumer<DatabaseSession> onInvalidate;
@@ -108,6 +111,7 @@ final class SqlCompleter {
                     loadedNamespaces = session.listNamespaces();
                     loadedDefault = session.defaultNamespace();
                 } catch (Exception e) {
+                    LOG.info("Autocomplete could not load the schemas: " + e.getMessage());
                     loadedNamespaces = List.of();
                 }
             }
@@ -115,6 +119,7 @@ final class SqlCompleter {
                 try {
                     loadedTables.put(key(ns.label()), session.listTables(ns));
                 } catch (Exception e) {
+                    LOG.info("Autocomplete could not load the tables of " + ns.label() + ": " + e.getMessage());
                     loadedTables.put(key(ns.label()), List.of());
                 }
             }
@@ -122,6 +127,7 @@ final class SqlCompleter {
                 try {
                     loadedColumns.put(t, session.columnInfo(t));
                 } catch (Exception e) {
+                    LOG.info("Autocomplete could not load the columns of " + t.displayName() + ": " + e.getMessage());
                     loadedColumns.put(t, List.of());
                 }
             }

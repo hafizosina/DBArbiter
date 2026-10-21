@@ -1,5 +1,6 @@
 package com.dbadmin;
 
+import com.dbadmin.service.AppLog;
 import com.dbadmin.ui.MainWindow;
 import javafx.application.Application;
 import javafx.scene.Scene;
@@ -16,6 +17,8 @@ public class DbAdminApp extends Application {
 
     @Override
     public void start(Stage stage) {
+        AppLog.init();
+        AppLog.get(DbAdminApp.class).info("DBAdmin started (Java " + Runtime.version() + ")");
         mainWindow = new MainWindow(stage);
         Scene scene = new Scene(mainWindow.getRoot(), 1200, 760);
         MainWindow.applyTheme(scene);
