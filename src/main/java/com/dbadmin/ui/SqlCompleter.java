@@ -10,10 +10,12 @@ import com.dbadmin.service.DatabaseSession;
 
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.WeakHashMap;
 import java.util.function.Consumer;
 
@@ -39,10 +41,18 @@ final class SqlCompleter {
     private static final int MAX_SUGGESTIONS = 200;
 
     private final Map<DatabaseSession, Cache> caches = new WeakHashMap<>();
+    private Consumer<DatabaseSession> onInvalidate;
 
     /** Forgets cached metadata, e.g. after DDL or a refresh. */
     void invalidate(DatabaseSession session) {
-        if (session != null) caches.remove(session);
+        if (session == null) return;
+        caches.remove(session);
+        if (onInvalidate != null) onInvalidate.accept(session);
+    }
+
+    /** Also told when metadata is invalidated (e.g. so the table search reloads too). */
+    void setOnInvalidate(Consumer<DatabaseSession> listener) {
+        this.onInvalidate = listener;
     }
 
     /**
@@ -277,6 +287,38 @@ final class SqlCompleter {
                     : s.kind() == Kind.FUNCTION ? s.text() : s.text().toUpperCase(Locale.ROOT);
             default -> quoteIfNeeded(s.text(), type);
         };
+    }
+
+    /**
+     * DBeaver-style table alias: the first letter of each word, "m_product_variant" -> "mpv",
+     * "TransactionOrder" -> "to". Never an alias already in use or a SQL keyword: then a number is added.
+     */
+    static String aliasFor(String table, Set<String> taken) {
+        StringBuilder sb = new StringBuilder();
+        boolean wordStart = true;
+        for (int i = 0; i < table.length(); i++) {
+            char c = table.charAt(i);
+            if (!Character.isLetterOrDigit(c)) {
+                wordStart = true;
+            } else {
+                boolean camelStart = i > 0 && Character.isUpperCase(c) && Character.isLowerCase(table.charAt(i - 1));
+                if (wordStart || camelStart) sb.append(Character.toLowerCase(c));
+                wordStart = false;
+            }
+        }
+        String base = sb.length() == 0 || !Character.isLetter(sb.charAt(0)) ? "t" + sb : sb.toString();
+        Set<String> used = new HashSet<>();
+        taken.forEach(a -> used.add(a.toLowerCase(Locale.ROOT)));
+        String alias = base;
+        for (int n = 2; used.contains(alias) || RESERVED.contains(alias); n++) alias = base + n;
+        return alias;
+    }
+
+    private static final Set<String> RESERVED = new HashSet<>();
+
+    static {
+        for (String k : SqlHighlighter.KEYWORDS) RESERVED.add(k);
+        for (String t : SqlHighlighter.TYPES) RESERVED.add(t);
     }
 
     static String quoteIfNeeded(String name, DbType type) {

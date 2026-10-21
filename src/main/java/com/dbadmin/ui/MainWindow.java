@@ -55,6 +55,7 @@ public class MainWindow implements SessionProvider {
     /** Callbacks waiting for a connection that is being opened, keyed by connection id. */
     private final Map<String, List<Waiter>> connecting = new HashMap<>();
     private final SqlCompleter completer = new SqlCompleter();
+    private TableSearch navigator;
     private final ScriptBindings scriptBindings = new ScriptBindings();
 
     /** Display order; names are only labels, the id is what identifies a connection. */
@@ -110,9 +111,11 @@ public class MainWindow implements SessionProvider {
         tabs.visibleProperty().bind(javafx.beans.binding.Bindings.isNotEmpty(tabs.getTabs()));
         tabs.getSelectionModel().selectedItemProperty().addListener((o, a, b) -> updateScriptItems());
 
-        SplitPane split = new SplitPane(tree, center);
+        navigator = new TableSearch(tree, () -> List.copyOf(sessions.values()), this::openTable);
+        completer.setOnInvalidate(navigator::invalidate); // DDL and refresh also reload the search
+        SplitPane split = new SplitPane(navigator, center);
         split.setDividerPositions(0.25);
-        SplitPane.setResizableWithParent(tree, false);
+        SplitPane.setResizableWithParent(navigator, false);
 
         status.setPadding(new Insets(3, 8, 3, 8));
         root.setTop(buildMenuBar());
@@ -340,6 +343,7 @@ public class MainWindow implements SessionProvider {
         DatabaseSession s = sessions.remove(c.getId());
         if (s == null) return;
         tabs.getTabs().removeIf(t -> t instanceof TableTab tt && tt.key().startsWith(c.getId() + "|"));
+        completer.invalidate(s); // also drops it from the table search
         s.close();
         for (Tab t : tabs.getTabs()) {
             if (t instanceof ScriptTab st) st.sessionClosed(s);
@@ -382,7 +386,9 @@ public class MainWindow implements SessionProvider {
         }
 
         switch (node.kind()) {
-            case CONNECTION -> Async.run(session, session::listNamespaces, namespaces -> {
+            case CONNECTION -> Async.run(session, session::listNamespaces, all -> {
+                // system schemas stay usable in scripts and autocomplete, just not listed here
+                List<Namespace> namespaces = all.stream().filter(ns -> !ns.isSystem(c.getType())).toList();
                 item.getChildren().setAll(namespaces.stream()
                         .map(ns -> (TreeItem<NavNode>) new LazyItem(NavNode.namespace(c, ns)))
                         .toList());
@@ -436,6 +442,7 @@ public class MainWindow implements SessionProvider {
             s.setOnReconnect(name -> javafx.application.Platform.runLater(
                     () -> status.setText("Connection to " + name + " was lost; reconnected")));
             status.setText("Connected to " + c.getName() + (c.isReadOnly() ? " (read-only)" : " (read-write)"));
+            navigator.refresh(); // a search in progress now includes this connection
             tree.refresh();
             updateMenuItems();
             ready.forEach(w -> w.onReady().accept(s));
@@ -482,15 +489,19 @@ public class MainWindow implements SessionProvider {
         NavNode node = selectedNode();
         if (node == null || node.kind() != NavNode.Kind.TABLE) return;
         DatabaseSession session = sessions.get(node.connection().getId());
-        if (session == null) return;
-        String key = TableTab.key(session, node.table());
+        if (session != null) openTable(session, node.table());
+    }
+
+    /** Opens a table's tab, or switches to it if already open. */
+    private void openTable(DatabaseSession session, TableRef table) {
+        String key = TableTab.key(session, table);
         for (Tab t : tabs.getTabs()) {
             if (t instanceof TableTab tt && tt.key().equals(key)) {
                 tabs.getSelectionModel().select(t);
                 return;
             }
         }
-        TableTab tab = new TableTab(session, node.table(), this, completer);
+        TableTab tab = new TableTab(session, table, this, completer);
         tabs.getTabs().add(tab);
         tabs.getSelectionModel().select(tab);
     }
@@ -544,7 +555,7 @@ public class MainWindow implements SessionProvider {
         tab.runningProperty().addListener((o, a, b) -> updateScriptItems());
         tabs.getTabs().add(tab);
         tabs.getSelectionModel().select(tab);
-        tab.focusEditor();
+        tab.focusEditor(); // waits until the tab's editor is on screen (else focus stays e.g. in the search box)
     }
 
     /** The connection selected in the tree, or the only/first one. */

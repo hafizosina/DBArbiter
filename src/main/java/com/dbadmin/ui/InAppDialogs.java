@@ -66,6 +66,9 @@ final class InAppDialogs {
 
     private static <R> void open(Dialog<R> dialog, Consumer<Optional<R>> done) {
         DialogPane pane = dialog.getDialogPane();
+        // Detach the pane from the dialog while it is shown here: a DialogPane sizes itself against its
+        // dialog's own (never shown) window. Re-attached when the card closes.
+        dialog.setDialogPane(new DialogPane());
         Label title = new Label(dialog.getTitle());
         title.getStyleClass().add("overlay-title");
         title.setMaxWidth(Double.MAX_VALUE);
@@ -84,7 +87,11 @@ final class InAppDialogs {
             if (finished[0]) return;
             finished[0] = true;
             host.getChildren().remove(layer);
-            card.getChildren().remove(pane); // the pane can be shown again later
+            card.getChildren().remove(pane);
+            pane.setMinSize(Region.USE_COMPUTED_SIZE, Region.USE_COMPUTED_SIZE);
+            pane.setPrefSize(Region.USE_COMPUTED_SIZE, Region.USE_COMPUTED_SIZE);
+            pane.setMaxSize(Region.USE_COMPUTED_SIZE, Region.USE_COMPUTED_SIZE);
+            dialog.setDialogPane(pane); // the dialog is whole again, e.g. to be shown later
             if (focusBefore != null) focusBefore.requestFocus();
             done.accept(Optional.ofNullable(button == null ? null : convert(dialog, button)));
         };
@@ -107,6 +114,14 @@ final class InAppDialogs {
         host.getChildren().add(layer);
         // size and place the card now, so the first frame does not show it unstyled at 0x0 (flicker)
         host.applyCss();
+        // Lock the pane to its preferred size: outside its own window, DialogPane.layoutChildren keeps
+        // resizing itself towards its minimum height while the card stretches it back, every frame
+        // (the "flicker" with squashed content).
+        double width = pane.prefWidth(-1);
+        double height = pane.prefHeight(width);
+        pane.setMinSize(width, height);
+        pane.setPrefSize(width, height);
+        pane.setMaxSize(width, height);
         host.layout();
         layer.setOpacity(0);
         FadeTransition fade = new FadeTransition(Duration.millis(120), layer);

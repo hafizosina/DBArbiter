@@ -208,7 +208,7 @@ class SaveScriptDialog extends Dialog<SaveScriptDialog.Target> {
 
     private void createFolder() {
         TextInputDialog ask = new TextInputDialog();
-        ask.initOwner(getDialogPane().getScene().getWindow());
+        ask.initOwner(getOwner());
         ask.setTitle("New Folder");
         ask.setHeaderText("Create a folder in " + dir);
         ask.setContentText("Name:");
@@ -242,7 +242,7 @@ class SaveScriptDialog extends Dialog<SaveScriptDialog.Target> {
         if (Files.exists(file)) {
             Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
                     name + " already exists. Replace it?", ButtonType.YES, ButtonType.NO);
-            confirm.initOwner(getDialogPane().getScene().getWindow());
+            confirm.initOwner(getOwner());
             confirm.setHeaderText(null);
             if (InAppDialogs.showAndWait(confirm).orElse(ButtonType.NO) != ButtonType.YES) return null;
         }

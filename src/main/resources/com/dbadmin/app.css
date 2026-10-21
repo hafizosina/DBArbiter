@@ -110,3 +110,7 @@
     -fx-font-weight: bold; -fx-padding: 8 12 8 12; -fx-background-color: #e4e8ee;
     -fx-background-radius: 6 6 0 0; -fx-border-color: transparent transparent #cfd5dc transparent;
 }
+.nav-search { -fx-background-radius: 12; -fx-padding: 3 10 3 10; }
+.nav-search { -fx-padding: 3 24 3 10; }
+.nav-search-clear { -fx-background-color: transparent; -fx-padding: 1 5 1 5; -fx-text-fill: #888; -fx-font-size: 11px; -fx-cursor: hand; }
+.nav-search-clear:hover { -fx-text-fill: #333; -fx-background-color: #e0e0e0; -fx-background-radius: 10; }

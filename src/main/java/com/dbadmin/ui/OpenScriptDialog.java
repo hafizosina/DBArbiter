@@ -10,6 +10,7 @@ import javafx.scene.Node;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.Dialog;
+import javafx.scene.control.DialogPane;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
@@ -65,6 +66,8 @@ class OpenScriptDialog extends Dialog<List<Path>> {
     OpenScriptDialog(Window owner, List<ConnectionConfig> connections, Map<Path, String> bindings,
                      Path scriptDir, ConnectionConfig preferred) {
         initOwner(owner);
+        // kept: while shown inside the main window, getDialogPane() returns a placeholder (see InAppDialogs)
+        DialogPane pane = getDialogPane();
         setTitle("Open Script");
         setHeaderText(null);
         setResizable(true);
@@ -92,9 +95,9 @@ class OpenScriptDialog extends Dialog<List<Path>> {
         table.setOnMouseClicked(e -> {
             if (e.getClickCount() == 2 && table.getSelectionModel().getSelectedItem() != null) {
                 // fire Open (rather than closing directly) so it also works when shown inside the main window
-                getDialogPane().getButtonTypes().stream()
+                pane.getButtonTypes().stream()
                         .filter(t -> t.getButtonData() == ButtonBar.ButtonData.OK_DONE)
-                        .map(t -> (javafx.scene.control.Button) getDialogPane().lookupButton(t))
+                        .map(t -> (javafx.scene.control.Button) pane.lookupButton(t))
                         .findFirst().ifPresent(javafx.scene.control.Button::fire);
             }
         });

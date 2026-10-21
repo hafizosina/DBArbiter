@@ -33,6 +33,7 @@ import java.util.function.Supplier;
 class SqlEditor extends VBox {
 
     private final CodeArea area = new CodeArea();
+    private final VirtualizedScrollPane<CodeArea> scroll;
     private final FindBar findBar;
     private final CompletionPopup popup = new CompletionPopup();
     private final SqlCompleter completer;
@@ -81,13 +82,36 @@ class SqlEditor extends VBox {
             if (handleFindKeys(e)) e.consume();
         });
 
-        VirtualizedScrollPane<CodeArea> scroll = new VirtualizedScrollPane<>(area);
+        scroll = new VirtualizedScrollPane<>(area);
         VBox.setVgrow(scroll, Priority.ALWAYS);
         getChildren().addAll(findBar, scroll);
     }
 
     CodeArea area() {
         return area;
+    }
+
+    /**
+     * Makes the text area exactly {@code lines} lines high (the find bar adds to that when open).
+     * Long lines wrap, so a horizontal scroll bar never hides one of them.
+     */
+    void setVisibleLines(int lines) {
+        area.setWrapText(true);
+        scroll.setHbarPolicy(javafx.scene.control.ScrollPane.ScrollBarPolicy.NEVER);
+        boolean[] applied = {false};
+        // the line height is known once the first paragraph has been laid out
+        area.totalHeightEstimateProperty().addListener((o, before, total) -> {
+            if (applied[0] || total == null || total <= 0) return;
+            double lineHeight = area.getParagraphBoundsOnScreen(0)
+                    .map(javafx.geometry.Bounds::getHeight)
+                    .orElse(total / area.getParagraphs().size());
+            if (lineHeight <= 0) return;
+            applied[0] = true;
+            double height = Math.ceil(lines * lineHeight);
+            scroll.setMinHeight(height);
+            scroll.setPrefHeight(height);
+            scroll.setMaxHeight(height);
+        });
     }
 
     /** Replaces the text as a fresh start: not undoable. */
@@ -103,8 +127,21 @@ class SqlEditor extends VBox {
         return selected.isBlank() ? area.getText() : selected;
     }
 
+    /** Focuses the text; for a tab just opened, waits until the editor is actually in the window. */
     void focusEditor() {
-        area.requestFocus();
+        if (area.getScene() != null) {
+            area.requestFocus();
+            return;
+        }
+        area.sceneProperty().addListener(new javafx.beans.value.ChangeListener<>() {
+            @Override
+            public void changed(javafx.beans.value.ObservableValue<? extends javafx.scene.Scene> o,
+                                javafx.scene.Scene before, javafx.scene.Scene scene) {
+                if (scene == null) return;
+                area.sceneProperty().removeListener(this);
+                Platform.runLater(area::requestFocus);
+            }
+        });
     }
 
     /** The connection changed: re-color for its dialect and drop suggestions for the old one. */
@@ -225,11 +262,35 @@ class SqlEditor extends VBox {
         popup.show(area, caret.getMinX(), caret.getMaxY() + 2, items, s -> accept(s, type));
     }
 
+    /**
+     * A table picked after FROM or JOIN gets an alias ("m_product_variant mpv"), unless something other
+     * than a separator already follows it on the line (e.g. the user is renaming an existing table).
+     */
+    private boolean wantsAlias(SqlCompleter.Suggestion s, CompletionContext ctx, int caret) {
+        boolean table = s.kind() == SqlCompleter.Kind.TABLE || s.kind() == SqlCompleter.Kind.VIEW;
+        if (!table || !ctx.aliasAllowed()) return false;
+        String text = area.getText();
+        int end = caret;
+        while (end < text.length() && (Character.isLetterOrDigit(text.charAt(end)) || text.charAt(end) == '_')) end++;
+        if (end != caret) return false; // in the middle of a word: the alias would be glued to the rest
+        int lineEnd = text.indexOf('\n', end);
+        String rest = text.substring(end, lineEnd < 0 ? text.length() : lineEnd).strip();
+        return rest.isEmpty() || rest.startsWith(",") || rest.startsWith(";") || rest.startsWith(")");
+    }
+
     private void accept(SqlCompleter.Suggestion s, DbType type) {
         // re-read the word at the caret: the text may have changed since the list was built
         int caret = area.getCaretPosition();
         CompletionContext now = CompletionContext.analyze(area.getText(), caret, type);
         if (now == null) return;
-        area.replaceText(now.start(), caret, SqlCompleter.insertText(s, now.prefix(), type));
+        String text = SqlCompleter.insertText(s, now.prefix(), type);
+        if (wantsAlias(s, now, caret)) {
+            Set<String> taken = new HashSet<>();
+            for (CompletionContext.TableMention m : now.mentions()) {
+                if (m.alias() != null) taken.add(m.alias());
+            }
+            text += " " + SqlCompleter.aliasFor(s.text(), taken);
+        }
+        area.replaceText(now.start(), caret, text);
     }
 }

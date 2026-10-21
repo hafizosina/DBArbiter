@@ -12,7 +12,7 @@ import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListView;
-import javafx.scene.control.SplitPane;
+import javafx.scene.control.Separator;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
 import javafx.scene.control.Tooltip;
@@ -174,6 +174,25 @@ class TableTab extends Tab {
     }
 
     private BorderPane buildDataPane() {
+        defaultQuery = "select * from " + qualified();
+        queryEditor.getStyleClass().add("quick-query");
+        queryEditor.setText(defaultQuery);
+        queryEditor.setVisibleLines(3);
+
+        Button run = new Button("▶ Run");
+        run.setTooltip(new Tooltip("Run the selection, or all of it (Ctrl+Enter). Not saved; up to "
+                + ScriptRunner.MAX_ROWS + " rows."));
+        run.setOnAction(e -> runQuery());
+        run.disableProperty().bind(runner.runningProperty());
+        Button stop = new Button("■ Stop");
+        stop.setOnAction(e -> runner.stop());
+        stop.disableProperty().bind(runner.runningProperty().not());
+        Button reset = new Button("Reset");
+        reset.setTooltip(new Tooltip("Back to: " + defaultQuery));
+        reset.setOnAction(e -> {
+            queryEditor.setText(defaultQuery);
+            runQuery();
+        });
         Button refresh = new Button("Refresh");
         refresh.setOnAction(e -> {
             if (customMode) {
@@ -191,54 +210,18 @@ class TableTab extends Tab {
             offset += PAGE_SIZE;
             loadPage();
         });
+        queryMessage.getStyleClass().add("hint-small");
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox bar = new HBox(8, refresh, DataView.valuePanelToggle(), spacer, pageInfo, prev, next);
+        HBox bar = new HBox(8, run, stop, reset, new Separator(Orientation.VERTICAL), refresh,
+                DataView.valuePanelToggle(), queryMessage, spacer, pageInfo, prev, next);
         bar.setAlignment(Pos.CENTER_LEFT);
         bar.setPadding(new Insets(6));
 
-        BorderPane grid = new BorderPane(dataView);
-        grid.setTop(bar);
-
-        SplitPane split = new SplitPane(buildQueryBox(), grid);
-        split.setOrientation(Orientation.VERTICAL);
-        split.setDividerPositions(0.2);
-        SplitPane.setResizableWithParent(split.getItems().get(0), false); // keep its height when the window grows
-        return new BorderPane(split);
-    }
-
-    private BorderPane buildQueryBox() {
-        defaultQuery = "select * from " + qualified();
-        queryEditor.getStyleClass().add("quick-query");
-        queryEditor.setText(defaultQuery);
-
-        Button run = new Button("▶ Run");
-        run.setTooltip(new Tooltip("Run the selection, or all of it (Ctrl+Enter). Not saved; up to "
-                + ScriptRunner.MAX_ROWS + " rows."));
-        run.setMaxWidth(Double.MAX_VALUE);
-        run.setOnAction(e -> runQuery());
-        run.disableProperty().bind(runner.runningProperty());
-        Button stop = new Button("■ Stop");
-        stop.setMaxWidth(Double.MAX_VALUE);
-        stop.setOnAction(e -> runner.stop());
-        stop.disableProperty().bind(runner.runningProperty().not());
-        Button reset = new Button("Reset");
-        reset.setTooltip(new Tooltip("Back to: " + defaultQuery));
-        reset.setMaxWidth(Double.MAX_VALUE);
-        reset.setOnAction(e -> {
-            queryEditor.setText(defaultQuery);
-            runQuery();
-        });
-        VBox buttons = new VBox(4, run, stop, reset);
-        buttons.setPadding(new Insets(0, 0, 0, 6));
-
-        queryMessage.getStyleClass().add("hint-small");
-        BorderPane box = new BorderPane(queryEditor);
-        box.setRight(buttons);
-        box.setBottom(queryMessage);
-        box.setPadding(new Insets(6, 6, 2, 6));
-        box.setMinHeight(110);
-        return box;
+        VBox.setMargin(queryEditor, new Insets(6, 6, 0, 6));
+        BorderPane pane = new BorderPane(dataView);
+        pane.setTop(new VBox(queryEditor, bar));
+        return pane;
     }
 
     /** schema.table (database.table on MySQL), quoting names only where needed. */
