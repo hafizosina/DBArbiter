@@ -1,6 +1,7 @@
 package com.dbadmin.ui;
 
 import com.dbadmin.model.ConnectionConfig;
+import com.dbadmin.model.DbType;
 import com.dbadmin.model.Namespace;
 import com.dbadmin.model.TableRef;
 import com.dbadmin.service.ConnectionStore;
@@ -27,6 +28,7 @@ import javafx.scene.control.TreeItem;
 import javafx.scene.control.TreeView;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyCombination;
+import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseButton;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.StackPane;
@@ -101,6 +103,7 @@ public class MainWindow implements SessionProvider {
         empty.getStyleClass().add("hint");
         StackPane center = new StackPane(empty, tabs);
         tabs.setTabClosingPolicy(TabPane.TabClosingPolicy.ALL_TABS);
+        tabs.getStyleClass().add("main-tabs");
         tabs.visibleProperty().bind(javafx.beans.binding.Bindings.isNotEmpty(tabs.getTabs()));
         tabs.getSelectionModel().selectedItemProperty().addListener((o, a, b) -> updateScriptItems());
 
@@ -110,6 +113,14 @@ public class MainWindow implements SessionProvider {
 
         status.setPadding(new Insets(3, 8, 3, 8));
         root.setTop(buildMenuBar());
+        // a filter, so it works wherever the focus is (editor, grid, tree)
+        KeyCombination closeTab = KeyCombination.keyCombination("Shortcut+W");
+        root.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
+            if (closeTab.match(e)) {
+                e.consume();
+                closeTab(tabs.getSelectionModel().getSelectedItem());
+            }
+        });
         root.setCenter(split);
         root.setBottom(status);
         updateMenuItems();
@@ -175,10 +186,20 @@ public class MainWindow implements SessionProvider {
         disconnect.setOnAction(e -> selectedConnection().ifPresent(this::disconnect));
         MenuItem refresh = new MenuItem("Refresh (F5)");
         refresh.setOnAction(e -> refreshSelected());
-        ContextMenu menu = new ContextMenu(open, new SeparatorMenuItem(), edit, delete, disconnect,
+        // scripts for the right-clicked connection (the tree selects the row on right-click)
+        MenuItem newScript = new MenuItem("New Script");
+        newScript.setOnAction(e -> newScript());
+        MenuItem openScript = new MenuItem("Open Script…");
+        openScript.setOnAction(e -> openScript());
+        SeparatorMenuItem scriptSeparator = new SeparatorMenuItem();
+        ContextMenu menu = new ContextMenu(open, newScript, openScript, scriptSeparator, edit, delete, disconnect,
                 new SeparatorMenuItem(), refresh);
         menu.setOnShowing(e -> {
             NavNode n = selectedNode();
+            boolean hasConnection = n != null && n.connection() != null;
+            newScript.setVisible(hasConnection);
+            openScript.setVisible(hasConnection);
+            scriptSeparator.setVisible(hasConnection);
             open.setVisible(n != null && n.kind() == NavNode.Kind.TABLE);
             boolean onConnection = n != null && n.kind() == NavNode.Kind.CONNECTION;
             edit.setVisible(onConnection);
@@ -270,6 +291,18 @@ public class MainWindow implements SessionProvider {
         }));
     }
 
+    /** Closes a tab the way its ✕ button does, so unsaved scripts still ask first. */
+    private void closeTab(Tab tab) {
+        if (tab == null || !tab.isClosable()) return;
+        if (tab.getOnCloseRequest() != null) {
+            javafx.event.Event request = new javafx.event.Event(Tab.TAB_CLOSE_REQUEST_EVENT);
+            tab.getOnCloseRequest().handle(request);
+            if (request.isConsumed()) return;
+        }
+        tabs.getTabs().remove(tab);
+        if (tab.getOnClosed() != null) tab.getOnClosed().handle(new javafx.event.Event(Tab.CLOSED_EVENT));
+    }
+
     private void sortConnections() {
         connections.sort(BY_NAME);
         treeRoot.getChildren().sort(Comparator.comparing(item -> item.getValue().connection(), BY_NAME));
@@ -343,8 +376,14 @@ public class MainWindow implements SessionProvider {
                 Namespace ns = node.namespace();
                 Async.run(session, () -> session.listTables(ns), tables -> {
                     TreeItem<NavNode> tablesFolder = folder(c, "Tables", tables.stream().filter(t -> !t.isView()).toList());
-                    TreeItem<NavNode> viewsFolder = folder(c, "Views", tables.stream().filter(TableRef::isView).toList());
+                    TreeItem<NavNode> viewsFolder = folder(c, "Views",
+                            tables.stream().filter(t -> t.isView() && !t.isMaterializedView()).toList());
+                    List<TableRef> materialized = tables.stream().filter(TableRef::isMaterializedView).toList();
                     item.getChildren().setAll(List.of(tablesFolder, viewsFolder));
+                    // only PostgreSQL has materialized views; elsewhere the folder would always be empty
+                    if (c.getType() == DbType.POSTGRESQL || !materialized.isEmpty()) {
+                        item.getChildren().add(folder(c, "Materialized Views", materialized));
+                    }
                     tablesFolder.setExpanded(true);
                     status.setText(ns.label() + ": " + tables.size() + " tables/views");
                 }, ex -> loadFailed(item, ex));
@@ -589,8 +628,9 @@ public class MainWindow implements SessionProvider {
                 case NAMESPACE -> icon.setText("◆");
                 case FOLDER -> icon.setText("▤");
                 case TABLE -> {
-                    icon.setText(node.table().isView() ? "◫" : "▦");
-                    icon.getStyleClass().add(node.table().isView() ? "view" : "table");
+                    TableRef t = node.table();
+                    icon.setText(t.isMaterializedView() ? "◩" : t.isView() ? "◫" : "▦");
+                    icon.getStyleClass().add(t.isMaterializedView() ? "matview" : t.isView() ? "view" : "table");
                 }
                 case MESSAGE -> icon.setText("");
             }

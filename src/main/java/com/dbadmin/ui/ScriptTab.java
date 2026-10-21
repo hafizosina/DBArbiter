@@ -35,10 +35,14 @@ import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.Priority;
+import javafx.scene.layout.VBox;
 import javafx.stage.Window;
 import org.fxmisc.flowless.VirtualizedScrollPane;
 import org.fxmisc.richtext.CodeArea;
 import org.fxmisc.richtext.LineNumberFactory;
+import org.fxmisc.richtext.model.StyleSpans;
+import org.fxmisc.richtext.model.StyleSpansBuilder;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -48,6 +52,7 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -71,7 +76,10 @@ class ScriptTab extends Tab {
     private String boundId;
     private final Label bindingWarning = new Label();
     private final CompletionPopup popup = new CompletionPopup();
+    private final FindBar findBar;
     private int completionRequest;
+    /** Connections that failed to open while typing; only Ctrl+Space retries them. */
+    private final Set<String> autoConnectFailed = new java.util.HashSet<>();
     private final ComboBox<ConnectionConfig> connection = new ComboBox<>();
     private final CodeArea editor = new CodeArea();
     private final TextArea messages = new TextArea();
@@ -96,6 +104,7 @@ class ScriptTab extends Tab {
         this.file = file;
         this.sessions = sessions;
         this.completer = completer;
+        this.findBar = new FindBar(editor, this::rehighlight);
         this.bindings = bindings;
         this.boundId = file == null ? null : bindings.connectionFor(file);
 
@@ -167,13 +176,24 @@ class ScriptTab extends Tab {
         messages.getStyleClass().add("sql-messages");
         messagesTab.setClosable(false);
         results.getTabs().add(messagesTab);
+        results.getStyleClass().add("sub-tabs");
 
-        SplitPane split = new SplitPane(new VirtualizedScrollPane<>(editor), results);
+        VirtualizedScrollPane<CodeArea> editorScroll = new VirtualizedScrollPane<>(editor);
+        VBox editorPane = new VBox(findBar, editorScroll);
+        VBox.setVgrow(editorScroll, Priority.ALWAYS);
+        SplitPane split = new SplitPane(editorPane, results);
         split.setOrientation(Orientation.VERTICAL);
         split.setDividerPositions(0.55);
 
         BorderPane pane = new BorderPane(split);
         pane.setTop(bar);
+        pane.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
+            if (e.isShortcutDown() && !e.isShiftDown() && e.getCode() == KeyCode.F) findBar.open(false);
+            else if (e.isShortcutDown() && !e.isShiftDown() && e.getCode() == KeyCode.R) findBar.open(true);
+            else if (e.getCode() == KeyCode.F3) findBar.move(!e.isShiftDown());
+            else return;
+            e.consume();
+        });
         setContent(pane);
 
         setOnCloseRequest(e -> {
@@ -247,9 +267,9 @@ class ScriptTab extends Tab {
     }
 
     /**
-     * Shows suggestions for the word at the caret. Typing triggers it after two characters
-     * or a '.', using metadata only if the connection is already open; Ctrl+Space ("explicit")
-     * always shows it and connects if needed.
+     * Shows suggestions for the word at the caret. Typing triggers it after two characters or a '.';
+     * Ctrl+Space ("explicit") always shows it. Both open the connection if needed, except that a
+     * connection which failed while typing is only retried by Ctrl+Space.
      */
     private void requestCompletion(boolean explicit) {
         int request = ++completionRequest;
@@ -265,8 +285,14 @@ class ScriptTab extends Tab {
         });
         if (config == null) {
             complete.accept(null);
-        } else if (explicit) {
-            sessions.withSession(config, complete, ex -> complete.accept(null));
+        } else if (explicit || !autoConnectFailed.contains(config.getId())) {
+            sessions.withSession(config, session -> {
+                autoConnectFailed.remove(config.getId());
+                complete.accept(session);
+            }, ex -> {
+                autoConnectFailed.add(config.getId());
+                complete.accept(null);
+            });
         } else {
             complete.accept(sessions.openSession(config).orElse(null));
         }
@@ -292,7 +318,26 @@ class ScriptTab extends Tab {
 
     private void rehighlight() {
         ConnectionConfig c = connection.getValue();
-        editor.setStyleSpans(0, SqlHighlighter.highlight(editor.getText(), c == null ? null : c.getType()));
+        StyleSpans<Collection<String>> spans = SqlHighlighter.highlight(editor.getText(), c == null ? null : c.getType());
+        List<int[]> found = findBar.matchRanges();
+        if (!found.isEmpty()) {
+            // add "search-match" on top of the syntax colors
+            StyleSpansBuilder<Collection<String>> marks = new StyleSpansBuilder<>();
+            int last = 0;
+            for (int[] m : found) {
+                marks.add(List.of(), m[0] - last);
+                marks.add(List.of("search-match"), m[1] - m[0]);
+                last = m[1];
+            }
+            marks.add(List.of(), editor.getLength() - last);
+            spans = spans.overlay(marks.create(), (syntax, mark) -> {
+                if (mark.isEmpty()) return syntax;
+                List<String> both = new java.util.ArrayList<>(syntax);
+                both.addAll(mark);
+                return both;
+            });
+        }
+        editor.setStyleSpans(0, spans);
     }
 
     private static void showMode(Label mode, ConnectionConfig c) {
@@ -458,17 +503,24 @@ class ScriptTab extends Tab {
             home = Path.of(System.getProperty("user.home"));
         }
         Path start = file != null && file.getParent() != null ? file.getParent() : home;
-        String name = file != null ? file.getFileName().toString() : defaultFileName(start);
-        Path path = new SaveScriptDialog(window(), home, start, name).showAndWait().orElse(null);
-        if (path == null || !writeTo(path)) return false;
-        file = path;
+        Map<String, Integer> counts = new HashMap<>();
+        bindings.all().forEach((path, id) -> {
+            if (Files.isRegularFile(path)) counts.merge(id, 1, Integer::sum);
+        });
+        SaveScriptDialog.Target target = new SaveScriptDialog(window(), home, start, connection.getItems(), counts,
+                connection.getValue(), file == null ? null : file.getFileName().toString(), this::defaultFileName)
+                .showAndWait().orElse(null);
+        if (target == null) return false;
+        // the script now belongs to the connection chosen in the dialog
+        if (connection.getValue() != target.connection()) connection.setValue(target.connection());
+        if (!writeTo(target.file())) return false;
+        file = target.file();
         updateTitle();
         return true;
     }
 
-    /** "Script-&lt;connection&gt;-&lt;n&gt;.sql": the tab's name if it still fits the chosen connection, else the next free one. */
-    private String defaultFileName(Path dir) {
-        ConnectionConfig c = connection.getValue();
+    /** "Script-&lt;connection&gt;-&lt;n&gt;.sql": the tab's name if it still fits the connection, else the next free one. */
+    private String defaultFileName(ConnectionConfig c, Path dir) {
         String connName = c == null ? null : c.getName();
         String prefix = connName == null ? "Script-" : "Script-" + ScriptFolder.safe(connName) + "-";
         if (untitledName.startsWith(prefix) && !Files.exists(dir.resolve(untitledName + ".sql"))) {

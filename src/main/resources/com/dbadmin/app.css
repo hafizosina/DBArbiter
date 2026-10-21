@@ -59,3 +59,42 @@
 .inspector-text .fmt-tag { -fx-fill: #0033b3; }
 .inspector-text .fmt-attr { -fx-fill: #871094; }
 .inspector-text .fmt-comment { -fx-fill: #8c8c8c; -fx-font-style: italic; }
+
+/* find / replace */
+.find-bar { -fx-background-color: #f0f0f0; -fx-border-color: transparent transparent #d0d0d0 transparent; }
+.find-none { -fx-text-fill: #c62828; }
+.sql-editor .search-match { -rtfx-background-color: #ffe082; }
+
+/* main tabs (scripts, tables): darker strip, selected tab white with a blue top edge */
+.main-tabs > .tab-header-area > .tab-header-background { -fx-background-color: #d5dae1; }
+.main-tabs > .tab-header-area > .headers-region > .tab {
+    -fx-background-color: #b9c0c9, #e9ecf0; -fx-background-insets: 0, 1 1 0 1; -fx-background-radius: 4 4 0 0, 3 3 0 0;
+}
+.main-tabs > .tab-header-area > .headers-region > .tab:selected {
+    -fx-background-color: #3d7bd9, white; -fx-background-insets: 0, 3 1 0 1; -fx-background-radius: 4 4 0 0, 2 2 0 0;
+}
+.main-tabs > .tab-header-area > .headers-region > .tab:selected .tab-label { -fx-font-weight: bold; }
+
+/* inner tabs (Properties/Data, Messages/Results): flat, underlined */
+.sub-tabs > .tab-header-area { -fx-padding: 2 6 0 6; }
+.sub-tabs > .tab-header-area > .tab-header-background {
+    -fx-background-color: white; -fx-border-color: transparent transparent #d0d0d0 transparent;
+}
+.sub-tabs > .tab-header-area > .headers-region > .tab {
+    -fx-background-color: transparent; -fx-background-insets: 0; -fx-background-radius: 0;
+    -fx-border-color: transparent; -fx-border-width: 0 0 3 0; -fx-padding: 3 14 3 14;
+}
+.sub-tabs > .tab-header-area > .headers-region > .tab:hover { -fx-background-color: #eef3f9; }
+.sub-tabs > .tab-header-area > .headers-region > .tab:selected { -fx-border-color: transparent transparent #3d7bd9 transparent; }
+.sub-tabs > .tab-header-area > .headers-region > .tab .tab-label { -fx-text-fill: #616161; -fx-font-size: 12px; }
+.sub-tabs > .tab-header-area > .headers-region > .tab:selected .tab-label { -fx-text-fill: #0d47a1; -fx-font-weight: bold; }
+.sub-tabs > .tab-header-area > .headers-region > .tab:selected .focus-indicator { -fx-border-color: transparent; }
+
+/* header above a table's Properties / Data */
+.table-header { -fx-padding: 8 10 6 10; -fx-background-color: white; }
+.table-header-icon { -fx-font-size: 16px; }
+.table-header-icon.table { -fx-text-fill: #1565c0; }
+.table-header-icon.view { -fx-text-fill: #6a1b9a; }
+.table-header-name { -fx-font-size: 15px; -fx-font-weight: bold; }
+.table-header-kind { -fx-font-size: 10px; -fx-text-fill: #546e7a; -fx-padding: 1 5 1 5; -fx-border-color: #b0bec5; -fx-border-radius: 3; }
+.nav-icon.matview, .table-header-icon.matview { -fx-text-fill: #00838f; }

@@ -62,7 +62,10 @@ class TableTab extends Tab {
         Tab data = new Tab("Data", buildDataPane());
         TabPane inner = new TabPane(properties, data);
         inner.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
-        setContent(inner);
+        inner.getStyleClass().add("sub-tabs");
+        BorderPane content = new BorderPane(inner);
+        content.setTop(buildHeader());
+        setContent(content);
 
         // fetch data only when the Data tab is first shown
         data.setOnSelectionChanged(e -> {
@@ -73,6 +76,26 @@ class TableTab extends Tab {
             }
         });
         inner.getSelectionModel().select(data);
+    }
+
+    /** "▦ schema.table  TABLE · connection" above the Properties / Data tabs. */
+    private HBox buildHeader() {
+        Label icon = new Label(table.isMaterializedView() ? "◩" : table.isView() ? "◫" : "▦");
+        icon.getStyleClass().addAll("table-header-icon",
+                table.isMaterializedView() ? "matview" : table.isView() ? "view" : "table");
+        Label name = new Label(table.displayName());
+        name.getStyleClass().add("table-header-name");
+        Label kind = new Label(table.type() == null ? "" : table.type().toUpperCase());
+        kind.getStyleClass().add("table-header-kind");
+        Label connection = new Label(session.getConfig().getName());
+        connection.getStyleClass().add("hint-small");
+        connection.setGraphic(DbIcons.connection(session.getConfig().getType(), false));
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        HBox header = new HBox(8, icon, name, kind, spacer, connection);
+        header.setAlignment(Pos.CENTER_LEFT);
+        header.getStyleClass().add("table-header");
+        return header;
     }
 
     private record Section(DataGrid grid, Callable<TableData> loader) {
