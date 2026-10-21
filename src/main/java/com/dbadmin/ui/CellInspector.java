@@ -52,6 +52,8 @@ class CellInspector extends VBox {
     private final CodeArea text = new CodeArea();
     private final Label info = new Label();
     private final ToggleButton preview = new ToggleButton("Preview");
+    /** Off by default and for every new cell: loading images contacts the servers they are on. */
+    private final ToggleButton loadImages = new ToggleButton("Load Images");
     private final StackPane body = new StackPane();
     private VirtualizedScrollPane<CodeArea> source;
     /** Created on first use: WebView is heavy. */
@@ -73,6 +75,9 @@ class CellInspector extends VBox {
         preview.setSelected(true);
         preview.setTooltip(new Tooltip("Render HTML (scripts and external content are blocked)"));
         preview.selectedProperty().addListener((o, a, b) -> render());
+        loadImages.setTooltip(new Tooltip("Load https:// images in this preview. Off by default: loading them tells\n"
+                + "the image servers this content was opened. Scripts, forms and links stay blocked."));
+        loadImages.selectedProperty().addListener((o, a, b) -> render());
         Button copy = new Button("Copy");
         copy.setOnAction(e -> {
             ClipboardContent content = new ClipboardContent();
@@ -84,7 +89,7 @@ class CellInspector extends VBox {
         HBox.setHgrow(spacer, Priority.ALWAYS);
         HBox title = new HBox(6, column, type);
         title.setAlignment(Pos.BASELINE_LEFT);
-        HBox tools = new HBox(6, format, preview, wrap, spacer, copy);
+        HBox tools = new HBox(6, format, preview, loadImages, wrap, spacer, copy);
         tools.setAlignment(Pos.CENTER_LEFT);
 
         text.setEditable(false);
@@ -101,6 +106,7 @@ class CellInspector extends VBox {
 
     void show(CellValue cell) {
         current = cell;
+        loadImages.setSelected(false); // a new value never loads images by itself
         column.setText(cell == null ? "No cell selected" : cell.column());
         type.setText(cell == null || cell.type() == null ? "" : cell.type().name());
         render();
@@ -109,6 +115,8 @@ class CellInspector extends VBox {
     private void render() {
         preview.setVisible(false);
         preview.setManaged(false);
+        loadImages.setVisible(false);
+        loadImages.setManaged(false);
         showSource();
         if (current == null) {
             setText("", null);
@@ -137,6 +145,8 @@ class CellInspector extends VBox {
         if (chosen == Format.HTML) {
             preview.setVisible(true);
             preview.setManaged(true);
+            loadImages.setVisible(preview.isSelected());
+            loadImages.setManaged(preview.isSelected());
             if (preview.isSelected()) showPreview(value.toString());
         }
     }
@@ -158,9 +168,12 @@ class CellInspector extends VBox {
                 }
             });
         }
-        // no fetches (CSP), no form posts, no clickable links, no meta-refresh redirects
+        // no fetches (CSP; https images only when asked), no form posts, no clickable links,
+        // no meta-refresh redirects, and no referrer sent with image requests
+        String images = loadImages.isSelected() ? "data: https:" : "data:";
         webContent = "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; "
-                + "img-src data:; style-src 'unsafe-inline'; font-src data:; form-action 'none'\">"
+                + "img-src " + images + "; style-src 'unsafe-inline'; font-src data:; form-action 'none'\">"
+                + "<meta name=\"referrer\" content=\"no-referrer\">"
                 + "<style>a { pointer-events: none; }</style>"
                 + META_REFRESH.matcher(html).replaceAll("");
         web.getEngine().loadContent(webContent);

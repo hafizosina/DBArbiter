@@ -70,7 +70,7 @@ class TableTab extends Tab {
         super(table.name());
         this.session = session;
         this.table = table;
-        this.queryEditor = new SqlEditor(completer, sessions, session::getConfig, this::runQuery);
+        this.queryEditor = new SqlEditor(completer, sessions, session::getConfig, this::runStatement);
         this.runner = new ScriptRunner(sessions, completer);
         setOnSelectionChanged(e -> queryEditor.hidePopup());
         setTooltip(new javafx.scene.control.Tooltip(session.getConfig().getName() + " · " + table.displayName()));
@@ -180,10 +180,14 @@ class TableTab extends Tab {
         queryEditor.setVisibleLines(3);
 
         Button run = new Button("▶ Run");
-        run.setTooltip(new Tooltip("Run the selection, or all of it (Ctrl+Enter). Not saved; up to "
+        run.setTooltip(new Tooltip("Run the statement at the cursor, or the selection (Ctrl+Enter). Not saved; up to "
                 + ScriptRunner.MAX_ROWS + " rows."));
-        run.setOnAction(e -> runQuery());
+        run.setOnAction(e -> runStatement());
         run.disableProperty().bind(runner.runningProperty());
+        Button runAll = new Button("▶▶ Run All");
+        runAll.setTooltip(new Tooltip("Run all of it, or the selection"));
+        runAll.setOnAction(e -> runQuery());
+        runAll.disableProperty().bind(runner.runningProperty());
         Button stop = new Button("■ Stop");
         stop.setOnAction(e -> runner.stop());
         stop.disableProperty().bind(runner.runningProperty().not());
@@ -213,7 +217,7 @@ class TableTab extends Tab {
         queryMessage.getStyleClass().add("hint-small");
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox bar = new HBox(8, run, stop, reset, new Separator(Orientation.VERTICAL), refresh,
+        HBox bar = new HBox(8, run, runAll, stop, reset, new Separator(Orientation.VERTICAL), refresh,
                 DataView.valuePanelToggle(), queryMessage, spacer, pageInfo, prev, next);
         bar.setAlignment(Pos.CENTER_LEFT);
         bar.setPadding(new Insets(6));
@@ -236,8 +240,18 @@ class TableTab extends Tab {
      * Runs the query box (the selection, or all of it). The unchanged default query shows the paged
      * table again; anything else runs like a script and the grid shows the last result set.
      */
+    /** ▶▶ Run All: the selection, or all of the box. */
     private void runQuery() {
-        String sql = queryEditor.sqlToRun().strip();
+        runQuery(queryEditor.sqlToRun());
+    }
+
+    /** ▶ Run / Ctrl+Enter: the selection, or the statement at the cursor. */
+    private void runStatement() {
+        runQuery(queryEditor.statementToRun());
+    }
+
+    private void runQuery(String text) {
+        String sql = text.strip();
         if (sql.isEmpty() || normalize(sql).equals(normalize(defaultQuery))) {
             customMode = false;
             queryMessage.setText("");

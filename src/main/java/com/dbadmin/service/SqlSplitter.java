@@ -18,11 +18,19 @@ public final class SqlSplitter {
     private SqlSplitter() {
     }
 
+    /** One statement: its trimmed text and where it is in the script ([start, end), without the ';'). */
+    public record Statement(int start, int end, String sql) {
+    }
+
     public static List<String> split(String script, DbType type) {
+        return statements(script, type).stream().map(Statement::sql).toList();
+    }
+
+    public static List<Statement> statements(String script, DbType type) {
         boolean backslashEscapes = type == DbType.MYSQL;
         boolean dollarQuotes = type == DbType.POSTGRESQL;
-        List<String> statements = new ArrayList<>();
-        StringBuilder current = new StringBuilder();
+        List<Statement> statements = new ArrayList<>();
+        int segmentStart = 0;
         boolean hasCode = false;
         int n = script.length();
         int i = 0;
@@ -42,8 +50,8 @@ public final class SqlSplitter {
             } else if (c == '$' && dollarQuotes && (end = dollarQuoteEnd(script, i)) > 0) {
                 hasCode = true;
             } else if (c == ';') {
-                if (hasCode) statements.add(current.toString().trim());
-                current.setLength(0);
+                if (hasCode) statements.add(trimmed(script, segmentStart, i));
+                segmentStart = i + 1;
                 hasCode = false;
                 i++;
                 continue;
@@ -51,11 +59,34 @@ public final class SqlSplitter {
                 hasCode |= !Character.isWhitespace(c);
                 end = i + 1;
             }
-            current.append(script, i, end);
             i = end;
         }
-        if (hasCode) statements.add(current.toString().trim());
+        if (hasCode) statements.add(trimmed(script, segmentStart, n));
         return statements;
+    }
+
+    private static Statement trimmed(String script, int from, int to) {
+        while (from < to && Character.isWhitespace(script.charAt(from))) from++;
+        while (to > from && Character.isWhitespace(script.charAt(to - 1))) to--;
+        return new Statement(from, to, script.substring(from, to));
+    }
+
+    /**
+     * The statement the caret is in (or right after, before its ';'), as DBeaver's Ctrl+Enter picks it:
+     * on a line where a statement starts, that statement; on a blank line between statements, the one
+     * above. Null if the script has none.
+     */
+    public static Statement statementAt(String script, int caret, DbType type) {
+        List<Statement> all = statements(script, type);
+        for (Statement s : all) {
+            int lineStart = script.lastIndexOf('\n', s.start() - 1) + 1;
+            if (caret >= lineStart && caret <= s.end() + 1) return s;
+        }
+        Statement above = null;
+        for (Statement s : all) {
+            if (s.end() <= caret) above = s;
+        }
+        return above != null ? above : all.isEmpty() ? null : all.get(0);
     }
 
     /** Index just past the quote that closes the one at {@code start}; doubled quotes are escapes. */

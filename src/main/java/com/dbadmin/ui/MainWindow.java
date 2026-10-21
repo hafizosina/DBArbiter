@@ -77,6 +77,7 @@ public class MainWindow implements SessionProvider {
     private final MenuItem refreshItem = new MenuItem("Refresh");
     private final MenuItem saveScriptItem = new MenuItem("Save Script");
     private final MenuItem saveScriptAsItem = new MenuItem("Save Script As…");
+    private final MenuItem runStatementItem = new MenuItem("Run Statement");
     private final MenuItem runScriptItem = new MenuItem("Run Script");
     private final MenuItem stopScriptItem = new MenuItem("Stop");
 
@@ -171,13 +172,14 @@ public class MainWindow implements SessionProvider {
         saveScriptItem.setAccelerator(KeyCombination.keyCombination("Shortcut+S"));
         saveScriptItem.setOnAction(e -> currentScript().ifPresent(ScriptTab::save));
         saveScriptAsItem.setOnAction(e -> currentScript().ifPresent(ScriptTab::saveAs));
-        runScriptItem.setAccelerator(KeyCombination.keyCombination("Shortcut+Enter"));
+        runStatementItem.setAccelerator(KeyCombination.keyCombination("Shortcut+Enter"));
+        runStatementItem.setOnAction(e -> currentScript().ifPresent(ScriptTab::runStatement));
         runScriptItem.setOnAction(e -> currentScript().ifPresent(ScriptTab::run));
         stopScriptItem.setOnAction(e -> currentScript().ifPresent(ScriptTab::stop));
 
         Menu script = new Menu("Script", null, newScript, openScript,
                 new SeparatorMenuItem(), saveScriptItem, saveScriptAsItem,
-                new SeparatorMenuItem(), runScriptItem, stopScriptItem);
+                new SeparatorMenuItem(), runStatementItem, runScriptItem, stopScriptItem);
         return new MenuBar(connection, script);
     }
 
@@ -199,14 +201,20 @@ public class MainWindow implements SessionProvider {
         newScript.setOnAction(e -> newScript());
         MenuItem openScript = new MenuItem("Open Script…");
         openScript.setOnAction(e -> openScript());
+        MenuItem openLastScript = new MenuItem("Open Last Script");
         SeparatorMenuItem scriptSeparator = new SeparatorMenuItem();
-        ContextMenu menu = new ContextMenu(open, newScript, openScript, scriptSeparator, edit, delete, disconnect, reconnect,
+        ContextMenu menu = new ContextMenu(open, newScript, openScript, openLastScript, scriptSeparator, edit, delete, disconnect, reconnect,
                 new SeparatorMenuItem(), refresh);
         menu.setOnShowing(e -> {
             NavNode n = selectedNode();
             boolean hasConnection = n != null && n.connection() != null;
             newScript.setVisible(hasConnection);
             openScript.setVisible(hasConnection);
+            openLastScript.setVisible(hasConnection);
+            Optional<Path> last = hasConnection ? lastScriptFor(n.connection()) : Optional.empty();
+            openLastScript.setText(last.map(p -> "Open Last Script (" + p.getFileName() + ")").orElse("Open Last Script"));
+            openLastScript.setDisable(last.isEmpty());
+            openLastScript.setOnAction(ev -> last.ifPresent(p -> openScripts(List.of(p))));
             scriptSeparator.setVisible(hasConnection);
             open.setVisible(n != null && n.kind() == NavNode.Kind.TABLE);
             boolean onConnection = n != null && n.kind() == NavNode.Kind.CONNECTION;
@@ -224,6 +232,7 @@ public class MainWindow implements SessionProvider {
         boolean running = script.map(s -> s.runningProperty().get()).orElse(false);
         saveScriptItem.setDisable(script.isEmpty());
         saveScriptAsItem.setDisable(script.isEmpty());
+        runStatementItem.setDisable(script.isEmpty() || running);
         runScriptItem.setDisable(script.isEmpty() || running);
         stopScriptItem.setDisable(!running);
     }
@@ -517,8 +526,31 @@ public class MainWindow implements SessionProvider {
     }
 
     private void openScript() {
-        List<Path> files = InAppDialogs.showAndWait(new OpenScriptDialog(stage, connections, scriptBindings.all(),
-                scriptDir(), selectedConnection().orElse(null))).orElse(List.of());
+        openScripts(InAppDialogs.showAndWait(new OpenScriptDialog(stage, connections, scriptBindings.all(),
+                scriptDir(), selectedConnection().orElse(null))).orElse(List.of()));
+    }
+
+    /** The most recently saved script linked to a connection that still exists on disk, if any. */
+    private Optional<Path> lastScriptFor(ConnectionConfig c) {
+        Path last = null;
+        long lastModified = Long.MIN_VALUE;
+        for (Map.Entry<Path, String> e : scriptBindings.all().entrySet()) {
+            if (!e.getValue().equals(c.getId())) continue;
+            try {
+                long modified = java.nio.file.Files.getLastModifiedTime(e.getKey()).toMillis();
+                if (modified > lastModified) {
+                    last = e.getKey();
+                    lastModified = modified;
+                }
+            } catch (IOException ignored) {
+                // moved or deleted outside the app
+            }
+        }
+        return Optional.ofNullable(last);
+    }
+
+    /** Opens script files in tabs, or switches to a tab where one is already open. */
+    private void openScripts(List<Path> files) {
         for (Path f : files) {
             // already open: just switch to it
             Optional<Tab> open = tabs.getTabs().stream()

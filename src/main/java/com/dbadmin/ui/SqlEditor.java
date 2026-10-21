@@ -4,6 +4,7 @@ import com.dbadmin.model.ConnectionConfig;
 import com.dbadmin.model.DbType;
 import com.dbadmin.service.CompletionContext;
 import com.dbadmin.service.DatabaseSession;
+import com.dbadmin.service.SqlSplitter;
 import javafx.application.Platform;
 import javafx.geometry.Bounds;
 import javafx.scene.input.KeyCode;
@@ -45,7 +46,7 @@ class SqlEditor extends VBox {
 
     /**
      * @param connection the connection the SQL is for (may return null), used for dialect and metadata
-     * @param onRun      called for Ctrl+Enter
+     * @param onRun      called for Ctrl+Enter (see {@link #statementToRun()})
      */
     SqlEditor(SqlCompleter completer, SessionProvider sessions, Supplier<ConnectionConfig> connection, Runnable onRun) {
         this.completer = completer;
@@ -119,6 +120,15 @@ class SqlEditor extends VBox {
         area.replaceText(text);
         area.getUndoManager().forgetHistory();
         rehighlight();
+    }
+
+    /** For Ctrl+Enter: the selected text, or the statement at the caret ("" if there is none). */
+    String statementToRun() {
+        String selected = area.getSelectedText();
+        if (!selected.isBlank()) return selected;
+        ConnectionConfig c = connection.get();
+        SqlSplitter.Statement s = SqlSplitter.statementAt(area.getText(), area.getCaretPosition(), c == null ? null : c.getType());
+        return s == null ? "" : s.sql();
     }
 
     /** The selected text, or all of it when nothing is selected. */

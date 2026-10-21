@@ -55,6 +55,7 @@ class ScriptTab extends Tab {
     private final TabPane results = new TabPane();
     private final Tab messagesTab = new Tab("Messages", messages);
     private final Button runButton = new Button("▶ Run");
+    private final Button runAllButton = new Button("▶▶ Run All");
     private final Button stopButton = new Button("■ Stop");
 
     private final String untitledName;
@@ -66,7 +67,7 @@ class ScriptTab extends Tab {
               SessionProvider sessions, SqlCompleter completer, ScriptBindings bindings) {
         this.untitledName = untitledName;
         this.file = file;
-        this.editor = new SqlEditor(completer, sessions, connection::getValue, this::run);
+        this.editor = new SqlEditor(completer, sessions, connection::getValue, this::runStatement);
         this.runner = new ScriptRunner(sessions, completer);
         this.bindings = bindings;
         this.boundId = file == null ? null : bindings.connectionFor(file);
@@ -85,9 +86,12 @@ class ScriptTab extends Tab {
             updateBindingWarning(); // a rename changes the text
         });
 
-        runButton.setTooltip(new Tooltip("Run selection, or the whole script (Ctrl+Enter)"));
-        runButton.setOnAction(e -> run());
+        runButton.setTooltip(new Tooltip("Run the statement at the cursor, or the selection (Ctrl+Enter)"));
+        runButton.setOnAction(e -> runStatement());
         runButton.disableProperty().bind(runner.runningProperty());
+        runAllButton.setTooltip(new Tooltip("Run the whole script, or the selection"));
+        runAllButton.setOnAction(e -> run());
+        runAllButton.disableProperty().bind(runner.runningProperty());
         stopButton.setOnAction(e -> stop());
         stopButton.disableProperty().bind(runner.runningProperty().not());
         Label mode = new Label();
@@ -97,7 +101,7 @@ class ScriptTab extends Tab {
             editor.connectionChanged();
         });
         showMode(mode, initial);
-        ToolBar bar = new ToolBar(runButton, stopButton, new Separator(Orientation.VERTICAL),
+        ToolBar bar = new ToolBar(runButton, runAllButton, stopButton, new Separator(Orientation.VERTICAL),
                 new Label("Connection:"), connection, mode, bindingWarning,
                 new Separator(Orientation.VERTICAL), DataView.valuePanelToggle());
         bindingWarning.getStyleClass().add("binding-warning");
@@ -188,7 +192,17 @@ class ScriptTab extends Tab {
 
     // ---- running ---------------------------------------------------------
 
+    /** ▶ Run: the selection, or the whole script. */
     void run() {
+        run(editor.sqlToRun());
+    }
+
+    /** Ctrl+Enter: the selection, or only the statement at the cursor. */
+    void runStatement() {
+        run(editor.statementToRun());
+    }
+
+    private void run(String sql) {
         ConnectionConfig config = connection.getValue();
         if (config == null) {
             log("Select a connection first.");
@@ -196,7 +210,7 @@ class ScriptTab extends Tab {
         }
         if (runner.runningProperty().get()) return;
         if (boundId != null && !boundId.equals(config.getId()) && !confirmOtherConnection(config)) return;
-        if (runner.run(editor.sqlToRun(), config, window(), new Results()) == ScriptRunner.Outcome.NOTHING_TO_RUN) {
+        if (runner.run(sql, config, window(), new Results()) == ScriptRunner.Outcome.NOTHING_TO_RUN) {
             log("Nothing to run.");
         }
     }
