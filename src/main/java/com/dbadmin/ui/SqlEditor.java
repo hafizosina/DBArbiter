@@ -80,6 +80,11 @@ class SqlEditor extends VBox {
             }
         });
         addEventFilter(KeyEvent.KEY_PRESSED, e -> {
+            if (e.isShortcutDown() && (e.getCode() == KeyCode.SLASH || e.getCode() == KeyCode.DIVIDE)) {
+                e.consume();
+                toggleLineComment();
+                return;
+            }
             if (handleFindKeys(e)) e.consume();
         });
 
@@ -162,6 +167,60 @@ class SqlEditor extends VBox {
 
     void hidePopup() {
         popup.hide();
+    }
+
+    /**
+     * Ctrl+/: comments out the current line, or every line of the selection, with "-- " at their
+     * common indentation; if all of them are already commented, uncomments them. One undo step.
+     */
+    void toggleLineComment() {
+        String text = area.getText();
+        int selStart = area.getSelection().getStart();
+        int selEnd = area.getSelection().getEnd();
+        // a selection ending at the very start of a line does not include that line
+        if (selEnd > selStart && text.charAt(selEnd - 1) == '\n') selEnd--;
+        int from = text.lastIndexOf('\n', selStart - 1) + 1;
+        int to = text.indexOf('\n', selEnd);
+        if (to < 0) to = text.length();
+
+        String[] lines = text.substring(from, to).split("\n", -1);
+        boolean allCommented = true;
+        int indent = Integer.MAX_VALUE;
+        for (String line : lines) {
+            if (line.isBlank()) continue;
+            int lead = line.length() - line.stripLeading().length();
+            indent = Math.min(indent, lead);
+            if (!line.stripLeading().startsWith("--")) allCommented = false;
+        }
+        if (indent == Integer.MAX_VALUE) {
+            // only blank lines: start a comment on the current one
+            allCommented = false;
+            indent = 0;
+        }
+
+        StringBuilder out = new StringBuilder();
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i];
+            if (i > 0) out.append('\n');
+            if (line.isBlank() && lines.length > 1) {
+                out.append(line);
+            } else if (allCommented) {
+                int at = line.indexOf("--");
+                int cut = line.startsWith("-- ", at) ? 3 : 2;
+                out.append(line, 0, at).append(line.substring(at + cut));
+            } else {
+                int at = Math.min(indent, line.length());
+                out.append(line, 0, at).append("-- ").append(line.substring(at));
+            }
+        }
+        boolean hadSelection = area.getSelection().getLength() > 0;
+        int caret = area.getCaretPosition();
+        area.replaceText(from, to, out.toString());
+        if (hadSelection || lines.length > 1) {
+            area.selectRange(from, from + out.length()); // keep the lines selected for a second toggle
+        } else {
+            area.moveTo(Math.max(from, Math.min(from + out.length(), caret + out.length() - (to - from))));
+        }
     }
 
     /** Ctrl+F, Ctrl+R and (Shift+)F3; true if the key was one of them. */

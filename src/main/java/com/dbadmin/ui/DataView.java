@@ -25,12 +25,17 @@ class DataView extends BorderPane {
 
     private final DataGrid grid = new DataGrid();
     private final CellInspector inspector = new CellInspector();
+    /** For a compare result: the source value above, the target value below. */
+    private final CellInspector targetInspector = new CellInspector();
+    private final SplitPane pairPanel = new SplitPane();
+    private final javafx.scene.layout.StackPane inspectorHost = new javafx.scene.layout.StackPane(inspector);
     private final SplitPane split = new SplitPane(grid);
     private double divider = 0.7;
 
     DataView() {
-        grid.selectedCellProperty().addListener((o, a, cell) -> inspector.show(cell));
-        SplitPane.setResizableWithParent(inspector, false);
+        grid.selectedCellProperty().addListener((o, a, cell) -> showCell(cell));
+        pairPanel.setOrientation(Orientation.VERTICAL);
+        SplitPane.setResizableWithParent(inspectorHost, false);
         setCenter(split);
         SHOW_VALUE_PANEL.addListener((o, a, show) -> applyVisibility(show));
         applyVisibility(SHOW_VALUE_PANEL.get());
@@ -55,6 +60,26 @@ class DataView extends BorderPane {
 
     DataGrid grid() {
         return grid;
+    }
+
+    /** One view for a value; two (source, target) for a value from a data compare. */
+    private void showCell(DataGrid.CellValue cell) {
+        if (cell != null && cell.value() instanceof ComparedValue cv) {
+            inspector.show(new DataGrid.CellValue(cell.column() + "  ·  " + cv.sourceName(), cell.type(),
+                    cv.inSource() ? cv.source() : "(no row in " + cv.sourceName() + ")"));
+            targetInspector.show(new DataGrid.CellValue(cell.column() + "  ·  " + cv.targetName(), cell.type(),
+                    cv.inTarget() ? cv.target() : "(no row in " + cv.targetName() + ")"));
+            if (pairPanel.getItems().isEmpty()) {
+                pairPanel.getItems().setAll(inspector, targetInspector);
+                inspectorHost.getChildren().setAll(pairPanel);
+            }
+        } else {
+            if (!pairPanel.getItems().isEmpty()) {
+                pairPanel.getItems().clear();
+                inspectorHost.getChildren().setAll(inspector);
+            }
+            inspector.show(cell);
+        }
     }
 
     // ---- results fetched chunk by chunk -----------------------------------
@@ -142,12 +167,12 @@ class DataView extends BorderPane {
     }
 
     private void applyVisibility(boolean show) {
-        if (show && !split.getItems().contains(inspector)) {
-            split.getItems().add(inspector);
+        if (show && !split.getItems().contains(inspectorHost)) {
+            split.getItems().add(inspectorHost);
             split.setDividerPositions(divider);
-        } else if (!show && split.getItems().contains(inspector)) {
+        } else if (!show && split.getItems().contains(inspectorHost)) {
             divider = split.getDividerPositions()[0];
-            split.getItems().remove(inspector);
+            split.getItems().remove(inspectorHost);
         }
     }
 

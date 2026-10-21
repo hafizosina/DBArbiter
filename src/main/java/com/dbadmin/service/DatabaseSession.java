@@ -264,6 +264,46 @@ public class DatabaseSession implements AutoCloseable {
     }
 
     /** One row per index, with its columns in order. */
+    /** A column as compared between databases. {@code digits} is the scale of numeric types, or null. */
+    public record ColumnDef(String name, String type, int size, Integer digits, boolean nullable, String defaultValue) {
+    }
+
+    public List<ColumnDef> columnDefs(TableRef t) throws SQLException {
+        List<ColumnDef> result = new ArrayList<>();
+        try (ResultSet rs = connection.getMetaData().getColumns(t.catalog(), t.schema(), t.name(), "%")) {
+            while (rs.next()) {
+                int digits = rs.getInt("DECIMAL_DIGITS");
+                result.add(new ColumnDef(rs.getString("COLUMN_NAME"), rs.getString("TYPE_NAME"), rs.getInt("COLUMN_SIZE"),
+                        rs.wasNull() ? null : digits, "YES".equals(rs.getString("IS_NULLABLE")), rs.getString("COLUMN_DEF")));
+            }
+        }
+        return result;
+    }
+
+    /** The primary key's columns in key order; empty if the table has none. */
+    public List<String> primaryKey(TableRef t) throws SQLException {
+        Map<Short, String> columns = new TreeMap<>();
+        try (ResultSet rs = connection.getMetaData().getPrimaryKeys(t.catalog(), t.schema(), t.name())) {
+            while (rs.next()) columns.put(rs.getShort("KEY_SEQ"), rs.getString("COLUMN_NAME"));
+        }
+        return new ArrayList<>(columns.values());
+    }
+
+    /**
+     * Rows of a table matching {@code where} (SQL condition, or null for all), ordered by {@code orderBy},
+     * at most {@code maxRows} (truncated tells if more exist). Used to compare data between databases.
+     * The caller makes sure {@code where} is a plain condition (see SqlSplitter.isReadOnlyQuery).
+     */
+    public StatementResult fetchOrdered(TableRef t, List<String> orderBy, String where, int maxRows) throws SQLException {
+        String q = connection.getMetaData().getIdentifierQuoteString().trim();
+        StringBuilder sql = new StringBuilder("SELECT * FROM ").append(qualifiedName(t));
+        if (where != null && !where.isBlank()) sql.append(" WHERE (").append(where).append(")");
+        for (int i = 0; i < orderBy.size(); i++) {
+            sql.append(i == 0 ? " ORDER BY " : ", ").append(quote(orderBy.get(i), q));
+        }
+        return execute(sql.toString(), List.of(), maxRows);
+    }
+
     public TableData listIndexes(TableRef t) throws SQLException {
         Map<String, List<String>> columns = new LinkedHashMap<>();
         Map<String, Boolean> unique = new HashMap<>();

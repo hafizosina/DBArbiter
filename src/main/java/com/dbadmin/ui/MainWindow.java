@@ -58,6 +58,8 @@ public class MainWindow implements SessionProvider {
     private final Map<String, List<Waiter>> connecting = new HashMap<>();
     private final SqlCompleter completer = new SqlCompleter();
     private TableSearch navigator;
+    private SplitPane mainSplit;
+    private double navigatorDivider = 0.25;
     private final ScriptBindings scriptBindings = new ScriptBindings();
 
     /** Display order; names are only labels, the id is what identifies a connection. */
@@ -116,9 +118,10 @@ public class MainWindow implements SessionProvider {
 
         navigator = new TableSearch(tree, () -> List.copyOf(sessions.values()), this::openTable);
         completer.setOnInvalidate(navigator::invalidate); // DDL and refresh also reload the search
-        SplitPane split = new SplitPane(navigator, center);
-        split.setDividerPositions(0.25);
+        mainSplit = new SplitPane(navigator, center);
+        mainSplit.setDividerPositions(0.25);
         SplitPane.setResizableWithParent(navigator, false);
+        SplitPane split = mainSplit;
 
         status.setPadding(new Insets(3, 8, 3, 8));
         root.setTop(buildTopBar());
@@ -180,10 +183,34 @@ public class MainWindow implements SessionProvider {
 
         javafx.scene.layout.Region spacer = new javafx.scene.layout.Region();
         HBox.setHgrow(spacer, javafx.scene.layout.Priority.ALWAYS);
-        HBox bar = new HBox(buildMenuBar(), spacer, gearMenu);
+        // hides the connections panel to give tabs the whole width; showing it restores its size
+        javafx.scene.control.ToggleButton navToggle = new javafx.scene.control.ToggleButton("☰");
+        navToggle.getStyleClass().add("nav-toggle");
+        navToggle.setSelected(true);
+        navToggle.setFocusTraversable(false);
+        navToggle.setTooltip(new javafx.scene.control.Tooltip("Show or hide the connections panel"));
+        navToggle.selectedProperty().addListener((o, a, show) -> {
+            if (show && !mainSplit.getItems().contains(navigator)) {
+                mainSplit.getItems().add(0, navigator);
+                mainSplit.setDividerPositions(navigatorDivider);
+            } else if (!show && mainSplit.getItems().contains(navigator)) {
+                navigatorDivider = mainSplit.getDividerPositions()[0];
+                mainSplit.getItems().remove(navigator);
+            }
+        });
+        HBox bar = new HBox(navToggle, buildMenuBar(), spacer, gearMenu);
         bar.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
         bar.getStyleClass().add("top-bar");
         return bar;
+    }
+
+    private void openCompare(CompareTab.Mode mode) {
+        showTab(new CompareTab(mode, connections, this, selectedConnection().orElse(null), this::showTab));
+    }
+
+    private void showTab(Tab tab) {
+        tabs.getTabs().add(tab);
+        tabs.getSelectionModel().select(tab);
     }
 
     private void openSettings() {
@@ -236,7 +263,12 @@ public class MainWindow implements SessionProvider {
         Menu script = new Menu("Script", null, newScript, openScript,
                 new SeparatorMenuItem(), saveScriptItem, saveScriptAsItem,
                 new SeparatorMenuItem(), runStatementItem, runScriptItem, stopScriptItem);
-        return new MenuBar(connection, script);
+        MenuItem compareSchema = new MenuItem("Compare Table…");
+        compareSchema.setOnAction(e -> openCompare(CompareTab.Mode.SCHEMA));
+        MenuItem compareData = new MenuItem("Compare Data…");
+        compareData.setOnAction(e -> openCompare(CompareTab.Mode.DATA));
+        Menu tools = new Menu("Tools", null, compareSchema, compareData);
+        return new MenuBar(connection, script, tools);
     }
 
     private ContextMenu buildContextMenu() {

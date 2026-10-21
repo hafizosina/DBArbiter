@@ -124,6 +124,17 @@
 .top-bar > .menu-bar { -fx-background-color: transparent; }
 .gear-menu { -fx-background-color: transparent; -fx-padding: 2 6 2 6; }
 .gear-menu:hover, .gear-menu:showing { -fx-background-color: derive(-fx-base, -8%); -fx-background-radius: 4; }
+.nav-toggle { -fx-background-color: transparent; -fx-padding: 2 8 2 8; }
+.nav-toggle:hover { -fx-background-color: derive(-fx-base, -8%); -fx-background-radius: 4; }
 .gear-menu > .arrow-button, .gear-menu > .arrow-button > .arrow { -fx-padding: 0; -fx-shape: null; }
 .gear-icon { -fx-fill: #555; }
 .more-bar { -fx-border-color: #d0d0d0 transparent transparent transparent; }
+
+/* Tools > Compare */
+.cmp-icon { -fx-font-weight: bold; }
+.cmp-same { -fx-text-fill: #78909c; }
+.cmp-changed { -fx-text-fill: #e65100; }
+.cmp-only-source { -fx-text-fill: #2e7d32; }
+.cmp-only-target { -fx-text-fill: #c62828; }
+.table-row-cell .cmp-cell-changed { -fx-background-color: #fff3e0; -fx-text-fill: #bf360c; }
+.table-row-cell:selected .cmp-cell-changed, .cmp-cell-changed:selected { -fx-background-color: -fx-selection-bar; -fx-text-fill: -fx-selection-bar-text; }

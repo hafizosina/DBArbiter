@@ -79,3 +79,8 @@
 .overlay-layer { -fx-background-color: rgba(0, 0, 0, 0.5); }
 .overlay-title { -fx-background-color: #393b40; -fx-border-color: transparent transparent #43454a transparent; }
 .more-bar { -fx-border-color: #43454a transparent transparent transparent; }
+.cmp-same { -fx-text-fill: #8a8f96; }
+.cmp-changed { -fx-text-fill: #ffb74d; }
+.cmp-only-source { -fx-text-fill: #81c784; }
+.cmp-only-target { -fx-text-fill: #ff7b72; }
+.table-row-cell .cmp-cell-changed { -fx-background-color: #4a3518; -fx-text-fill: #ffcc80; }

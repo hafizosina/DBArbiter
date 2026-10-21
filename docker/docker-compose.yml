@@ -1,4 +1,5 @@
 # Local test databases for DBAdmin.
+#   cp docker/.env.example docker/.env   # then set the passwords
 #   docker compose -f docker/docker-compose.yml up -d
 name: antam
 
@@ -7,15 +8,15 @@ services:
     image: postgres:16
     container_name: AntamUAT
     environment:
-      POSTGRES_DB: antam
-      POSTGRES_USER: antam
-      POSTGRES_PASSWORD: antam_uat
+      POSTGRES_DB: ${ANTAM_UAT_DB:?set ANTAM_UAT_DB in docker/.env}
+      POSTGRES_USER: ${ANTAM_UAT_USER:?set ANTAM_UAT_USER in docker/.env}
+      POSTGRES_PASSWORD: ${ANTAM_UAT_PASSWORD:?set ANTAM_UAT_PASSWORD in docker/.env}
     ports:
       - "5433:5432"
     volumes:
       - antam-uat-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U antam -d antam"]
+      test: ["CMD-SHELL", "pg_isready -U ${ANTAM_UAT_USER:?} -d ${ANTAM_UAT_DB:?}"]
       interval: 5s
       retries: 10
     restart: unless-stopped
@@ -24,15 +25,15 @@ services:
     image: postgres:16
     container_name: AntamProd
     environment:
-      POSTGRES_DB: antam
-      POSTGRES_USER: antam
-      POSTGRES_PASSWORD: antam_prod
+      POSTGRES_DB: ${ANTAM_PROD_DB:?set ANTAM_PROD_DB in docker/.env}
+      POSTGRES_USER: ${ANTAM_PROD_USER:?set ANTAM_PROD_USER in docker/.env}
+      POSTGRES_PASSWORD: ${ANTAM_PROD_PASSWORD:?set ANTAM_PROD_PASSWORD in docker/.env}
     ports:
       - "5434:5432"
     volumes:
       - antam-prod-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U antam -d antam"]
+      test: ["CMD-SHELL", "pg_isready -U ${ANTAM_PROD_USER:?} -d ${ANTAM_PROD_DB:?}"]
       interval: 5s
       retries: 10
     restart: unless-stopped

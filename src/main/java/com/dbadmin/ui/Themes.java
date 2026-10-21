@@ -22,6 +22,8 @@ final class Themes {
     private static final SettingsStore STORE = new SettingsStore();
     private static AppSettings settings = STORE.load();
     private static final ObjectProperty<Theme> THEME = new SimpleObjectProperty<>(settings.getTheme());
+    /** The settings shown right now (saved ones, or a preview from the Settings dialog). */
+    private static final ObjectProperty<AppSettings> SHOWN = new SimpleObjectProperty<>(settings.copy());
 
     private Themes() {
     }
@@ -39,11 +41,29 @@ final class Themes {
         STORE.save(changed);
         settings = changed.copy();
         THEME.set(settings.getTheme());
+        SHOWN.set(settings.copy());
     }
 
-    /** Shows a theme without saving it (e.g. a preview in the Settings dialog). */
-    static void preview(Theme theme) {
-        THEME.set(theme);
+    /** Shows settings without saving them (e.g. a preview in the Settings dialog). */
+    static void preview(AppSettings shown) {
+        THEME.set(shown.getTheme());
+        SHOWN.set(shown.copy());
+    }
+
+    /** Undoes a preview: back to the saved settings. */
+    static void revertPreview() {
+        THEME.set(settings.getTheme());
+        SHOWN.set(settings.copy());
+    }
+
+    /** The background color of a data-compare status cell in the theme shown now. */
+    static String statusColor(String status) {
+        return SHOWN.get().statusColor(THEME.get(), status);
+    }
+
+    /** Fires when colors may have changed (theme or status colors), e.g. to repaint grids. */
+    static javafx.beans.value.ObservableValue<AppSettings> shownSettings() {
+        return SHOWN;
     }
 
     static Theme current() {

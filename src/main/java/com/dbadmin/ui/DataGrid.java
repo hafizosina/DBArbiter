@@ -115,9 +115,18 @@ class DataGrid extends TableView<List<Object>> {
         @Override
         protected void updateItem(Object value, boolean empty) {
             super.updateItem(value, empty);
-            getStyleClass().remove("null-value");
+            getStyleClass().removeAll("null-value", "cmp-cell-changed");
+            setStyle(null);
             if (empty) {
                 setText(null);
+            } else if (value instanceof StatusValue sv) {
+                String color = Themes.statusColor(sv.status());
+                setText(sv.label());
+                setStyle("-fx-background-color: " + color + "; -fx-text-fill: " + StatusValue.textColorOn(color)
+                        + "; -fx-font-weight: bold;");
+            } else if (value instanceof ComparedValue cv) {
+                setText(cv.toString().replace('\n', '↵'));
+                if (cv.differs()) getStyleClass().add("cmp-cell-changed");
             } else if (value == null || value instanceof BlobValue) {
                 setText(value == null ? "[NULL]" : value.toString());
                 getStyleClass().add("null-value");

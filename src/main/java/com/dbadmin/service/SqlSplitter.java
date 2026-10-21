@@ -93,7 +93,7 @@ public final class SqlSplitter {
             "(?:\\s|--[^\\n]*\\n?|/\\*(?s:.*?)\\*/)*(select|with|values|table|show|explain|describe|desc|pragma)\\b",
             Pattern.CASE_INSENSITIVE);
     private static final Pattern WRITES = Pattern.compile(
-            "\\b(insert|update|delete|merge|upsert|replace|create|alter|drop|truncate|grant|revoke|call|do|copy|into"
+            "\\b(insert|update|delete|merge|create|alter|drop|truncate|grant|revoke|call|do|copy|into"
                     + "|lock|nextval|setval)\\b", Pattern.CASE_INSENSITIVE);
 
     /**
