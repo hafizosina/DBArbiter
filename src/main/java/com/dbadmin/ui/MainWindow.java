@@ -5,6 +5,7 @@ import com.dbadmin.model.Namespace;
 import com.dbadmin.model.TableRef;
 import com.dbadmin.service.ConnectionStore;
 import com.dbadmin.service.DatabaseSession;
+import com.dbadmin.service.ScriptBindings;
 import com.dbadmin.service.ScriptFolder;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
@@ -29,14 +30,13 @@ import javafx.scene.input.KeyCombination;
 import javafx.scene.input.MouseButton;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.StackPane;
-import javafx.stage.FileChooser;
 import javafx.stage.Stage;
 
-import java.io.File;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -52,6 +52,13 @@ public class MainWindow implements SessionProvider {
     private final Map<String, DatabaseSession> sessions = new HashMap<>();
     /** Callbacks waiting for a connection that is being opened, keyed by connection id. */
     private final Map<String, List<Waiter>> connecting = new HashMap<>();
+    private final SqlCompleter completer = new SqlCompleter();
+    private final ScriptBindings scriptBindings = new ScriptBindings();
+
+    /** Display order; names are only labels, the id is what identifies a connection. */
+    private static final Comparator<ConnectionConfig> BY_NAME = Comparator
+            .comparing(ConnectionConfig::getName, String.CASE_INSENSITIVE_ORDER)
+            .thenComparing(ConnectionConfig::getId);
 
     private final TreeItem<NavNode> treeRoot = new TreeItem<>();
     private final TreeView<NavNode> tree = new TreeView<>(treeRoot);
@@ -71,6 +78,7 @@ public class MainWindow implements SessionProvider {
     public MainWindow(Stage stage) {
         this.stage = stage;
         this.connections = FXCollections.observableArrayList(loadConnections());
+        connections.sort(BY_NAME);
         stage.setOnCloseRequest(e -> {
             if (!confirmCloseScripts()) e.consume();
         });
@@ -219,28 +227,57 @@ public class MainWindow implements SessionProvider {
     }
 
     private void newConnection() {
-        new ConnectionDialog(stage, null).showAndWait().ifPresent(c -> {
+        openConnectionTab(new ConnectionTab(null, c -> {
             connections.add(c);
-            saveConnections();
             LazyItem item = new LazyItem(NavNode.connection(c));
             treeRoot.getChildren().add(item);
+            sortConnections();
+            saveConnections();
             tree.getSelectionModel().select(item);
             item.setExpanded(true);
-        });
+        }));
     }
 
     private void editConnection() {
-        TreeItem<NavNode> item = connectionItem(tree.getSelectionModel().getSelectedItem());
-        if (item == null) return;
-        ConnectionConfig old = item.getValue().connection();
-        new ConnectionDialog(stage, old).showAndWait().ifPresent(updated -> {
-            disconnect(old);
-            connections.set(connections.indexOf(old), updated);
-            saveConnections();
+        TreeItem<NavNode> selected = connectionItem(tree.getSelectionModel().getSelectedItem());
+        if (selected == null) return;
+        ConnectionConfig edited = selected.getValue().connection();
+        for (Tab t : tabs.getTabs()) {
+            if (t instanceof ConnectionTab ct && edited.getId().equals(ct.editedId())) {
+                tabs.getSelectionModel().select(t);
+                return;
+            }
+        }
+        openConnectionTab(new ConnectionTab(edited, updated -> {
+            // look the connection up again: the tab may have stayed open while things changed
+            ConnectionConfig current = connections.stream()
+                    .filter(c -> c.getId().equals(updated.getId())).findFirst().orElse(null);
+            if (current == null) {
+                status.setText("Not saved: the connection was deleted");
+                return;
+            }
+            disconnect(current);
+            connections.set(connections.indexOf(current), updated);
             LazyItem replacement = new LazyItem(NavNode.connection(updated));
-            treeRoot.getChildren().set(treeRoot.getChildren().indexOf(item), replacement);
+            for (int i = 0; i < treeRoot.getChildren().size(); i++) {
+                if (treeRoot.getChildren().get(i).getValue().connection() == current) {
+                    treeRoot.getChildren().set(i, replacement);
+                }
+            }
+            sortConnections(); // the name may have changed
+            saveConnections();
             tree.getSelectionModel().select(replacement);
-        });
+        }));
+    }
+
+    private void sortConnections() {
+        connections.sort(BY_NAME);
+        treeRoot.getChildren().sort(Comparator.comparing(item -> item.getValue().connection(), BY_NAME));
+    }
+
+    private void openConnectionTab(ConnectionTab tab) {
+        tabs.getTabs().add(tab);
+        tabs.getSelectionModel().select(tab);
     }
 
     private void deleteConnection() {
@@ -254,6 +291,7 @@ public class MainWindow implements SessionProvider {
         confirm.setHeaderText(null);
         if (confirm.showAndWait().orElse(ButtonType.CANCEL) != ButtonType.OK) return;
         disconnect(c);
+        tabs.getTabs().removeIf(t -> t instanceof ConnectionTab ct && c.getId().equals(ct.editedId()));
         connections.remove(c);
         saveConnections();
         treeRoot.getChildren().remove(item);
@@ -300,7 +338,6 @@ public class MainWindow implements SessionProvider {
                         .toList());
                 if (namespaces.isEmpty()) item.getChildren().add(message("(no schemas)"));
                 if (namespaces.size() == 1) item.getChildren().get(0).setExpanded(true);
-                else expandDefaultSchema(item);
             }, ex -> loadFailed(item, ex));
             case NAMESPACE -> {
                 Namespace ns = node.namespace();
@@ -350,16 +387,12 @@ public class MainWindow implements SessionProvider {
         });
     }
 
-    private record Waiter(Consumer<DatabaseSession> onReady, Consumer<Throwable> onError) {
+    @Override
+    public Optional<DatabaseSession> openSession(ConnectionConfig c) {
+        return Optional.ofNullable(sessions.get(c.getId()));
     }
 
-    private void expandDefaultSchema(TreeItem<NavNode> connectionItem) {
-        for (TreeItem<NavNode> child : connectionItem.getChildren()) {
-            if ("public".equals(child.getValue().label())) {
-                child.setExpanded(true);
-                return;
-            }
-        }
+    private record Waiter(Consumer<DatabaseSession> onReady, Consumer<Throwable> onError) {
     }
 
     private TreeItem<NavNode> folder(ConnectionConfig c, String name, List<TableRef> tables) {
@@ -378,6 +411,7 @@ public class MainWindow implements SessionProvider {
         TreeItem<NavNode> item = tree.getSelectionModel().getSelectedItem();
         while (item != null && !(item instanceof LazyItem)) item = item.getParent();
         if (item instanceof LazyItem lazy) {
+            completer.invalidate(sessions.get(idOf(lazy.getValue())));
             lazy.reset();
             lazy.setExpanded(false);
             lazy.setExpanded(true);
@@ -410,23 +444,28 @@ public class MainWindow implements SessionProvider {
         List<String> open = tabs.getTabs().stream()
                 .filter(t -> t instanceof ScriptTab).map(t -> ((ScriptTab) t).displayName()).toList();
         String name = ScriptFolder.nextName(scriptDir(), c == null ? null : c.getName(), open);
-        openScriptTab(new ScriptTab(name, null, "", connections, c, this));
+        openScriptTab(new ScriptTab(name, null, "", connections, c, this, completer, scriptBindings));
     }
 
     private void openScript() {
-        FileChooser chooser = new FileChooser();
-        chooser.setTitle("Open Script");
-        chooser.getExtensionFilters().addAll(
-                new FileChooser.ExtensionFilter("SQL scripts", "*.sql"),
-                new FileChooser.ExtensionFilter("All files", "*"));
-        Path dir = scriptDir();
-        if (dir != null) chooser.setInitialDirectory(dir.toFile());
-        List<File> files = chooser.showOpenMultipleDialog(stage);
-        if (files == null) return;
-        for (File f : files) {
+        List<Path> files = new OpenScriptDialog(stage, connections, scriptBindings.all(), scriptDir(),
+                selectedConnection().orElse(null)).showAndWait().orElse(List.of());
+        for (Path f : files) {
+            // already open: just switch to it
+            Optional<Tab> open = tabs.getTabs().stream()
+                    .filter(t -> t instanceof ScriptTab st && f.equals(st.file()))
+                    .findFirst();
+            if (open.isPresent()) {
+                tabs.getSelectionModel().select(open.get());
+                continue;
+            }
             try {
-                String content = ScriptTab.read(f.toPath());
-                openScriptTab(new ScriptTab(f.getName(), f.toPath(), content, connections, defaultConnection(), this));
+                String content = ScriptTab.read(f);
+                // only the connection the script was saved for; never guess (e.g. from the tree selection)
+                String boundId = scriptBindings.connectionFor(f);
+                ConnectionConfig bound = connections.stream()
+                        .filter(c -> c.getId().equals(boundId)).findFirst().orElse(null);
+                openScriptTab(new ScriptTab(f.getFileName().toString(), f, content, connections, bound, this, completer, scriptBindings));
             } catch (IOException e) {
                 error("Could not open " + f, e);
             }

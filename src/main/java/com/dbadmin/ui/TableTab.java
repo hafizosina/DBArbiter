@@ -1,11 +1,13 @@
 package com.dbadmin.ui;
 
+import com.dbadmin.model.TableData;
 import com.dbadmin.model.TableRef;
 import com.dbadmin.service.DatabaseSession;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.ListView;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
 import javafx.scene.layout.BorderPane;
@@ -13,7 +15,16 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 
-/** Shows one table or view: its columns, indexes and a page of its data. */
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.Callable;
+
+/**
+ * Shows one table or view, laid out like DBeaver: a Properties tab with a vertical list of
+ * sections (Columns, Constraints, Foreign Keys, Indexes, Triggers) and a Data tab, opened by default.
+ */
 class TableTab extends Tab {
 
     private static final int PAGE_SIZE = 200;
@@ -21,9 +32,12 @@ class TableTab extends Tab {
     private final DatabaseSession session;
     private final TableRef table;
 
-    private final DataGrid columnsGrid = new DataGrid();
-    private final DataGrid indexesGrid = new DataGrid();
-    private final DataGrid dataGrid = new DataGrid();
+    private final DataView dataView = new DataView();
+    private final DataGrid dataGrid = dataView.grid();
+    /** Properties sections by name, in display order; each is loaded the first time it is shown. */
+    private final Map<String, Section> sections = new LinkedHashMap<>();
+    private final Set<String> loadedSections = new HashSet<>();
+    private final BorderPane sectionContent = new BorderPane();
 
     private final Label pageInfo = new Label();
     private final Button prev = new Button("◀ Prev");
@@ -38,14 +52,19 @@ class TableTab extends Tab {
         this.table = table;
         setTooltip(new javafx.scene.control.Tooltip(session.getConfig().getName() + " · " + table.displayName()));
 
-        Tab columns = new Tab("Columns", columnsGrid);
-        Tab indexes = new Tab("Indexes", indexesGrid);
+        addSection("Columns", () -> session.listColumns(table));
+        addSection("Constraints", () -> session.listConstraints(table));
+        addSection("Foreign Keys", () -> session.listForeignKeys(table));
+        addSection("Indexes", () -> session.listIndexes(table));
+        addSection("Triggers", () -> session.listTriggers(table));
+
+        Tab properties = new Tab("Properties", buildPropertiesPane());
         Tab data = new Tab("Data", buildDataPane());
-        TabPane inner = new TabPane(columns, indexes, data);
+        TabPane inner = new TabPane(properties, data);
         inner.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
         setContent(inner);
 
-        // fetch data only when the Data tab is first opened
+        // fetch data only when the Data tab is first shown
         data.setOnSelectionChanged(e -> {
             if (data.isSelected() && !dataLoaded) {
                 dataLoaded = true;
@@ -53,8 +72,51 @@ class TableTab extends Tab {
                 loadPage();
             }
         });
+        inner.getSelectionModel().select(data);
+    }
 
-        loadStructure();
+    private record Section(DataGrid grid, Callable<TableData> loader) {
+    }
+
+    private void addSection(String name, Callable<TableData> loader) {
+        sections.put(name, new Section(new DataGrid(), loader));
+    }
+
+    private BorderPane buildPropertiesPane() {
+        ListView<String> nav = new ListView<>();
+        nav.getItems().addAll(sections.keySet());
+        nav.getStyleClass().add("section-nav");
+        nav.setPrefWidth(140);
+        nav.setMinWidth(120);
+        nav.getSelectionModel().selectedItemProperty().addListener((o, a, name) -> {
+            if (name != null) showSection(name, false);
+        });
+
+        Button refresh = new Button("Refresh");
+        refresh.setOnAction(e -> {
+            String name = nav.getSelectionModel().getSelectedItem();
+            if (name != null) showSection(name, true);
+        });
+        HBox bar = new HBox(8, refresh);
+        bar.setPadding(new Insets(6));
+        sectionContent.setTop(bar);
+
+        BorderPane pane = new BorderPane(sectionContent);
+        pane.setLeft(nav);
+        nav.getSelectionModel().selectFirst();
+        return pane;
+    }
+
+    private void showSection(String name, boolean reload) {
+        Section section = sections.get(name);
+        sectionContent.setCenter(section.grid());
+        if (!loadedSections.add(name) && !reload) return;
+        section.grid().getItems().clear();
+        section.grid().setPlaceholder(new Label("Loading…"));
+        Async.run(session, section.loader(), data -> {
+            section.grid().show(data);
+            section.grid().setPlaceholder(new Label("No " + name.toLowerCase()));
+        }, ex -> section.grid().setPlaceholder(errorLabel(ex)));
     }
 
     String key() {
@@ -81,20 +143,13 @@ class TableTab extends Tab {
         });
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox bar = new HBox(8, refresh, spacer, pageInfo, prev, next);
+        HBox bar = new HBox(8, refresh, DataView.valuePanelToggle(), spacer, pageInfo, prev, next);
         bar.setAlignment(Pos.CENTER_LEFT);
         bar.setPadding(new Insets(6));
 
-        BorderPane pane = new BorderPane(dataGrid);
+        BorderPane pane = new BorderPane(dataView);
         pane.setTop(bar);
         return pane;
-    }
-
-    private void loadStructure() {
-        Async.run(session, () -> session.listColumns(table), columnsGrid::show,
-                ex -> columnsGrid.setPlaceholder(errorLabel(ex)));
-        Async.run(session, () -> session.listIndexes(table), indexesGrid::show,
-                ex -> indexesGrid.setPlaceholder(errorLabel(ex)));
     }
 
     private void loadCount() {

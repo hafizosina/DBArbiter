@@ -22,3 +22,40 @@
 .error-text-inline { -fx-text-fill: #c62828; }
 .mode-write { -fx-text-fill: #e65100; -fx-font-size: 11px; -fx-font-weight: bold; }
 .param-name { -fx-font-family: "DejaVu Sans Mono", "Monospaced"; -fx-text-fill: #c2185b; }
+
+/* autocomplete popup */
+.completion-list { -fx-font-family: "DejaVu Sans Mono", "Monospaced"; -fx-font-size: 12px; -fx-effect: dropshadow(gaussian, rgba(0,0,0,0.25), 8, 0, 0, 2); }
+.completion-badge { -fx-font-weight: bold; -fx-text-fill: white; -fx-background-radius: 3; -fx-font-size: 10px; -fx-padding: 0 3 0 3; }
+.completion-detail { -fx-text-fill: #9e9e9e; -fx-font-size: 11px; }
+.list-cell:selected .completion-detail { -fx-text-fill: #e3f2fd; }
+.badge-column { -fx-background-color: #f57c00; }
+.badge-table { -fx-background-color: #1565c0; }
+.badge-view { -fx-background-color: #6a1b9a; }
+.badge-schema { -fx-background-color: #00796b; }
+.badge-keyword { -fx-background-color: #546e7a; }
+.badge-type { -fx-background-color: #00897b; }
+.badge-function { -fx-background-color: #c2185b; }
+
+/* connection form tab */
+.form-title { -fx-font-size: 16px; -fx-font-weight: bold; }
+.form-scroll, .form-scroll > .viewport { -fx-background-color: -fx-background; }
+.default-look { -fx-base: #3d7bd9; -fx-text-fill: white; }
+.binding-warning { -fx-text-fill: #e65100; -fx-font-weight: bold; }
+
+/* table Properties: vertical section list */
+.section-nav { -fx-background-color: #f5f5f5; -fx-border-color: transparent #d0d0d0 transparent transparent; }
+.section-nav .list-cell { -fx-background-color: transparent; -fx-padding: 6 10 6 10; }
+.section-nav .list-cell:selected { -fx-background-color: #dce8f7; -fx-text-fill: #0d47a1; -fx-font-weight: bold; }
+.section-nav .list-cell:hover { -fx-background-color: #e8eef6; }
+
+/* value panel */
+.cell-inspector { -fx-background-color: #fafafa; }
+.inspector-column { -fx-font-weight: bold; }
+.inspector-text { -fx-font-family: "DejaVu Sans Mono", "Monospaced"; -fx-font-size: 12px; -fx-background-color: white; -fx-border-color: #d0d0d0; }
+.inspector-text .fmt-key { -fx-fill: #871094; }
+.inspector-text .fmt-string { -fx-fill: #067d17; }
+.inspector-text .fmt-number { -fx-fill: #1750eb; }
+.inspector-text .fmt-literal { -fx-fill: #0033b3; -fx-font-weight: bold; }
+.inspector-text .fmt-tag { -fx-fill: #0033b3; }
+.inspector-text .fmt-attr { -fx-fill: #871094; }
+.inspector-text .fmt-comment { -fx-fill: #8c8c8c; -fx-font-style: italic; }

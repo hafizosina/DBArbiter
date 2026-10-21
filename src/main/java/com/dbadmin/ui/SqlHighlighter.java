@@ -13,7 +13,7 @@ import java.util.regex.Pattern;
 /** Regex-based SQL syntax highlighting; style classes are defined in app.css. */
 final class SqlHighlighter {
 
-    private static final String[] KEYWORDS = {
+    static final String[] KEYWORDS = {
             "select", "from", "where", "and", "or", "not", "in", "is", "null", "like", "ilike", "between",
             "exists", "as", "on", "join", "inner", "left", "right", "full", "outer", "cross", "natural", "using",
             "group", "by", "order", "having", "limit", "offset", "fetch", "first", "next", "rows", "only",
@@ -29,7 +29,7 @@ final class SqlHighlighter {
             "auto_increment", "engine", "comment", "collate", "for", "of", "authorization", "role", "user"
     };
 
-    private static final String[] TYPES = {
+    static final String[] TYPES = {
             "int", "integer", "smallint", "bigint", "tinyint", "mediumint", "serial", "bigserial", "smallserial",
             "decimal", "numeric", "real", "float", "double", "precision", "money", "boolean", "bool", "bit",
             "char", "character", "varchar", "varying", "text", "tinytext", "mediumtext", "longtext", "nchar",

@@ -3,27 +3,33 @@ package com.dbadmin.ui;
 import com.dbadmin.model.ConnectionConfig;
 import com.dbadmin.model.DbType;
 import com.dbadmin.service.DatabaseSession;
+import javafx.application.Platform;
 import javafx.geometry.Insets;
+import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
-import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
-import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.PasswordField;
+import javafx.scene.control.ScrollPane;
+import javafx.scene.control.Tab;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.ColumnConstraints;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
-import javafx.stage.Window;
 
 import java.io.File;
+import java.util.function.Consumer;
 
-/** Create or edit a connection. Returns a new {@link ConnectionConfig}; the input is never modified. */
-class ConnectionDialog extends Dialog<ConnectionConfig> {
+/**
+ * Create or edit a connection in a tab of the main window. Save hands a new
+ * {@link ConnectionConfig} (same id when editing) to {@code onSave}; the input is never modified.
+ */
+class ConnectionTab extends Tab {
 
     private final ComboBox<DbType> type = new ComboBox<>();
     private final TextField name = new TextField();
@@ -36,11 +42,13 @@ class ConnectionDialog extends Dialog<ConnectionConfig> {
     private final Label databaseLabel = new Label("Database:");
     private final Button browse = new Button("Browse…");
     private final Label testResult = new Label();
+    private final String editedId;
 
-    ConnectionDialog(Window owner, ConnectionConfig existing) {
-        initOwner(owner);
-        setTitle(existing == null ? "New Connection" : "Edit Connection");
-        setHeaderText(existing == null ? "Connect to a database" : "Edit \"" + existing.getName() + "\"");
+    ConnectionTab(ConnectionConfig existing, Consumer<ConnectionConfig> onSave) {
+        editedId = existing == null ? null : existing.getId();
+        setText(existing == null ? "New Connection" : "Edit: " + existing.getName());
+        Label title = new Label(existing == null ? "Connect to a database" : "Edit \"" + existing.getName() + "\"");
+        title.getStyleClass().add("form-title");
 
         type.getItems().addAll(DbType.values());
         port.setPrefColumnCount(6);
@@ -71,7 +79,7 @@ class ConnectionDialog extends Dialog<ConnectionConfig> {
         GridPane grid = new GridPane();
         grid.setHgap(10);
         grid.setVgap(8);
-        grid.setPadding(new Insets(16));
+        grid.setPadding(new Insets(8, 0, 8, 0));
         ColumnConstraints labels = new ColumnConstraints();
         ColumnConstraints fields = new ColumnConstraints();
         fields.setHgrow(Priority.ALWAYS);
@@ -93,28 +101,51 @@ class ConnectionDialog extends Dialog<ConnectionConfig> {
         grid.add(test, 1, r++);
         grid.add(testResult, 1, r);
 
-        getDialogPane().setContent(grid);
-        getDialogPane().getButtonTypes().addAll(ButtonType.OK, ButtonType.CANCEL);
-
-        Node ok = getDialogPane().lookupButton(ButtonType.OK);
-        ok.addEventFilter(javafx.event.ActionEvent.ACTION, e -> {
+        String id = base.getId();
+        Button save = new Button("Save");
+        save.getStyleClass().add("default-look");
+        save.setOnAction(e -> {
             String error = validate();
             if (error != null) {
                 showResult(error, false);
-                e.consume();
+                return;
             }
-        });
-
-        String id = base.getId();
-        setResultConverter(button -> {
-            if (button != ButtonType.OK) return null;
             ConnectionConfig c = toConfig();
             c.setId(id);
-            return c;
+            close();
+            onSave.accept(c);
         });
+        Button cancel = new Button("Cancel");
+        cancel.setOnAction(e -> close());
+        HBox buttons = new HBox(8, save, cancel);
+        buttons.setAlignment(Pos.CENTER_RIGHT);
+
+        VBox form = new VBox(8, title, grid, buttons);
+        form.setPadding(new Insets(20));
+        form.setMaxWidth(620);
+        // Enter saves and Esc cancels, but only while typing in this form (not window-wide default buttons)
+        form.setOnKeyPressed(e -> {
+            if (e.getCode() == javafx.scene.input.KeyCode.ENTER) save.fire();
+            else if (e.getCode() == javafx.scene.input.KeyCode.ESCAPE) cancel.fire();
+        });
+        ScrollPane scroll = new ScrollPane(form);
+        scroll.setFitToWidth(true);
+        scroll.getStyleClass().add("form-scroll");
+        setContent(scroll);
 
         updateFields();
-        setOnShown(e -> name.requestFocus());
+        setOnSelectionChanged(e -> {
+            if (isSelected()) Platform.runLater(name::requestFocus);
+        });
+    }
+
+    /** The id of the connection being edited, or null for a new connection. */
+    String editedId() {
+        return editedId;
+    }
+
+    private void close() {
+        if (getTabPane() != null) getTabPane().getTabs().remove(this);
     }
 
     private void updateFields() {
@@ -133,7 +164,7 @@ class ConnectionDialog extends Dialog<ConnectionConfig> {
         chooser.getExtensionFilters().addAll(
                 new FileChooser.ExtensionFilter("SQLite", "*.db", "*.sqlite", "*.sqlite3", "*.db3"),
                 new FileChooser.ExtensionFilter("All files", "*"));
-        File f = chooser.showOpenDialog(getOwner());
+        File f = chooser.showOpenDialog(getTabPane().getScene().getWindow());
         if (f != null) {
             database.setText(f.getAbsolutePath());
             if (name.getText() == null || name.getText().isBlank()) name.setText(f.getName());
@@ -194,7 +225,6 @@ class ConnectionDialog extends Dialog<ConnectionConfig> {
     private void showResult(String text, boolean ok) {
         testResult.setText(text);
         testResult.setStyle(ok ? "-fx-text-fill: #2e7d32;" : "-fx-text-fill: #c62828;");
-        getDialogPane().getScene().getWindow().sizeToScene();
     }
 
     private static boolean blank(String s) {
