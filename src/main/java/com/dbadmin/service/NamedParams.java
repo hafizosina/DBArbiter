@@ -20,40 +20,31 @@ public final class NamedParams {
     }
 
     public static ParsedSql parse(String sql, DbType type) {
-        boolean backslashEscapes = type == DbType.MYSQL;
-        boolean dollarQuotes = type == DbType.POSTGRESQL;
         StringBuilder out = new StringBuilder(sql.length());
         List<String> names = new ArrayList<>();
-        int n = sql.length();
-        int i = 0;
-        while (i < n) {
-            char c = sql.charAt(i);
-            char next = i + 1 < n ? sql.charAt(i + 1) : '\0';
-            int end;
-            if (c == '-' && next == '-' || c == '#' && type == DbType.MYSQL) {
-                end = sql.indexOf('\n', i);
-                end = end < 0 ? n : end;
-            } else if (c == '/' && next == '*') {
-                end = sql.indexOf("*/", i + 2);
-                end = end < 0 ? n : end + 2;
-            } else if (c == '\'' || c == '"' || c == '`') {
-                end = SqlSplitter.closingQuote(sql, i, backslashEscapes);
-            } else if (c == '$' && dollarQuotes && (end = SqlSplitter.dollarQuoteEnd(sql, i)) > 0) {
-                // body copied unchanged below
-            } else if (c == ':' && next == ':') {
-                end = i + 2;
-            } else if (c == ':' && isNameStart(next) && (i == 0 || !isNamePart(sql.charAt(i - 1)))) {
-                end = i + 2;
-                while (end < n && isNamePart(sql.charAt(end))) end++;
-                names.add(sql.substring(i + 1, end));
-                out.append('?');
-                i = end;
+        for (SqlLexer.Token t : SqlLexer.tokens(sql, type)) {
+            if (t.kind() != SqlLexer.Kind.CODE) {
+                out.append(sql, t.start(), t.end());
                 continue;
-            } else {
-                end = i + 1;
             }
-            out.append(sql, i, end);
-            i = end;
+            int i = t.start();
+            while (i < t.end()) {
+                char c = sql.charAt(i);
+                char next = i + 1 < sql.length() ? sql.charAt(i + 1) : '\0';
+                if (c == ':' && next == ':') {
+                    out.append("::");
+                    i += 2;
+                } else if (c == ':' && isNameStart(next) && (i == 0 || !isNamePart(sql.charAt(i - 1)))) {
+                    int end = i + 2;
+                    while (end < t.end() && isNamePart(sql.charAt(end))) end++;
+                    names.add(sql.substring(i + 1, end));
+                    out.append('?');
+                    i = end;
+                } else {
+                    out.append(c);
+                    i++;
+                }
+            }
         }
         return new ParsedSql(out.toString(), names);
     }

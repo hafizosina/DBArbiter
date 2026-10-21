@@ -79,6 +79,7 @@ class DataView extends BorderPane {
             // new rows: edits of the old ones are gone (callers ask first, see confirmDiscard)
             originals.clear();
             editTarget = null;
+            notEditable = false;
             editInfo.setText("");
             updateEditBar();
             if (!showingChunk) {
@@ -150,6 +151,8 @@ class DataView extends BorderPane {
     // ---- editing -----------------------------------------------------------
 
     private TableEditing.Target editTarget;
+    /** Set while editInfo says why the rows shown cannot be edited. */
+    private boolean notEditable;
     /** Edited rows -> original values of their edited columns (by column index). */
     private final IdentityHashMap<List<Object>, Map<Integer, Object>> originals = new IdentityHashMap<>();
     private final Label editInfo = new Label();
@@ -164,6 +167,7 @@ class DataView extends BorderPane {
      */
     void enableEditing(TableEditing.Target target, Runnable onSaved) {
         editTarget = target;
+        notEditable = false;
         this.onSaved = onSaved;
         originals.clear();
         Set<Integer> columns = new HashSet<>();
@@ -207,6 +211,13 @@ class DataView extends BorderPane {
         } else if (!keyShown) {
             editInfo.setText("Not editable: the primary key (" + String.join(", ", target.primaryKey()) + ") is not in the result.");
         }
+        updateEditBar();
+    }
+
+    /** Says why the rows shown cannot be edited, until other rows are shown. */
+    void showNotEditable(String reason) {
+        notEditable = true;
+        editInfo.setText("Not editable: " + reason + ".");
         updateEditBar();
     }
 
@@ -264,7 +275,7 @@ class DataView extends BorderPane {
 
     private void updateEditBar() {
         boolean editable = editTarget != null && grid.isEditable();
-        boolean show = editTarget != null && (editable || !editInfo.getText().isEmpty());
+        boolean show = editable || (editTarget != null || notEditable) && !editInfo.getText().isEmpty();
         editBar.setVisible(show);
         editBar.setManaged(show);
         saveEdits.setVisible(!originals.isEmpty());

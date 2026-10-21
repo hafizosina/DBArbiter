@@ -512,7 +512,7 @@ public class DatabaseSession implements AutoCloseable {
         for (int i = open; i < s.length(); i++) {
             char c = s.charAt(i);
             if (c == '\'' || c == '"') {
-                i = SqlSplitter.closingQuote(s, i, false) - 1;
+                i = SqlLexer.closingQuote(s, i, false) - 1;
             } else if (c == '(') {
                 depth++;
             } else if (c == ')' && --depth == 0) {

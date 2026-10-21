@@ -4,7 +4,6 @@ import com.dbadmin.model.DbType;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -13,8 +12,6 @@ import java.util.regex.Pattern;
  * subquery or CTE laid out with blank lines stays whole). Comment-only fragments are dropped.
  */
 public final class SqlSplitter {
-
-    private static final Pattern DOLLAR_TAG = Pattern.compile("\\$[A-Za-z_]*\\$");
 
     private SqlSplitter() {
     }
@@ -28,52 +25,48 @@ public final class SqlSplitter {
     }
 
     public static List<Statement> statements(String script, DbType type) {
-        boolean backslashEscapes = type == DbType.MYSQL;
-        boolean dollarQuotes = type == DbType.POSTGRESQL;
-        List<Statement> statements = new ArrayList<>();
+        return segments(script, type).stream()
+                .filter(Segment::hasCode)
+                .map(s -> trimmed(script, s.start(), s.end()))
+                .toList();
+    }
+
+    /**
+     * A stretch of the script between statement delimiters, [start, end): {@code end} is the ';', the
+     * line break before a blank line, or the end of the script. {@code hasCode}: more than comments
+     * and whitespace. The segments cover the whole script.
+     */
+    record Segment(int start, int end, boolean hasCode) {
+    }
+
+    static List<Segment> segments(String script, DbType type) {
+        List<Segment> segments = new ArrayList<>();
         int segmentStart = 0;
         boolean hasCode = false;
         int depth = 0;
-        int n = script.length();
-        int i = 0;
-        while (i < n) {
-            char c = script.charAt(i);
-            char next = i + 1 < n ? script.charAt(i + 1) : '\0';
-            int end;
-            if (c == '-' && next == '-' || c == '#' && type == DbType.MYSQL) {
-                end = script.indexOf('\n', i);
-                end = end < 0 ? n : end;
-            } else if (c == '/' && next == '*') {
-                end = script.indexOf("*/", i + 2);
-                end = end < 0 ? n : end + 2;
-            } else if (c == '\'' || c == '"' || c == '`') {
-                end = closingQuote(script, i, backslashEscapes);
-                hasCode = true;
-            } else if (c == '$' && dollarQuotes && (end = dollarQuoteEnd(script, i)) > 0) {
-                hasCode = true;
-            } else if (c == ';') {
-                if (hasCode) statements.add(trimmed(script, segmentStart, i));
-                segmentStart = i + 1;
-                hasCode = false;
-                depth = 0;
-                i++;
-                continue;
-            } else if (c == '\n' && hasCode && depth == 0 && blankLineAfter(script, i)) {
-                statements.add(trimmed(script, segmentStart, i));
-                segmentStart = i + 1;
-                hasCode = false;
-                i++;
-                continue;
-            } else {
-                if (c == '(') depth++;
-                else if (c == ')' && depth > 0) depth--;
-                hasCode |= !Character.isWhitespace(c);
-                end = i + 1;
+        for (SqlLexer.Token t : SqlLexer.tokens(script, type)) {
+            switch (t.kind()) {
+                case QUOTED, DOLLAR_QUOTED -> hasCode = true;
+                case CODE -> {
+                    for (int i = t.start(); i < t.end(); i++) {
+                        char c = script.charAt(i);
+                        if (c == ';' || c == '\n' && hasCode && depth == 0 && blankLineAfter(script, i)) {
+                            segments.add(new Segment(segmentStart, i, hasCode));
+                            segmentStart = i + 1;
+                            hasCode = false;
+                            depth = 0;
+                        } else {
+                            if (c == '(') depth++;
+                            else if (c == ')' && depth > 0) depth--;
+                            hasCode |= !Character.isWhitespace(c);
+                        }
+                    }
+                }
+                default -> { } // comments
             }
-            i = end;
         }
-        if (hasCode) statements.add(trimmed(script, segmentStart, n));
-        return statements;
+        segments.add(new Segment(segmentStart, script.length(), hasCode));
+        return segments;
     }
 
     /** True if the line after the line break at {@code i} is empty or only whitespace. */
@@ -121,33 +114,5 @@ public final class SqlSplitter {
      */
     public static boolean isReadOnlyQuery(String sql) {
         return QUERY_START.matcher(sql).lookingAt() && !WRITES.matcher(sql).find();
-    }
-
-    /** Index just past the quote that closes the one at {@code start}; doubled quotes are escapes. */
-    static int closingQuote(String s, int start, boolean backslashEscapes) {
-        char q = s.charAt(start);
-        int j = start + 1;
-        while (j < s.length()) {
-            char c = s.charAt(j);
-            if (c == '\\' && backslashEscapes && q != '`') {
-                j += 2;
-            } else if (c == q) {
-                if (j + 1 < s.length() && s.charAt(j + 1) == q) j += 2;
-                else return j + 1;
-            } else {
-                j++;
-            }
-        }
-        return s.length();
-    }
-
-    /** Index just past a $tag$...$tag$ body starting at {@code start}, or -1 if none starts there. */
-    static int dollarQuoteEnd(String s, int start) {
-        if (start > 0 && (Character.isLetterOrDigit(s.charAt(start - 1)) || s.charAt(start - 1) == '_')) return -1;
-        Matcher m = DOLLAR_TAG.matcher(s).region(start, s.length());
-        if (!m.lookingAt()) return -1;
-        String tag = m.group();
-        int close = s.indexOf(tag, m.end());
-        return close < 0 ? s.length() : close + tag.length();
     }
 }

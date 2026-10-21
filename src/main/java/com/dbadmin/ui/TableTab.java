@@ -291,7 +291,7 @@ class TableTab extends Tab {
         public void result(int number, StatementResult r, DatabaseSession runSession) {
             if (r.data() != null) {
                 dataView.showResult(r, runSession);
-                TableEditing.forQuery(runSession, r.sql(), t -> dataView.enableEditing(t, () -> { }));
+                TableEditing.forQuery(runSession, r.sql(), t -> dataView.enableEditing(t, () -> { }), dataView::showNotEditable);
                 dataGrid.setPlaceholder(new Label("No rows"));
                 pageInfo.setText(r.data().rows().size() + " row(s)"
                         + (r.truncated() ? " (first " + ScriptRunner.FETCH_SIZE + ")" : "") + " · " + r.millis() + " ms");
@@ -338,6 +338,8 @@ class TableTab extends Tab {
             updatePager(data.rows().size());
             TableEditing.forTable(session, table, t -> {
                 if (!customMode) dataView.enableEditing(t, this::loadPage);
+            }, reason -> {
+                if (!customMode) dataView.showNotEditable(reason);
             });
         }, ex -> {
             dataGrid.getItems().clear();

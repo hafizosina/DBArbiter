@@ -43,44 +43,19 @@ public record CompletionContext(int start, String prefix, String qualifier, bool
 
     /** Returns null when the caret is inside a string, quoted identifier or comment. */
     public static CompletionContext analyze(String text, int caret, DbType type) {
-        boolean backslashEscapes = type == DbType.MYSQL;
-        boolean dollarQuotes = type == DbType.POSTGRESQL;
+        for (SqlLexer.Token t : SqlLexer.tokens(text, type)) {
+            if (t.start() >= caret) break;
+            if (t.kind() != SqlLexer.Kind.CODE && (caret < t.end() || caret == t.end() && !t.closed())) return null;
+        }
+        // the statement as it would run: ended by ';' or a blank line
         int stmtStart = 0;
         int stmtEnd = text.length();
-        int n = text.length();
-        int i = 0;
-        while (i < n) {
-            char c = text.charAt(i);
-            char next = i + 1 < n ? text.charAt(i + 1) : '\0';
-            int end;
-            boolean closed;
-            if (c == '-' && next == '-' || c == '#' && type == DbType.MYSQL) {
-                end = text.indexOf('\n', i);
-                end = end < 0 ? n : end;
-                closed = false; // the caret at the end of a comment line is still in the comment
-            } else if (c == '/' && next == '*') {
-                int close = text.indexOf("*/", i + 2);
-                end = close < 0 ? n : close + 2;
-                closed = close >= 0;
-            } else if (c == '\'' || c == '"' || c == '`') {
-                end = SqlSplitter.closingQuote(text, i, backslashEscapes);
-                closed = end - 1 > i && text.charAt(end - 1) == c;
-            } else if (c == '$' && dollarQuotes && (end = SqlSplitter.dollarQuoteEnd(text, i)) > 0) {
-                closed = end < n || text.lastIndexOf('$', end - 2) > i;
-            } else {
-                if (c == ';') {
-                    if (i < caret) {
-                        stmtStart = i + 1;
-                    } else {
-                        stmtEnd = i;
-                        break;
-                    }
-                }
-                i++;
-                continue;
+        for (SqlSplitter.Segment s : SqlSplitter.segments(text, type)) {
+            if (caret <= s.end()) {
+                stmtStart = s.start();
+                stmtEnd = s.end();
+                break;
             }
-            if (i < caret && (caret < end || caret == end && !closed)) return null;
-            i = end;
         }
 
         String stmt = text.substring(stmtStart, stmtEnd);

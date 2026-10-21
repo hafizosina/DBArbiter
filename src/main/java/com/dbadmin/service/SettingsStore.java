@@ -29,8 +29,7 @@ public class SettingsStore {
 
     public void save(AppSettings settings) {
         try {
-            Files.createDirectories(file.getParent());
-            mapper.writeValue(file.toFile(), settings);
+            JsonFiles.write(mapper, file, settings, false);
         } catch (IOException e) {
             throw new UncheckedIOException("Cannot write " + file, e);
         }

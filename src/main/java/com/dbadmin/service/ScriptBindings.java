@@ -46,8 +46,7 @@ public class ScriptBindings {
     public void bind(Path script, String connectionId) {
         connectionByScript.put(key(script), connectionId);
         try {
-            Files.createDirectories(file.getParent());
-            mapper.writeValue(file.toFile(), connectionByScript);
+            JsonFiles.write(mapper, file, connectionByScript, false);
         } catch (IOException e) {
             throw new UncheckedIOException("Cannot write " + file, e);
         }

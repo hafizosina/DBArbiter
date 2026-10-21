@@ -9,7 +9,6 @@ import com.fasterxml.jackson.databind.SerializationFeature;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -37,13 +36,7 @@ public class ConnectionStore {
 
     public void save(List<ConnectionConfig> connections) {
         try {
-            Files.createDirectories(file.getParent());
-            mapper.writeValue(file.toFile(), connections);
-            try {
-                Files.setPosixFilePermissions(file, PosixFilePermissions.fromString("rw-------"));
-            } catch (UnsupportedOperationException ignored) {
-                // non-POSIX file system (Windows)
-            }
+            JsonFiles.write(mapper, file, connections, true);
         } catch (IOException e) {
             throw new IllegalStateException("Cannot write " + file + ": " + e.getMessage(), e);
         }

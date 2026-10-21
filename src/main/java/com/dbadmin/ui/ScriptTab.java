@@ -266,7 +266,7 @@ class ScriptTab extends Tab {
                 + " (" + r.millis() + " ms)");
         DataView view = new DataView();
         view.showResult(r, session);
-        TableEditing.forQuery(session, r.sql(), t -> view.enableEditing(t, () -> { }));
+        TableEditing.forQuery(session, r.sql(), t -> view.enableEditing(t, () -> { }), view::showNotEditable);
         Tab tab = new Tab("Result " + number, view);
         tab.setTooltip(new Tooltip(abbreviate(r.sql())));
         results.getTabs().add(tab);
