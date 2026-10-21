@@ -6,6 +6,10 @@ import com.dbadmin.model.TableData;
 import javafx.beans.property.ReadOnlyObjectProperty;
 import javafx.beans.property.ReadOnlyObjectWrapper;
 import javafx.collections.FXCollections;
+import javafx.scene.control.ContextMenu;
+import javafx.scene.control.MenuItem;
+import javafx.scene.control.TablePosition;
+import javafx.scene.control.TextField;
 import javafx.scene.control.Label;
 import javafx.scene.control.SelectionMode;
 import javafx.scene.control.TableCell;
@@ -15,6 +19,7 @@ import javafx.scene.control.TableView;
 import java.sql.Types;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 
 /**
  * A read-only TableView that can show any {@link TableData}. Rows are always one line high;
@@ -29,8 +34,20 @@ class DataGrid extends TableView<List<Object>> {
     private static final int MAX_CELL_CHARS = 500;
     private static final double ROW_HEIGHT = 24;
 
+    /** Receives cell edits (see {@link #setEditing}). */
+    interface Editor {
+        /** A cell was given a new value (text typed, or null for Set NULL). */
+        void edited(List<Object> row, int column, Object value);
+
+        boolean isEdited(List<Object> row, int column);
+
+        void revert(List<Object> row, int column);
+    }
+
     private final ReadOnlyObjectWrapper<CellValue> selectedCell = new ReadOnlyObjectWrapper<>();
     private TableData data;
+    private Set<Integer> editableColumns = Set.of();
+    private Editor editor;
 
     DataGrid() {
         setPlaceholder(new Label("No rows"));
@@ -53,9 +70,57 @@ class DataGrid extends TableView<List<Object>> {
         return selectedCell.getReadOnlyProperty();
     }
 
+    /** The column names of the data shown now. */
+    List<String> columnNames() {
+        return data == null ? List.of() : data.columns();
+    }
+
+    /**
+     * Lets the user edit the given columns (original indexes): double-click a cell, Enter to set,
+     * Esc to cancel; right-click for Set NULL / Revert. No columns: read-only again.
+     */
+    void setEditing(Set<Integer> columns, Editor editor) {
+        this.editableColumns = columns;
+        this.editor = editor;
+        setEditable(!columns.isEmpty());
+        for (TableColumn<List<Object>, ?> col : getColumns()) col.setEditable(columns.contains((Integer) col.getUserData()));
+        setContextMenu(columns.isEmpty() ? null : editMenu());
+        refresh();
+    }
+
+    private ContextMenu editMenu() {
+        MenuItem setNull = new MenuItem("Set NULL");
+        setNull.setOnAction(e -> forFocusedEditableCell((row, c) -> editor.edited(row, c, null)));
+        MenuItem revert = new MenuItem("Revert");
+        revert.setOnAction(e -> forFocusedEditableCell((row, c) -> editor.revert(row, c)));
+        ContextMenu menu = new ContextMenu(setNull, revert);
+        menu.setOnShowing(e -> {
+            TablePosition<List<Object>, ?> pos = getFocusModel().getFocusedCell();
+            boolean editable = pos != null && pos.getTableColumn() != null && pos.getRow() >= 0
+                    && editableColumns.contains((Integer) pos.getTableColumn().getUserData());
+            setNull.setDisable(!editable);
+            revert.setDisable(!editable || !editor.isEdited(getItems().get(pos.getRow()), (Integer) pos.getTableColumn().getUserData()));
+        });
+        return menu;
+    }
+
+    private void forFocusedEditableCell(java.util.function.BiConsumer<List<Object>, Integer> action) {
+        TablePosition<List<Object>, ?> pos = getFocusModel().getFocusedCell();
+        if (pos == null || pos.getTableColumn() == null || pos.getRow() < 0 || pos.getRow() >= getItems().size()) return;
+        int c = (Integer) pos.getTableColumn().getUserData();
+        if (!editableColumns.contains(c)) return;
+        action.accept(getItems().get(pos.getRow()), c);
+        refresh();
+    }
+
     void show(TableData data) {
         this.data = data;
         selectedCell.set(null);
+        // new data starts read-only; whoever shows it may turn editing on again
+        editableColumns = Set.of();
+        editor = null;
+        setEditable(false);
+        setContextMenu(null);
         getColumns().clear();
         for (int i = 0; i < data.columns().size(); i++) {
             final int index = i;
@@ -63,6 +128,11 @@ class DataGrid extends TableView<List<Object>> {
             col.setCellValueFactory(cd -> new ReadOnlyObjectWrapper<>(cd.getValue().get(index)));
             col.setCellFactory(c -> new ValueCell());
             col.setUserData(index);
+            col.setEditable(false);
+            col.setOnEditCommit(e -> {
+                if (editor != null) editor.edited(e.getRowValue(), index, e.getNewValue());
+                refresh();
+            });
             col.setPrefWidth(preferredWidth(data, i));
             getColumns().add(col);
         }
@@ -111,12 +181,62 @@ class DataGrid extends TableView<List<Object>> {
         };
     }
 
-    private static class ValueCell extends TableCell<List<Object>, Object> {
+    private class ValueCell extends TableCell<List<Object>, Object> {
+        private TextField field;
+
+        @Override
+        public void startEdit() {
+            if (getItem() instanceof BlobValue) return; // binary values are not edited as text
+            super.startEdit();
+            if (!isEditing()) return;
+            Object value = getItem();
+            field = new TextField(value == null ? "" : value.toString());
+            field.setOnAction(e -> commit());
+            field.setOnKeyPressed(e -> {
+                if (e.getCode() == javafx.scene.input.KeyCode.ESCAPE) cancelEdit();
+            });
+            field.focusedProperty().addListener((o, was, focused) -> {
+                if (!focused && isEditing()) commit();
+            });
+            setText(null);
+            setGraphic(field);
+            field.requestFocus();
+            field.selectAll();
+        }
+
+        /** Commits the typed text, except an untouched empty field on a NULL (that would make it ''). */
+        private void commit() {
+            String text = field.getText();
+            if (getItem() == null && text.isEmpty()) {
+                cancelEdit();
+            } else {
+                commitEdit(text);
+            }
+        }
+
+        @Override
+        public void cancelEdit() {
+            super.cancelEdit();
+            setGraphic(null);
+            updateItem(getItem(), isEmpty());
+        }
+
+        @Override
+        public void commitEdit(Object newValue) {
+            super.commitEdit(newValue);
+            setGraphic(null);
+        }
+
         @Override
         protected void updateItem(Object value, boolean empty) {
             super.updateItem(value, empty);
-            getStyleClass().removeAll("null-value", "cmp-cell-changed");
+            getStyleClass().removeAll("null-value", "cmp-cell-changed", "cell-edited");
             setStyle(null);
+            if (isEditing()) return;
+            if (!empty && editor != null && getTableRow() != null && getTableRow().getItem() != null
+                    && editor.isEdited(getTableRow().getItem(), (Integer) getTableColumn().getUserData())) {
+                getStyleClass().add("cell-edited");
+            }
             if (empty) {
                 setText(null);
             } else if (value instanceof StatusValue sv) {

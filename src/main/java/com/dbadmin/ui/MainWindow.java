@@ -609,7 +609,10 @@ public class MainWindow implements SessionProvider {
         ConnectionConfig c = defaultConnection();
         List<String> open = tabs.getTabs().stream()
                 .filter(t -> t instanceof ScriptTab).map(t -> ((ScriptTab) t).displayName()).toList();
-        String name = ScriptFolder.nextName(scriptDir(), c == null ? null : c.getName(), open);
+        // "Untitled-n" until saved; the Save dialog suggests the file name for the connection
+        int n = 1;
+        while (open.contains("Untitled-" + n)) n++;
+        String name = "Untitled-" + n;
         openScriptTab(new ScriptTab(name, null, "", connections, c, this, completer, scriptBindings));
     }
 

@@ -289,6 +289,109 @@ public class DatabaseSession implements AutoCloseable {
         return new ArrayList<>(columns.values());
     }
 
+    /** One edited row: its primary key (column -> original value) and the new values (column -> value or null). */
+    public record RowUpdate(Map<String, Object> key, Map<String, Object> values) {
+    }
+
+    /** The UPDATE for one row, for showing; the real statement binds the values. */
+    public String describeUpdate(TableRef t, RowUpdate u) throws SQLException {
+        String q = connection.getMetaData().getIdentifierQuoteString().trim();
+        StringBuilder sql = new StringBuilder("UPDATE ").append(qualifiedName(t)).append(" SET ");
+        int i = 0;
+        for (Map.Entry<String, Object> v : u.values().entrySet()) {
+            if (i++ > 0) sql.append(", ");
+            sql.append(quote(v.getKey(), q)).append(" = ").append(literal(v.getValue()));
+        }
+        sql.append(" WHERE ");
+        i = 0;
+        for (Map.Entry<String, Object> k : u.key().entrySet()) {
+            if (i++ > 0) sql.append(" AND ");
+            sql.append(quote(k.getKey(), q)).append(" = ").append(literal(k.getValue()));
+        }
+        return sql.toString();
+    }
+
+    private static String literal(Object v) {
+        if (v == null) return "NULL";
+        if (v instanceof Number || v instanceof Boolean) return v.toString();
+        return "'" + v.toString().replace("'", "''") + "'";
+    }
+
+    /**
+     * Applies row updates in one transaction. Each must change exactly one row (found by its primary
+     * key); otherwise everything is rolled back and an exception says which row. New values are sent
+     * as text (the database converts them); key values with their original types.
+     */
+    public int applyUpdates(TableRef t, List<RowUpdate> updates) throws SQLException {
+        String q = connection.getMetaData().getIdentifierQuoteString().trim();
+        boolean autoCommit = connection.getAutoCommit();
+        statementSent = true;
+        connection.setAutoCommit(false);
+        try {
+            int done = 0;
+            for (RowUpdate u : updates) {
+                List<String> sets = new ArrayList<>();
+                u.values().keySet().forEach(c -> sets.add(quote(c, q) + " = ?"));
+                List<String> where = new ArrayList<>();
+                u.key().keySet().forEach(c -> where.add(quote(c, q) + " = ?"));
+                String sql = "UPDATE " + qualifiedName(t) + " SET " + String.join(", ", sets)
+                        + " WHERE " + String.join(" AND ", where);
+                try (PreparedStatement ps = connection.prepareStatement(sql)) {
+                    int i = 1;
+                    for (Object v : u.values().values()) {
+                        if (v == null) ps.setNull(i++, java.sql.Types.VARCHAR);
+                        else ps.setString(i++, v.toString());
+                    }
+                    for (Object k : u.key().values()) ps.setObject(i++, k);
+                    int count = ps.executeUpdate();
+                    if (count != 1) {
+                        throw new SQLException("The row with " + u.key() + " " + (count == 0
+                                ? "no longer exists (changed or deleted meanwhile)" : "is not unique (" + count + " rows)")
+                                + ". Nothing was saved.");
+                    }
+                }
+                done++;
+            }
+            connection.commit();
+            return done;
+        } catch (SQLException | RuntimeException e) {
+            connection.rollback();
+            throw e;
+        } finally {
+            connection.setAutoCommit(autoCommit);
+        }
+    }
+
+    /** The SQL a view (or materialized view) is defined by, as the database reports it; null if unknown. */
+    public String viewDefinition(TableRef t) throws SQLException {
+        List<List<Object>> rows = switch (config.getType()) {
+            case POSTGRESQL -> query("""
+                    select pg_get_viewdef(c.oid, true)
+                    from pg_class c join pg_namespace n on n.oid = c.relnamespace
+                    where n.nspname = ? and c.relname = ?
+                    """, t.schema(), t.name());
+            case MYSQL -> query("select VIEW_DEFINITION from information_schema.VIEWS where TABLE_SCHEMA = ? and TABLE_NAME = ?",
+                    t.catalog(), t.name());
+            case SQLITE -> query("select sql from sqlite_master where type = 'view' and name = ?", t.name());
+        };
+        return rows.isEmpty() ? null : String.valueOf(rows.get(0).get(0));
+    }
+
+    /**
+     * The table a query reads from, given as written ("orders" or "shop.orders"); an unqualified
+     * name is looked up in the default schema. Null if there is no such table (or it is a view).
+     */
+    public TableRef resolveTable(String qualifier, String name) throws SQLException {
+        String ns = qualifier != null ? qualifier : config.getType() == DbType.SQLITE ? "main" : defaultNamespace();
+        for (Namespace n : listNamespaces()) {
+            if (!n.label().equalsIgnoreCase(ns)) continue;
+            for (TableRef t : listTables(n)) {
+                if (t.name().equalsIgnoreCase(name) && !t.isView()) return t;
+            }
+        }
+        return null;
+    }
+
     /**
      * Rows of a table matching {@code where} (SQL condition, or null for all), ordered by {@code orderBy},
      * at most {@code maxRows} (truncated tells if more exist). Used to compare data between databases.

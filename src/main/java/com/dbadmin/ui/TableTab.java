@@ -72,6 +72,9 @@ class TableTab extends Tab {
         this.runner = new ScriptRunner(sessions, completer);
         setOnSelectionChanged(e -> queryEditor.hidePopup());
         setTooltip(new javafx.scene.control.Tooltip(session.getConfig().getName() + " · " + table.displayName()));
+        setOnCloseRequest(e -> {
+            if (!dataView.confirmDiscard()) e.consume(); // unsaved edits
+        });
 
         addSection("Columns", () -> session.listColumns(table));
         addSection("Constraints", () -> session.listConstraints(table));
@@ -138,6 +141,7 @@ class TableTab extends Tab {
 
         Button refresh = new Button("Refresh");
         refresh.setOnAction(e -> {
+            if (!dataView.confirmDiscard()) return;
             String name = nav.getSelectionModel().getSelectedItem();
             if (name != null) showSection(name, true);
         });
@@ -192,11 +196,13 @@ class TableTab extends Tab {
         Button reset = new Button("Reset");
         reset.setTooltip(new Tooltip("Back to: " + defaultQuery));
         reset.setOnAction(e -> {
+            if (!dataView.confirmDiscard()) return;
             queryEditor.setText(defaultQuery);
             runQuery();
         });
         Button refresh = new Button("Refresh");
         refresh.setOnAction(e -> {
+            if (!dataView.confirmDiscard()) return;
             if (customMode) {
                 runQuery();
             } else {
@@ -205,10 +211,12 @@ class TableTab extends Tab {
             }
         });
         prev.setOnAction(e -> {
+            if (!dataView.confirmDiscard()) return;
             offset = Math.max(0, offset - PAGE_SIZE);
             loadPage();
         });
         next.setOnAction(e -> {
+            if (!dataView.confirmDiscard()) return;
             offset += PAGE_SIZE;
             loadPage();
         });
@@ -249,6 +257,7 @@ class TableTab extends Tab {
     }
 
     private void runQuery(String text) {
+        if (!dataView.confirmDiscard()) return;
         String sql = text.strip();
         if (sql.isEmpty() || normalize(sql).equals(normalize(defaultQuery))) {
             customMode = false;
@@ -282,6 +291,7 @@ class TableTab extends Tab {
         public void result(int number, StatementResult r, DatabaseSession runSession) {
             if (r.data() != null) {
                 dataView.showResult(r, runSession);
+                TableEditing.forQuery(runSession, r.sql(), t -> dataView.enableEditing(t, () -> { }));
                 dataGrid.setPlaceholder(new Label("No rows"));
                 pageInfo.setText(r.data().rows().size() + " row(s)"
                         + (r.truncated() ? " (first " + ScriptRunner.FETCH_SIZE + ")" : "") + " · " + r.millis() + " ms");
@@ -326,6 +336,9 @@ class TableTab extends Tab {
             if (customMode) return; // a custom query was run meanwhile
             dataGrid.show(data);
             updatePager(data.rows().size());
+            TableEditing.forTable(session, table, t -> {
+                if (!customMode) dataView.enableEditing(t, this::loadPage);
+            });
         }, ex -> {
             dataGrid.getItems().clear();
             dataGrid.setPlaceholder(errorLabel(ex));

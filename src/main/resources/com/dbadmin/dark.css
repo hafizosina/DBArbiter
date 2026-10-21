@@ -84,3 +84,7 @@
 .cmp-only-source { -fx-text-fill: #81c784; }
 .cmp-only-target { -fx-text-fill: #ff7b72; }
 .table-row-cell .cmp-cell-changed { -fx-background-color: #4a3518; -fx-text-fill: #ffcc80; }
+.table-row-cell .cell-edited { -fx-background-color: #2e5a33; -fx-text-fill: #e0f2e1; }
+.edit-bar { -fx-border-color: #43454a transparent transparent transparent; }
+.sql-diff .diff-removed { -fx-background-color: #5c2427; }
+.sql-diff .diff-added { -fx-background-color: #1e4a29; }

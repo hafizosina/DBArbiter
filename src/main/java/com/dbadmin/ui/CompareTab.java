@@ -78,6 +78,7 @@ class CompareTab extends Tab {
     private final Label detailTitle = new Label();
     private final CheckBox showIdentical = new CheckBox("Show identical");
     private final Button compareDataButton = new Button("Compare data of this table");
+    private final Button sqlDiffButton = new Button("SQL diff");
     /** Tables picked for a Table Compare (lower case); empty = all. */
     private Set<String> pickedTables = Set.of();
     private final Button tablesButton = new Button("All tables");
@@ -143,7 +144,9 @@ class CompareTab extends Tab {
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox detailBar = new HBox(8, detailTitle, spacer, compareDataButton);
+        sqlDiffButton.setVisible(false);
+        sqlDiffButton.setManaged(false);
+        HBox detailBar = new HBox(8, detailTitle, spacer, sqlDiffButton, compareDataButton);
         detailBar.setAlignment(Pos.CENTER_LEFT);
         detailBar.setPadding(new Insets(6));
         BorderPane details = new BorderPane(detailView); // the value panel shows long definitions in full
@@ -266,10 +269,24 @@ class CompareTab extends Tab {
             rows.add(List.of(d.kind().toLowerCase(), d.name(), statusText(d.status()),
                     d.status() == Status.ONLY_SOURCE ? "exists" : "", d.status() == Status.ONLY_TARGET ? "exists" : ""));
         }
+        SchemaCompare.Item definition = null;
         for (SchemaCompare.Item i : d.items()) {
+            if (i.category().equals("Definition")) definition = i;
             if (i.status() == Status.SAME && !showIdentical.isSelected() && !i.name().contains(" = ")) continue;
-            rows.add(List.of(i.category(), i.name(), statusText(i.status()), i.source(), i.target()));
+            if (i.category().equals("Definition")) {
+                // long SQL: click the row to see both sides in full in the value panel
+                rows.add(List.of(i.category(), i.name(), statusText(i.status()),
+                        new ComparedValue(i.source(), i.target(), true, true, sourceName, targetName, true),
+                        new ComparedValue(i.target(), i.source(), true, true, targetName, sourceName, true)));
+            } else {
+                rows.add(List.of(i.category(), i.name(), statusText(i.status()), i.source(), i.target()));
+            }
         }
+        SchemaCompare.Item viewSql = definition;
+        sqlDiffButton.setVisible(viewSql != null);
+        sqlDiffButton.setManaged(viewSql != null);
+        sqlDiffButton.setOnAction(e -> InAppDialogs.showAndWait(new SqlDiffDialog(getTabPane().getScene().getWindow(),
+                d.name(), viewSql.source(), viewSql.target(), sourceName, targetName)));
         detailGrid.show(new TableData(List.of("Category", "Name", "Status", sourceName, targetName), rows));
         fitDetailColumns();
     }

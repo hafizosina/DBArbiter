@@ -138,3 +138,11 @@
 .cmp-only-target { -fx-text-fill: #c62828; }
 .table-row-cell .cmp-cell-changed { -fx-background-color: #fff3e0; -fx-text-fill: #bf360c; }
 .table-row-cell:selected .cmp-cell-changed, .cmp-cell-changed:selected { -fx-background-color: -fx-selection-bar; -fx-text-fill: -fx-selection-bar-text; }
+
+/* edited cells, not yet saved */
+.table-row-cell .cell-edited { -fx-background-color: #c8e6c9; -fx-font-weight: bold; }
+.edit-bar { -fx-border-color: #d0d0d0 transparent transparent transparent; }
+
+/* SQL diff of view definitions */
+.sql-diff .diff-removed { -fx-background-color: #ffd7d5; }
+.sql-diff .diff-added { -fx-background-color: #ccf0d2; }

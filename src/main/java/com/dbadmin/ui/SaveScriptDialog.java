@@ -31,6 +31,7 @@ import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.function.BiFunction;
@@ -38,7 +39,8 @@ import java.util.stream.Stream;
 
 /**
  * In-app "Save Script" dialog, laid out like Open Script: the connection the script is for on the
- * left; a folder navigation bar, the folder's contents and the file name on the right.
+ * left; a folder navigation bar, the folder's subfolders and the scripts saved for the chosen
+ * connection, and the file name on the right.
  */
 class SaveScriptDialog extends Dialog<SaveScriptDialog.Target> {
 
@@ -47,6 +49,8 @@ class SaveScriptDialog extends Dialog<SaveScriptDialog.Target> {
     }
 
     private final Path homeDir;
+    /** Script path -> id of the connection it was saved for. */
+    private final Map<Path, String> bindings;
     private final ListView<ConnectionConfig> connectionList = new ListView<>();
     /** Suggests "Script-&lt;connection&gt;-&lt;n&gt;.sql" for a connection and folder. */
     private final BiFunction<ConnectionConfig, Path, String> suggestName;
@@ -62,12 +66,19 @@ class SaveScriptDialog extends Dialog<SaveScriptDialog.Target> {
 
     /**
      * @param existingName the script's current file name (Save As), or null to suggest one
-     * @param scriptCounts number of saved scripts per connection id, shown next to each connection
+     * @param bindings     script path -> id of the connection it was saved for
      */
     SaveScriptDialog(Window owner, Path homeDir, Path startDir, List<ConnectionConfig> connections,
-                     Map<String, Integer> scriptCounts, ConnectionConfig initial, String existingName,
+                     Map<Path, String> bindings, ConnectionConfig initial, String existingName,
                      BiFunction<ConnectionConfig, Path, String> suggestName) {
         this.homeDir = homeDir;
+        this.bindings = new HashMap<>();
+        Map<String, Integer> scriptCounts = new HashMap<>();
+        bindings.forEach((path, id) -> {
+            Path p = path.toAbsolutePath().normalize();
+            this.bindings.put(p, id);
+            if (Files.isRegularFile(p)) scriptCounts.merge(id, 1, Integer::sum);
+        });
         this.suggestName = suggestName;
         initOwner(owner);
         setTitle("Save Script");
@@ -114,7 +125,10 @@ class SaveScriptDialog extends Dialog<SaveScriptDialog.Target> {
 
         connectionList.getItems().setAll(connections);
         connectionList.setCellFactory(lv -> new ConnectionCell(scriptCounts));
-        connectionList.getSelectionModel().selectedItemProperty().addListener((o, a, c) -> suggest());
+        connectionList.getSelectionModel().selectedItemProperty().addListener((o, a, c) -> {
+            suggest();
+            if (dir != null) listFolder();
+        });
         Label forLabel = new Label("Save for connection:");
         forLabel.getStyleClass().add("hint-small");
         VBox left = new VBox(6, forLabel, connectionList);
@@ -152,7 +166,18 @@ class SaveScriptDialog extends Dialog<SaveScriptDialog.Target> {
             connectionList.getItems().stream().filter(c -> c.getId().equals(initial.getId())).findFirst()
                     .ifPresent(c -> connectionList.getSelectionModel().select(c));
         }
-        if (connectionList.getSelectionModel().isEmpty()) message.setText("Choose the connection this script is for.");
+        if (connectionList.getSelectionModel().isEmpty()) {
+            message.setText("Choose the connection this script is for.");
+        } else {
+            // the script is saved for its own connection; it is changed in the script's toolbar, not here
+            ConnectionConfig own = connectionList.getSelectionModel().getSelectedItem();
+            connectionList.getItems().setAll(own);
+            connectionList.getSelectionModel().select(own);
+            connectionList.setMouseTransparent(true);
+            connectionList.setFocusTraversable(false);
+            forLabel.setText("Saving for connection:");
+            Tooltip.install(left, new Tooltip("To save for another connection, change it in the script's toolbar first."));
+        }
         setOnShown(e -> {
             fileName.requestFocus();
             // select the base name so typing replaces it but keeps ".sql"
@@ -182,10 +207,19 @@ class SaveScriptDialog extends Dialog<SaveScriptDialog.Target> {
         location.setText(dir.toString());
         up.setDisable(dir.getParent() == null);
         message.setText("");
+        listFolder();
+    }
+
+    /** Shows the folder's subfolders and the scripts saved for the selected connection. */
+    private void listFolder() {
+        ConnectionConfig c = connectionList.getSelectionModel().getSelectedItem();
+        entries.setPlaceholder(new Label(c == null ? "Choose a connection to see its scripts."
+                : "No scripts for " + c.getName() + " in this folder."));
         try (Stream<Path> list = Files.list(dir)) {
             List<Path> items = list
                     .filter(p -> !p.getFileName().toString().startsWith("."))
-                    .filter(p -> Files.isDirectory(p) || p.getFileName().toString().toLowerCase().endsWith(".sql"))
+                    .filter(p -> Files.isDirectory(p) || p.getFileName().toString().toLowerCase().endsWith(".sql")
+                            && c != null && c.getId().equals(bindings.get(p.toAbsolutePath().normalize())))
                     .sorted(Comparator.comparing((Path p) -> !Files.isDirectory(p))
                             .thenComparing(p -> p.getFileName().toString().toLowerCase()))
                     .toList();

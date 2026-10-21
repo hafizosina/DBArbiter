@@ -34,7 +34,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -202,7 +201,19 @@ class ScriptTab extends Tab {
         run(editor.statementToRun());
     }
 
+    /** Asks before unsaved edits in result grids are dropped (re-running or closing). */
+    private boolean confirmDiscardResultEdits() {
+        for (Tab t : results.getTabs()) {
+            if (t.getContent() instanceof DataView view && view.hasEdits()) {
+                results.getSelectionModel().select(t);
+                if (!view.confirmDiscard()) return false;
+            }
+        }
+        return true;
+    }
+
     private void run(String sql) {
+        if (!confirmDiscardResultEdits()) return;
         ConnectionConfig config = connection.getValue();
         if (config == null) {
             log("Select a connection first.");
@@ -255,6 +266,7 @@ class ScriptTab extends Tab {
                 + " (" + r.millis() + " ms)");
         DataView view = new DataView();
         view.showResult(r, session);
+        TableEditing.forQuery(session, r.sql(), t -> view.enableEditing(t, () -> { }));
         Tab tab = new Tab("Result " + number, view);
         tab.setTooltip(new Tooltip(abbreviate(r.sql())));
         results.getTabs().add(tab);
@@ -298,11 +310,7 @@ class ScriptTab extends Tab {
             home = Path.of(System.getProperty("user.home"));
         }
         Path start = file != null && file.getParent() != null ? file.getParent() : home;
-        Map<String, Integer> counts = new HashMap<>();
-        bindings.all().forEach((path, id) -> {
-            if (Files.isRegularFile(path)) counts.merge(id, 1, Integer::sum);
-        });
-        SaveScriptDialog dialog = new SaveScriptDialog(window(), home, start, connection.getItems(), counts,
+        SaveScriptDialog dialog = new SaveScriptDialog(window(), home, start, connection.getItems(), bindings.all(),
                 connection.getValue(), file == null ? null : file.getFileName().toString(), this::defaultFileName);
         SaveScriptDialog.Target target = InAppDialogs.showAndWait(dialog).orElse(null);
         if (target == null) return false;
@@ -354,6 +362,7 @@ class ScriptTab extends Tab {
 
     /** Asks about unsaved changes. Returns false if the user cancelled. */
     boolean confirmClose() {
+        if (!confirmDiscardResultEdits()) return false;
         if (!dirty) return true;
         getTabPane().getSelectionModel().select(this);
         ButtonType save = new ButtonType("Save", ButtonBar.ButtonData.YES);

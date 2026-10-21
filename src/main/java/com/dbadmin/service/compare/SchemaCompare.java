@@ -38,8 +38,9 @@ public final class SchemaCompare {
     }
 
     /** What is compared about one table, as name -> normalized description. */
+    /** {@code definition}: a view's SQL (null for tables). */
     public record TableSnapshot(TableRef table, Map<String, String> columns, Map<String, String> indexes,
-                                Map<String, String> constraints, Map<String, String> foreignKeys) {
+                                Map<String, String> constraints, Map<String, String> foreignKeys, String definition) {
     }
 
     private SchemaCompare() {
@@ -79,7 +80,8 @@ public final class SchemaCompare {
                             + " ON UPDATE " + r.get(4) + " ON DELETE " + r.get(5));
                 }
             }
-            result.add(new TableSnapshot(t, columns, indexes, constraints, foreignKeys));
+            String definition = t.isView() ? session.viewDefinition(t) : null;
+            result.add(new TableSnapshot(t, columns, indexes, constraints, foreignKeys, definition));
             progress.accept(result.size(), tables.size());
         }
         return result;
@@ -126,6 +128,12 @@ public final class SchemaCompare {
             items.addAll(compareMaps("Index", s.indexes(), d.indexes(), true));
             items.addAll(compareMaps("Constraint", s.constraints(), d.constraints(), true));
             items.addAll(compareMaps("Foreign key", s.foreignKeys(), d.foreignKeys(), true));
+            if (s.definition() != null || d.definition() != null) {
+                // a view's logic can change without any column changing: compare its SQL too
+                boolean same = normalizeSql(s.definition()).equals(normalizeSql(d.definition()));
+                items.add(0, new Item("Definition", "SQL", same ? Status.SAME : Status.CHANGED,
+                        s.definition() == null ? "" : s.definition().strip(), d.definition() == null ? "" : d.definition().strip()));
+            }
             boolean same = items.stream().allMatch(i -> i.status() == Status.SAME);
             diffs.add(new TableDiff(s.table().name(), kind, same ? Status.SAME : Status.CHANGED, items));
         }
@@ -180,6 +188,11 @@ public final class SchemaCompare {
 
     private static String str(Object o) {
         return o == null ? "" : o.toString();
+    }
+
+    /** Whitespace and a trailing ';' do not count as a difference in a view's SQL. */
+    static String normalizeSql(String sql) {
+        return sql == null ? "" : sql.replaceAll("\\s+", " ").replaceAll("\\s*;\\s*$", "").trim();
     }
 
     private static String normalizeSpace(String s) {
