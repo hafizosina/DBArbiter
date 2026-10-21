@@ -1,0 +1,81 @@
+/* Dark theme: loaded after app.css. Modena derives most control colors from these. */
+.root {
+    -fx-base: #3c3f41;
+    -fx-background: #2b2d30;
+    -fx-control-inner-background: #2b2b2b;
+    -fx-control-inner-background-alt: #313335;
+    -fx-accent: #2f65ca;
+    -fx-focus-color: #3d7bd9;
+    -fx-faint-focus-color: #3d7bd933;
+    -fx-selection-bar-non-focused: #4a4d50;
+}
+
+/* text */
+.hint, .hint-small, .completion-detail, .null-value { -fx-text-fill: #8a8f96; }
+.error-text, .error-text-inline, .find-none { -fx-text-fill: #ff7b72; }
+.mode-write, .binding-warning { -fx-text-fill: #ffb74d; }
+.param-name { -fx-text-fill: #f48fb1; }
+.nav-icon { -fx-text-fill: #8fa4b8; }
+.nav-icon.table, .table-header-icon.table { -fx-text-fill: #6aa9ff; }
+.nav-icon.view, .table-header-icon.view { -fx-text-fill: #c792ea; }
+.nav-icon.matview, .table-header-icon.matview { -fx-text-fill: #4dd0e1; }
+.gear-icon { -fx-fill: #c8cacd; }
+
+/* SQL editor */
+.sql-editor { -fx-background-color: #1e1f22; }
+.sql-editor .text { -fx-fill: #bcbec4; }
+.sql-editor .lineno { -fx-background-color: #2b2d30; -fx-text-fill: #6f737a; }
+.sql-editor .caret { -fx-stroke: #e0e0e0; }
+.sql-editor .selection { -fx-fill: #214283; }
+.sql-editor .sql-keyword { -fx-fill: #cf8e6d; }
+.sql-editor .sql-type { -fx-fill: #56b6c2; }
+.sql-editor .sql-string { -fx-fill: #6aab73; }
+.sql-editor .sql-ident { -fx-fill: #c77dbb; }
+.sql-editor .sql-number { -fx-fill: #2aacb8; }
+.sql-editor .sql-comment { -fx-fill: #7a7e85; }
+.sql-editor .sql-param { -fx-fill: #f48fb1; }
+.sql-editor .search-match { -rtfx-background-color: #6b5a1e; }
+.quick-query { -fx-border-color: #43454a; }
+.find-bar { -fx-background-color: #2b2d30; -fx-border-color: transparent transparent #43454a transparent; }
+
+/* autocomplete */
+.list-cell:selected .completion-detail { -fx-text-fill: #cfe0ff; }
+
+/* navigator search */
+.nav-search-clear { -fx-text-fill: #9da0a8; }
+.nav-search-clear:hover { -fx-text-fill: #ffffff; -fx-background-color: #4a4d52; }
+
+/* table Properties list, settings categories */
+.section-nav { -fx-background-color: #2b2d30; -fx-border-color: transparent #43454a transparent transparent; }
+.section-nav .list-cell:selected { -fx-background-color: #2e436e; -fx-text-fill: #cfe0ff; }
+.section-nav .list-cell:hover { -fx-background-color: #393b40; }
+
+/* value panel */
+.cell-inspector { -fx-background-color: #2b2d30; }
+.inspector-text { -fx-background-color: #1e1f22; -fx-border-color: #43454a; }
+.inspector-text .text { -fx-fill: #bcbec4; }
+.inspector-text .fmt-key, .inspector-text .fmt-attr { -fx-fill: #c77dbb; }
+.inspector-text .fmt-string { -fx-fill: #6aab73; }
+.inspector-text .fmt-number { -fx-fill: #2aacb8; }
+.inspector-text .fmt-literal, .inspector-text .fmt-tag { -fx-fill: #cf8e6d; }
+.inspector-text .fmt-comment { -fx-fill: #7a7e85; }
+
+/* tabs */
+.main-tabs > .tab-header-area > .tab-header-background { -fx-background-color: #1e1f22; }
+.main-tabs > .tab-header-area > .headers-region > .tab { -fx-background-color: #43454a, #2b2d30; }
+.main-tabs > .tab-header-area > .headers-region > .tab:selected { -fx-background-color: #3d7bd9, #3c3f41; }
+.sub-tabs > .tab-header-area > .tab-header-background {
+    -fx-background-color: #2b2d30; -fx-border-color: transparent transparent #43454a transparent;
+}
+.sub-tabs > .tab-header-area > .headers-region > .tab:hover { -fx-background-color: #393b40; }
+.sub-tabs > .tab-header-area > .headers-region > .tab .tab-label { -fx-text-fill: #9da0a8; }
+.sub-tabs > .tab-header-area > .headers-region > .tab:selected .tab-label { -fx-text-fill: #8ab4ff; }
+
+/* table header */
+.table-header { -fx-background-color: #2b2d30; }
+.table-header-kind { -fx-text-fill: #9da0a8; -fx-border-color: #5a5d63; }
+
+/* in-window dialogs */
+.overlay-layer { -fx-background-color: rgba(0, 0, 0, 0.5); }
+.overlay-title { -fx-background-color: #393b40; -fx-border-color: transparent transparent #43454a transparent; }
+.more-bar { -fx-border-color: #43454a transparent transparent transparent; }

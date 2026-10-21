@@ -114,3 +114,16 @@
 .nav-search { -fx-padding: 3 24 3 10; }
 .nav-search-clear { -fx-background-color: transparent; -fx-padding: 1 5 1 5; -fx-text-fill: #888; -fx-font-size: 11px; -fx-cursor: hand; }
 .nav-search-clear:hover { -fx-text-fill: #333; -fx-background-color: #e0e0e0; -fx-background-radius: 10; }
+
+/* top bar: menus on the left, gear menu on the far right */
+.top-bar {
+    -fx-background-color: linear-gradient(to bottom, derive(-fx-base,75%) 0%, -fx-outer-border 90%),
+                          linear-gradient(to bottom, derive(-fx-base,46.9%) 2%, derive(-fx-base,-2.1%) 95%);
+    -fx-background-insets: 0 0 0 0, 1 0 1 0;
+}
+.top-bar > .menu-bar { -fx-background-color: transparent; }
+.gear-menu { -fx-background-color: transparent; -fx-padding: 2 6 2 6; }
+.gear-menu:hover, .gear-menu:showing { -fx-background-color: derive(-fx-base, -8%); -fx-background-radius: 4; }
+.gear-menu > .arrow-button, .gear-menu > .arrow-button > .arrow { -fx-padding: 0; -fx-shape: null; }
+.gear-icon { -fx-fill: #555; }
+.more-bar { -fx-border-color: #d0d0d0 transparent transparent transparent; }

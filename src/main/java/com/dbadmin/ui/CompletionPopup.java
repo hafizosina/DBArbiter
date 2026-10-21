@@ -26,7 +26,7 @@ final class CompletionPopup {
     private Consumer<Suggestion> onAccept;
 
     CompletionPopup() {
-        list.getStylesheets().add(CompletionPopup.class.getResource("/com/dbadmin/app.css").toExternalForm());
+        Themes.install(list); // the popup has its own scene; keep it in the current theme
         list.getStyleClass().add("completion-list");
         list.setFocusTraversable(false);
         list.setPrefWidth(420);

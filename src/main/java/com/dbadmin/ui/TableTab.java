@@ -36,8 +36,6 @@ import java.util.concurrent.Callable;
 class TableTab extends Tab {
 
     private static final int PAGE_SIZE = 200;
-    /** Rows fetched for a custom query in the quick-query box. */
-    private static final int QUERY_MAX_ROWS = 1000;
 
     private final DatabaseSession session;
     private final TableRef table;
@@ -181,7 +179,7 @@ class TableTab extends Tab {
 
         Button run = new Button("▶ Run");
         run.setTooltip(new Tooltip("Run the statement at the cursor, or the selection (Ctrl+Enter). Not saved; up to "
-                + ScriptRunner.MAX_ROWS + " rows."));
+                + ScriptRunner.FETCH_SIZE + " rows at a time."));
         run.setOnAction(e -> runStatement());
         run.disableProperty().bind(runner.runningProperty());
         Button runAll = new Button("▶▶ Run All");
@@ -281,12 +279,12 @@ class TableTab extends Tab {
         }
 
         @Override
-        public void result(int number, StatementResult r) {
+        public void result(int number, StatementResult r, DatabaseSession runSession) {
             if (r.data() != null) {
-                dataGrid.show(r.data());
+                dataView.showResult(r, runSession);
                 dataGrid.setPlaceholder(new Label("No rows"));
                 pageInfo.setText(r.data().rows().size() + " row(s)"
-                        + (r.truncated() ? " (first " + ScriptRunner.MAX_ROWS + ")" : "") + " · " + r.millis() + " ms");
+                        + (r.truncated() ? " (first " + ScriptRunner.FETCH_SIZE + ")" : "") + " · " + r.millis() + " ms");
             } else {
                 pageInfo.setText((r.updateCount() >= 0 ? r.updateCount() + " row(s) affected" : "OK") + " · " + r.millis() + " ms");
             }

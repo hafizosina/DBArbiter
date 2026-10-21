@@ -227,8 +227,8 @@ class ScriptTab extends Tab {
         }
 
         @Override
-        public void result(int number, StatementResult r) {
-            showResult(number, r);
+        public void result(int number, StatementResult r, DatabaseSession session) {
+            showResult(number, r, session);
         }
 
         @Override
@@ -243,7 +243,7 @@ class ScriptTab extends Tab {
         }
     }
 
-    private void showResult(int number, StatementResult r) {
+    private void showResult(int number, StatementResult r, DatabaseSession session) {
         if (r.data() == null) {
             String what = r.updateCount() >= 0 ? r.updateCount() + " row(s) affected" : "OK";
             log("Statement " + number + ": " + what + " (" + r.millis() + " ms)");
@@ -251,9 +251,10 @@ class ScriptTab extends Tab {
         }
         int rows = r.data().rows().size();
         log("Statement " + number + ": " + rows + " row(s) fetched" +
-                (r.truncated() ? " (limited to " + ScriptRunner.MAX_ROWS + ")" : "") + " (" + r.millis() + " ms)");
+                (r.truncated() ? " (first " + ScriptRunner.FETCH_SIZE + "; more below the grid)" : "")
+                + " (" + r.millis() + " ms)");
         DataView view = new DataView();
-        view.grid().show(r.data());
+        view.showResult(r, session);
         Tab tab = new Tab("Result " + number, view);
         tab.setTooltip(new Tooltip(abbreviate(r.sql())));
         results.getTabs().add(tab);

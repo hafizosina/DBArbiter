@@ -18,7 +18,7 @@ public class DbAdminApp extends Application {
     public void start(Stage stage) {
         mainWindow = new MainWindow(stage);
         Scene scene = new Scene(mainWindow.getRoot(), 1200, 760);
-        scene.getStylesheets().add(getClass().getResource("app.css").toExternalForm());
+        MainWindow.applyTheme(scene);
         for (int size : new int[]{16, 24, 32, 48, 64, 128, 256}) {
             stage.getIcons().add(new Image(getClass().getResource("app-icon/icon-" + size + ".png").toExternalForm()));
         }

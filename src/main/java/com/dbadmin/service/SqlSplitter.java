@@ -89,6 +89,22 @@ public final class SqlSplitter {
         return above != null ? above : all.isEmpty() ? null : all.get(0);
     }
 
+    private static final Pattern QUERY_START = Pattern.compile(
+            "(?:\\s|--[^\\n]*\\n?|/\\*(?s:.*?)\\*/)*(select|with|values|table|show|explain|describe|desc|pragma)\\b",
+            Pattern.CASE_INSENSITIVE);
+    private static final Pattern WRITES = Pattern.compile(
+            "\\b(insert|update|delete|merge|upsert|replace|create|alter|drop|truncate|grant|revoke|call|do|copy|into"
+                    + "|lock|nextval|setval)\\b", Pattern.CASE_INSENSITIVE);
+
+    /**
+     * True for a statement that only reads and is therefore safe to run again (to fetch more of its
+     * rows): it starts with SELECT, WITH, VALUES, SHOW, EXPLAIN ... and mentions none of the words
+     * that write (INSERT, UPDATE, DELETE, SELECT ... INTO, FOR UPDATE, nextval, ...). Errs on the safe side.
+     */
+    public static boolean isReadOnlyQuery(String sql) {
+        return QUERY_START.matcher(sql).lookingAt() && !WRITES.matcher(sql).find();
+    }
+
     /** Index just past the quote that closes the one at {@code start}; doubled quotes are escapes. */
     static int closingQuote(String s, int start, boolean backslashEscapes) {
         char q = s.charAt(start);

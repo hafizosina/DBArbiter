@@ -25,7 +25,8 @@ import java.util.regex.Pattern;
  */
 final class ScriptRunner {
 
-    static final int MAX_ROWS = 1000;
+    /** Rows fetched per chunk; read-only queries fetch more on demand (see DataView). */
+    static final int FETCH_SIZE = 200;
     /** Statements that change the schema, after which cached autocomplete metadata is stale. */
     private static final Pattern DDL = Pattern.compile("\\b(create|alter|drop|rename|truncate)\\b", Pattern.CASE_INSENSITIVE);
 
@@ -33,7 +34,8 @@ final class ScriptRunner {
         /** Statements are about to run; {@code values} are the parameter values used. */
         void started(ConnectionConfig config, int statements, Map<String, String> values);
 
-        void result(int number, StatementResult result);
+        /** {@code session} is the one it ran on, e.g. to fetch more rows of a query. */
+        void result(int number, StatementResult result, DatabaseSession session);
 
         void failed(int number, String sql, Throwable error);
 
@@ -104,9 +106,9 @@ final class ScriptRunner {
         // ArrayList, not toList(): values may be null (SQL NULL)
         List<String> params = new ArrayList<>();
         statements.get(index).names().forEach(name -> params.add(values.get(name)));
-        Async.run(session, () -> session.execute(sql, params, MAX_ROWS), result -> {
+        Async.run(session, () -> session.execute(sql, params, FETCH_SIZE), result -> {
             if (runningSession != session) return;
-            listener.result(index + 1, result);
+            listener.result(index + 1, result, session);
             runNext(session, statements, values, index + 1, startNanos);
         }, ex -> {
             if (runningSession != session) return;

@@ -543,11 +543,19 @@ public class DatabaseSession implements AutoCloseable {
      * Values are sent as untyped text so the database converts them to the column's type.
      */
     public StatementResult execute(String sql, List<String> params, int maxRows) throws SQLException {
+        return execute(sql, params, maxRows, 0);
+    }
+
+    /**
+     * Like {@link #execute(String, List, int)}, but skips the first {@code skip} rows: re-runs a
+     * read-only query to fetch its next chunk. The server is asked for no more than it takes.
+     */
+    public StatementResult execute(String sql, List<String> params, int maxRows, int skip) throws SQLException {
         long start = System.nanoTime();
         statementSent = true;
         try (Statement st = params.isEmpty() ? connection.createStatement() : connection.prepareStatement(sql)) {
             running = st;
-            st.setMaxRows(maxRows + 1);
+            st.setMaxRows(skip + maxRows + 1);
             boolean hasResultSet;
             if (st instanceof PreparedStatement ps) {
                 for (int i = 0; i < params.size(); i++) {
@@ -560,12 +568,15 @@ public class DatabaseSession implements AutoCloseable {
             }
             if (hasResultSet) {
                 try (ResultSet rs = st.getResultSet()) {
+                    for (int i = 0; i < skip && rs.next(); i++) {
+                        // rows of earlier chunks
+                    }
                     TableData data = readRows(rs, maxRows);
                     boolean truncated = rs.next();
-                    return new StatementResult(sql, data, -1, elapsedMillis(start), truncated);
+                    return new StatementResult(sql, params, data, -1, elapsedMillis(start), truncated);
                 }
             }
-            return new StatementResult(sql, null, st.getUpdateCount(), elapsedMillis(start), false);
+            return new StatementResult(sql, params, null, st.getUpdateCount(), elapsedMillis(start), false);
         } finally {
             running = null;
         }
