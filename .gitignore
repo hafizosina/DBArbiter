@@ -1,4 +1,26 @@
-target/
+# Build output (jars, Windows exe/zip with bundled JRE)
+/target/
+/out/
+dependency-reduced-pom.xml
+
+# Scripts saved by the app when run with "mvn javafx:run" (user data)
+/Script/
+
+# Logs (e.g. launch4j.log from DBAdmin.exe --l4j-debug)
+*.log
+
+# IntelliJ IDEA
 .idea/
 *.iml
-Script/
+
+# Eclipse / VS Code
+.classpath
+.project
+.settings/
+.vscode/
+
+# OS / editor leftovers
+.DS_Store
+Thumbs.db
+*.swp
+*~
