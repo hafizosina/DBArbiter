@@ -288,8 +288,12 @@ class DataView extends BorderPane {
             ask.setHeaderText("Save " + updates.size() + " changed row(s)?");
             TextArea statements = new TextArea(String.join("\n", sql));
             statements.setEditable(false);
+            statements.setWrapText(true); // a long UPDATE wraps instead of needing a sideways scroll
             statements.setPrefRowCount(Math.min(12, sql.size() + 1));
             statements.getStyleClass().add("sql-messages");
+            // wide enough for the statements (up to a limit), so the text and buttons are not cut off
+            int longest = sql.stream().mapToInt(String::length).max().orElse(0);
+            ask.getDialogPane().setPrefWidth(Math.max(560, Math.min(1000, longest * 7.5 + 80)));
             ask.getDialogPane().setExpandableContent(statements);
             ask.getDialogPane().setExpanded(true);
             if (InAppDialogs.showAndWait(ask).orElse(ButtonType.CANCEL) != save) return;

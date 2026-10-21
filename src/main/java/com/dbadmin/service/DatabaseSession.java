@@ -268,7 +268,6 @@ public class DatabaseSession implements AutoCloseable {
         return new TableData(List.of("#", "Column", "Type", "Size", "Nullable", "Key", "Default", "Comment"), rows);
     }
 
-    /** One row per index, with its columns in order. */
     /** A column as compared between databases. {@code digits} is the scale of numeric types, or null. */
     public record ColumnDef(String name, String type, int size, Integer digits, boolean nullable, String defaultValue) {
     }
@@ -413,6 +412,7 @@ public class DatabaseSession implements AutoCloseable {
         return execute(sql.toString(), List.of(), maxRows);
     }
 
+    /** One row per index, with its columns in order. */
     public TableData listIndexes(TableRef t) throws SQLException {
         Map<String, List<String>> columns = new LinkedHashMap<>();
         Map<String, Boolean> unique = new HashMap<>();

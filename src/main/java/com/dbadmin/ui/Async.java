@@ -6,6 +6,7 @@ import javafx.application.Platform;
 
 import java.sql.SQLException;
 import java.util.concurrent.Callable;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
@@ -23,6 +24,11 @@ final class Async {
     });
 
     private Async() {
+    }
+
+    /** The pool for work that has no session yet; failures are not logged or reported here. */
+    static Executor background() {
+        return GENERAL;
     }
 
     /** Work that has no session yet, such as connecting. */

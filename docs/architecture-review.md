@@ -1,6 +1,6 @@
 # DBAdmin Architecture Review
 
-_First review: 2026-10-21 at commit `70ef05a`. Updated the same day after two rounds of follow-up fixes (see [Status](#status))._
+_First review: 2026-10-21 at commit `70ef05a`. Updated the same day after three rounds of follow-up fixes (see [Status](#status))._
 
 **Scope:** every service and model class was read in full, along with the main UI classes (MainWindow, DataView, CompareTab, ScriptRunner, TableEditing, Themes, Async). The app was not run for this review; the fixes are covered by unit tests, but the UI changes have not been tried in the running app.
 
@@ -11,15 +11,15 @@ _First review: 2026-10-21 at commit `70ef05a`. Updated the same day after two ro
 | # | Issue | Status |
 |---|---|---|
 | 1 | Edits mapped to table columns by result label | **Fixed**: only `*` or plain column lists are editable |
-| 2 | No tests | **Partly done**: 103 JUnit tests, including the pending-edit logic; UI screens and `SchemaCompare` untested |
+| 2 | No tests | **Mostly done**: 115 JUnit tests cover every class without a screen; the screens themselves are untested |
 | 3 | SQL scanner written three times | **Fixed**: one `SqlLexer`; splitting and autocomplete share statement boundaries |
 | 4 | Fetching more rows re-runs the query | Open |
 | 5 | `DatabaseSession` does too much | Open |
-| 6 | `MainWindow` and `CompareTab` do too much | Open |
+| 6 | `MainWindow` and `CompareTab` do too much | **Partly fixed**: sessions moved to a tested `SessionManager`; `CompareTab` still holds two tools |
 | 7 | Global static state | Open |
 | 8 | Saved files can be corrupted | **Partly fixed**: atomic writes. Plain-text passwords and path-keyed script bindings remain |
 | 9 | Errors swallowed silently | **Fixed**: non-editable results say why; errors are logged to `~/.dbadmin/logs` |
-| 10 | Small tidy-ups | Open |
+| 10 | Small tidy-ups | **Fixed** |
 | 11 | `DataView` growing; side effects in `hasEdits()` / `show()` | **Partly fixed**: pending edits moved to a tested class; the side effects remain |
 
 ## How it is organised
@@ -32,8 +32,9 @@ service/          JDBC and plain SQL-text logic, no JavaFX
   SqlSplitter / NamedParams / CompletionContext / EditableQuery   built on SqlLexer
   ConnectionStore / SettingsStore / ScriptBindings                JSON files in ~/.dbadmin, written via JsonFiles
   AppLog              the log file in ~/.dbadmin/logs
+  SessionManager      the open sessions, one per connection, opened in the background
   compare/            SchemaCompare, DataCompare (pure functions over snapshots)
-ui/               about 35 JavaFX classes: MainWindow (also the SessionProvider), tabs, grid, editor, dialogs
+ui/               about 35 JavaFX classes: MainWindow (the SessionProvider, backed by SessionManager), tabs, grid, editor, dialogs
   PendingEdits        unsaved cell edits, without JavaFX
 src/test/         JUnit 5 tests (mvn test)
 ```
@@ -57,11 +58,11 @@ src/test/         JUnit 5 tests (mvn test)
 
 **Fixed:** a result is editable only when its select list is `*`, `t.*`, or plain column names with no aliases, expressions, repeats, or `*` mixed with columns. Also fixed along the way: a query with `FROM` at the start of a line (`select *\nfrom users`) was never recognised as editable.
 
-### 2. There were no tests — partly done
+### 2. There were no tests — mostly done
 
-`mvn test` now runs 103 tests: `EditableQuery`, `SqlSplitter`, `NamedParams`, `CompletionContext`, `DataCompare`, `JsonFiles`, `AppLog` and `PendingEdits`. A failing test stops `mvn package`.
+`mvn test` now runs 115 tests: `EditableQuery`, `SqlSplitter`, `NamedParams`, `CompletionContext`, `DataCompare`, `SchemaCompare`, `JsonFiles`, `AppLog`, `SessionManager` and `PendingEdits`. `SessionManager`'s tests open real sessions on empty SQLite files, so they need no database server. A failing test stops `mvn package`.
 
-**Still untested:** `SchemaCompare.compareMaps`, and the UI screens themselves: how the grid, the value panel and the edit bar react to clicks, focus and typing.
+**Still untested:** the screens themselves: how the grid, the value panel and the edit bar react to clicks, focus and typing. Testing those needs a UI test tool such as TestFX, or trying them in the running app.
 
 ### 3. The SQL scanner was written three times — fixed
 
@@ -84,10 +85,10 @@ Keeping a cursor open (autocommit off plus `setFetchSize`) avoids both, but ties
 
 It handles connection lifecycle and retry, metadata, editing, and running statements. Its `switch (config.getType())` blocks are spread across about 8 methods. Before adding a 4th database (SQL Server, Oracle), pull the per-database SQL out into a `Dialect` interface, one implementation per `DbType`.
 
-### 6. Some UI classes have absorbed non-UI work — open
+### 6. Some UI classes have absorbed non-UI work — partly fixed
 
-- `MainWindow` (793 lines) owns the session registry, the "connecting" waiter queue, connection create/edit/delete, and tree loading. The session map and waiters could move into a `SessionManager` with no JavaFX dependency, which would then be testable.
-- `CompareTab` (848 lines) holds two separate tools, schema compare and data compare, and could be split in two.
+- **Fixed:** the open sessions and the queue of callers waiting for a connection to open moved from `MainWindow` into `SessionManager`, which has no JavaFX dependency and 6 tests. They cover callers sharing one session while it opens, failures reaching every caller, a connection edited or deleted while opening, and closing. `MainWindow` (776 lines) keeps the window, connection create/edit/delete and tree loading, and only updates the status bar and tree when told a session opened or failed.
+- **Open:** `CompareTab` (848 lines) holds two separate tools, schema compare and data compare, and could be split in two.
 
 ### 7. Global static state — open
 
@@ -111,10 +112,10 @@ It handles connection lifecycle and retry, metadata, editing, and running statem
 
   It never logs the SQL that is run or passwords. A database's error message may still quote part of a statement (MySQL's "near '…'").
 
-### 10. Small tidy-ups — open
+### 10. Small tidy-ups — fixed
 
-- `service/DatabaseSession.java:266` has an orphaned `/** One row per index… */` comment above `ColumnDef`.
-- `service/compare/SchemaCompare.java:40-41` has two comments stacked on one record.
+- The orphaned `/** One row per index… */` comment in `DatabaseSession` now sits on `listIndexes`, where it belongs.
+- The two comments stacked on `SchemaCompare.TableSnapshot` are merged into one.
 
 ### 11. `DataView` was growing, with side effects in query-like methods — partly fixed
 
@@ -123,6 +124,5 @@ It handles connection lifecycle and retry, metadata, editing, and running statem
 
 ## Suggested next steps
 
-1. Try cell editing in the running app: the grid, the value panel, HTML values, and the "Not editable" messages. Check `~/.dbadmin/logs` afterwards.
-2. Then as needed: `SessionManager` (#6), `Dialect` (#5), fetching with a cursor (#4).
-3. The small tidy-ups (#10) whenever those files are next touched.
+1. Try the app: cell editing (the grid, the value panel, HTML values, the "Not editable" messages), and connecting, disconnecting and reconnecting, since that now goes through `SessionManager`. Check `~/.dbadmin/logs` afterwards.
+2. Then as needed: split `CompareTab` (#6), `Dialect` (#5), fetching with a cursor (#4).

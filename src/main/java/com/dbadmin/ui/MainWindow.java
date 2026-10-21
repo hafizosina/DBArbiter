@@ -8,6 +8,8 @@ import com.dbadmin.service.ConnectionStore;
 import com.dbadmin.service.DatabaseSession;
 import com.dbadmin.service.ScriptBindings;
 import com.dbadmin.service.ScriptFolder;
+import com.dbadmin.service.SessionManager;
+import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
@@ -41,7 +43,6 @@ import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -53,9 +54,7 @@ public class MainWindow implements SessionProvider {
     private final Stage stage;
     private final ConnectionStore store = new ConnectionStore();
     private final ObservableList<ConnectionConfig> connections;
-    private final Map<String, DatabaseSession> sessions = new HashMap<>();
-    /** Callbacks waiting for a connection that is being opened, keyed by connection id. */
-    private final Map<String, List<Waiter>> connecting = new HashMap<>();
+    private final SessionManager sessions;
     private final SqlCompleter completer = new SqlCompleter();
     private TableSearch navigator;
     private SplitPane mainSplit;
@@ -90,6 +89,28 @@ public class MainWindow implements SessionProvider {
         InAppDialogs.install(shell);
         this.connections = FXCollections.observableArrayList(loadConnections());
         connections.sort(BY_NAME);
+        sessions = new SessionManager(DatabaseSession::open, Async.background(), Platform::runLater,
+                connections::contains, new SessionManager.Listener() {
+            @Override
+            public void connecting(ConnectionConfig c) {
+                status.setText("Connecting to " + c.getName() + "…");
+            }
+
+            @Override
+            public void opened(ConnectionConfig c, DatabaseSession s) {
+                s.setOnReconnect(name -> Platform.runLater(
+                        () -> status.setText("Connection to " + name + " was lost; reconnected")));
+                status.setText("Connected to " + c.getName() + (c.isReadOnly() ? " (read-only)" : " (read-write)"));
+                navigator.refresh(); // a search in progress now includes this connection
+                tree.refresh();
+                updateMenuItems();
+            }
+
+            @Override
+            public void failed(ConnectionConfig c, Throwable error) {
+                status.setText("Connection to " + c.getName() + " failed");
+            }
+        });
         stage.setOnCloseRequest(e -> {
             if (!confirmCloseScripts()) e.consume();
         });
@@ -116,7 +137,7 @@ public class MainWindow implements SessionProvider {
         tabs.visibleProperty().bind(javafx.beans.binding.Bindings.isNotEmpty(tabs.getTabs()));
         tabs.getSelectionModel().selectedItemProperty().addListener((o, a, b) -> updateScriptItems());
 
-        navigator = new TableSearch(tree, () -> List.copyOf(sessions.values()), this::openTable);
+        navigator = new TableSearch(tree, sessions::all, this::openTable);
         completer.setOnInvalidate(navigator::invalidate); // DDL and refresh also reload the search
         mainSplit = new SplitPane(navigator, center);
         mainSplit.setDividerPositions(0.25);
@@ -144,8 +165,7 @@ public class MainWindow implements SessionProvider {
     }
 
     public void shutdown() {
-        sessions.values().forEach(DatabaseSession::close);
-        sessions.clear();
+        sessions.closeAll();
     }
 
     // ---- layout ----------------------------------------------------------
@@ -308,8 +328,8 @@ public class MainWindow implements SessionProvider {
             boolean onConnection = n != null && n.kind() == NavNode.Kind.CONNECTION;
             edit.setVisible(onConnection);
             delete.setVisible(onConnection);
-            disconnect.setVisible(n != null && sessions.containsKey(idOf(n)));
-            reconnect.setVisible(n != null && sessions.containsKey(idOf(n)));
+            disconnect.setVisible(n != null && sessions.isOpen(idOf(n)));
+            reconnect.setVisible(n != null && sessions.isOpen(idOf(n)));
             refresh.setDisable(n == null);
         });
         return menu;
@@ -330,7 +350,7 @@ public class MainWindow implements SessionProvider {
         boolean onConnection = n != null && n.kind() == NavNode.Kind.CONNECTION;
         editItem.setDisable(!onConnection);
         deleteItem.setDisable(!onConnection);
-        disconnectItem.setDisable(n == null || !sessions.containsKey(idOf(n)));
+        disconnectItem.setDisable(n == null || !sessions.isOpen(idOf(n)));
         refreshItem.setDisable(n == null || n.kind() == NavNode.Kind.MESSAGE);
     }
 
@@ -437,11 +457,10 @@ public class MainWindow implements SessionProvider {
     }
 
     private void disconnect(ConnectionConfig c) {
-        DatabaseSession s = sessions.remove(c.getId());
+        DatabaseSession s = sessions.close(c.getId()).orElse(null);
         if (s == null) return;
         tabs.getTabs().removeIf(t -> t instanceof TableTab tt && tt.key().startsWith(c.getId() + "|"));
         completer.invalidate(s); // also drops it from the table search
-        s.close();
         for (Tab t : tabs.getTabs()) {
             if (t instanceof ScriptTab st) st.sessionClosed(s);
         }
@@ -472,7 +491,7 @@ public class MainWindow implements SessionProvider {
     private void load(LazyItem item) {
         NavNode node = item.getValue();
         ConnectionConfig c = node.connection();
-        DatabaseSession session = sessions.get(c.getId());
+        DatabaseSession session = sessions.get(c.getId()).orElse(null);
 
         if (session == null) {
             withSession(c, s -> load(item), ex -> {
@@ -514,47 +533,12 @@ public class MainWindow implements SessionProvider {
 
     @Override
     public void withSession(ConnectionConfig c, Consumer<DatabaseSession> onReady, Consumer<Throwable> onError) {
-        DatabaseSession existing = sessions.get(c.getId());
-        if (existing != null) {
-            onReady.accept(existing);
-            return;
-        }
-        List<Waiter> waiters = connecting.get(c.getId());
-        if (waiters != null) {
-            waiters.add(new Waiter(onReady, onError));
-            return;
-        }
-        waiters = new ArrayList<>(List.of(new Waiter(onReady, onError)));
-        connecting.put(c.getId(), waiters);
-        status.setText("Connecting to " + c.getName() + "…");
-        Async.run(() -> DatabaseSession.open(c), s -> {
-            List<Waiter> ready = connecting.remove(c.getId());
-            if (!connections.contains(c)) {
-                // edited or deleted while connecting
-                s.close();
-                ready.forEach(w -> w.onError().accept(new IllegalStateException("Connection was changed")));
-                return;
-            }
-            sessions.put(c.getId(), s);
-            s.setOnReconnect(name -> javafx.application.Platform.runLater(
-                    () -> status.setText("Connection to " + name + " was lost; reconnected")));
-            status.setText("Connected to " + c.getName() + (c.isReadOnly() ? " (read-only)" : " (read-write)"));
-            navigator.refresh(); // a search in progress now includes this connection
-            tree.refresh();
-            updateMenuItems();
-            ready.forEach(w -> w.onReady().accept(s));
-        }, ex -> {
-            status.setText("Connection to " + c.getName() + " failed");
-            connecting.remove(c.getId()).forEach(w -> w.onError().accept(ex));
-        });
+        sessions.withSession(c, onReady, onError);
     }
 
     @Override
     public Optional<DatabaseSession> openSession(ConnectionConfig c) {
-        return Optional.ofNullable(sessions.get(c.getId()));
-    }
-
-    private record Waiter(Consumer<DatabaseSession> onReady, Consumer<Throwable> onError) {
+        return sessions.get(c.getId());
     }
 
     private TreeItem<NavNode> folder(ConnectionConfig c, String name, List<TableRef> tables) {
@@ -573,7 +557,7 @@ public class MainWindow implements SessionProvider {
         TreeItem<NavNode> item = tree.getSelectionModel().getSelectedItem();
         while (item != null && !(item instanceof LazyItem)) item = item.getParent();
         if (item instanceof LazyItem lazy) {
-            completer.invalidate(sessions.get(idOf(lazy.getValue())));
+            completer.invalidate(sessions.get(idOf(lazy.getValue())).orElse(null));
             lazy.reset();
             lazy.setExpanded(false);
             lazy.setExpanded(true);
@@ -585,8 +569,7 @@ public class MainWindow implements SessionProvider {
     private void openSelectedTable() {
         NavNode node = selectedNode();
         if (node == null || node.kind() != NavNode.Kind.TABLE) return;
-        DatabaseSession session = sessions.get(node.connection().getId());
-        if (session != null) openTable(session, node.table());
+        sessions.get(node.connection().getId()).ifPresent(session -> openTable(session, node.table()));
     }
 
     /** Opens a table's tab, or switches to it if already open. */
@@ -775,7 +758,7 @@ public class MainWindow implements SessionProvider {
             setText(node.toString());
             switch (node.kind()) {
                 case CONNECTION -> {
-                    setGraphic(DbIcons.connection(node.connection().getType(), sessions.containsKey(idOf(node))));
+                    setGraphic(DbIcons.connection(node.connection().getType(), sessions.isOpen(idOf(node))));
                     return;
                 }
                 case NAMESPACE -> icon.setText("◆");

@@ -37,8 +37,10 @@ public final class SchemaCompare {
         }
     }
 
-    /** What is compared about one table, as name -> normalized description. */
-    /** {@code definition}: a view's SQL (null for tables). */
+    /**
+     * What is compared about one table: its columns, indexes, constraints and foreign keys as
+     * name -> normalized description, and {@code definition}, a view's SQL (null for tables).
+     */
     public record TableSnapshot(TableRef table, Map<String, String> columns, Map<String, String> indexes,
                                 Map<String, String> constraints, Map<String, String> foreignKeys, String definition) {
     }
