@@ -17,7 +17,8 @@ trap 'rm -rf "$BUILD"' EXIT
 
 echo "$(date '+%F %T') deploying $(git log -1 --format='%h %s' "$COMMIT")"
 git archive "$COMMIT" | tar -x -C "$BUILD"
-(cd "$BUILD" && mvn -B -q package -Dbuild.commit="$(git rev-parse --short "$COMMIT")" -Dbuild.date="$(date '+%F %H:%M')")
+SHORT=$(git rev-parse --short "$COMMIT") # here: the build folder is not a git repository
+(cd "$BUILD" && mvn -B -q package -Dbuild.commit="$SHORT" -Dbuild.date="$(date '+%F %H:%M')")
 
 mkdir -p "$DEST"
 if [ ! -x "$DEST/jre/bin/java" ]; then
@@ -56,5 +57,5 @@ StartupWMClass=com.dbadmin.Launcher
 EOF
 update-desktop-database "$APPS" 2>/dev/null || true
 
-git rev-parse --short "$COMMIT" > "$DEST/VERSION"
+echo "$SHORT" > "$DEST/VERSION"
 echo "$(date '+%F %T') installed $(cat "$DEST/VERSION") in $DEST"
