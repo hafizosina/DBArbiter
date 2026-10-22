@@ -216,7 +216,7 @@ of up to 50,000 rows held as text. Fine for one master table, but a scan of a wh
 **For the scan and other bulk tools:** stream rows (`streamRows` already exists) and keep only findings, never the
 rows themselves.
 
-### G4. Adding a tool means editing several places by hand — medium
+### G4. Adding a tool means editing several places by hand — partly fixed
 
 A new tool needs its menu item in `MainWindow`, its own license gate, its own save / dirty / close-prompt code,
 which exists four times (`ScriptTab`, `SchemaCompareTab`, `DataCompareTab`, `MainWindow`, 11 `instanceof`
@@ -225,6 +225,19 @@ checks on tab types), and a new `case` in `CompareReportFiles.open`.
 **Add a `ToolTab` interface** (title, dirty, save, confirm close, the file kind it opens) that `MainWindow` loops
 over. Opening a file and closing the app then work for any tool, and a fifth tool costs one class instead of
 four edits.
+
+**Done, first part:** `UnsavedWork` (`confirmClose()`), implemented by the script, table and both compare tabs;
+closing the app asks every tab that implements it, with no list of tab types. **This fixed a bug found on the way:**
+table tabs were not in the old list, so closing the app dropped unsaved cell edits without asking, and
+disconnecting, reconnecting, editing or deleting a connection closed its table tabs the same way. Now each asks
+first, and Cancel keeps the connection and the tab. Tried in the app against PostgreSQL (close app: keep / discard;
+disconnect: keep).
+
+**Still open:** the menu item and license gate per tool, one shared save / dirty / save-as for the compare tabs, and
+opening a file by its kind through the tool instead of a `switch`.
+
+**New, small:** a script tab's result grid can hold cell edits too; disconnecting tells the script tab its session
+closed (`sessionClosed`) without asking about those edits.
 
 ### G5. Database differences are spread across the code — medium, before a fourth database
 

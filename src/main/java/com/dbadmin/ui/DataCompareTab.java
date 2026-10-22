@@ -63,7 +63,7 @@ import java.util.function.Consumer;
  * against Prod (target), with a verdict per row (insert, update, delete or skip). Only reads. The report
  * can be saved, reopened later and exported as HTML.
  */
-class DataCompareTab extends Tab {
+class DataCompareTab extends Tab implements UnsavedWork {
 
     /** Rows listed in a data-compare report at most (the counts cover everything). */
     private static final int MAX_LISTED_ROWS = 50_000;
@@ -1230,7 +1230,8 @@ class DataCompareTab extends Tab {
     }
 
     /** Asks about unsaved changes before the tab (or the app) closes. Returns false if the user cancelled. */
-    boolean confirmClose() {
+    @Override
+    public boolean confirmClose() {
         if (!isDirty()) return true;
         if (getTabPane() != null) getTabPane().getSelectionModel().select(this);
         ButtonType save = new ButtonType("Save", ButtonBar.ButtonData.YES);

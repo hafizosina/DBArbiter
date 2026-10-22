@@ -46,7 +46,7 @@ import java.util.function.Consumer;
  * UAT (source) against Prod (target) before a release. Only reads. The result can be saved, reopened
  * later and exported as HTML.
  */
-class SchemaCompareTab extends Tab {
+class SchemaCompareTab extends Tab implements UnsavedWork {
 
     private final ObservableList<ConnectionConfig> connections;
     private final SessionProvider sessions;
@@ -229,7 +229,8 @@ class SchemaCompareTab extends Tab {
     }
 
     /** Asks about unsaved results before the tab (or the app) closes. Returns false if the user cancelled. */
-    boolean confirmClose() {
+    @Override
+    public boolean confirmClose() {
         if (!resultsUnsaved) return true;
         if (getTabPane() != null) getTabPane().getSelectionModel().select(this);
         javafx.scene.control.ButtonType save = new javafx.scene.control.ButtonType("Save", javafx.scene.control.ButtonBar.ButtonData.YES);

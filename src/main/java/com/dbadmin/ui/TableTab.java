@@ -35,7 +35,7 @@ import java.util.concurrent.Callable;
  * Shows one table or view, laid out like DBeaver: a Properties tab with a vertical list of
  * sections (Columns, Constraints, Foreign Keys, Indexes, Triggers) and a Data tab, opened by default.
  */
-class TableTab extends Tab {
+class TableTab extends Tab implements UnsavedWork {
 
     private static final int PAGE_SIZE = 200;
 
@@ -80,7 +80,7 @@ class TableTab extends Tab {
         dataView.offerRecordMode();
         setTooltip(new javafx.scene.control.Tooltip(session.getConfig().getName() + " · " + table.displayName()));
         setOnCloseRequest(e -> {
-            if (!dataView.confirmDiscard()) e.consume(); // unsaved edits
+            if (!confirmClose()) e.consume();
         });
 
         addSection("Columns", () -> session.listColumns(table));
@@ -454,5 +454,13 @@ class TableTab extends Tab {
         l.setWrapText(true);
         l.getStyleClass().add("error-text");
         return l;
+    }
+
+    /** Unsaved cell edits: shows this tab, then asks to save or discard them. */
+    @Override
+    public boolean confirmClose() {
+        if (!dataView.hasEdits()) return true;
+        if (getTabPane() != null) getTabPane().getSelectionModel().select(this);
+        return dataView.confirmDiscard();
     }
 }

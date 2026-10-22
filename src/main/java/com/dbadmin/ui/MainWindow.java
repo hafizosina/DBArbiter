@@ -119,7 +119,7 @@ public class MainWindow implements SessionProvider {
             }
         });
         stage.setOnCloseRequest(e -> {
-            if (!confirmCloseScripts()) e.consume();
+            if (!confirmCloseTabs()) e.consume();
         });
 
         tree.setShowRoot(false);
@@ -354,7 +354,7 @@ public class MainWindow implements SessionProvider {
         refreshItem.setOnAction(e -> refreshSelected());
         MenuItem exitItem = new MenuItem("Exit");
         exitItem.setOnAction(e -> {
-            if (confirmCloseScripts()) stage.close();
+            if (confirmCloseTabs()) stage.close();
         });
 
         Menu connection = new Menu("Connection", null, newItem, editItem, deleteItem,
@@ -516,7 +516,10 @@ public class MainWindow implements SessionProvider {
                 status.setText("Not saved: the connection was deleted");
                 return;
             }
-            disconnect(current);
+            if (!disconnect(current)) {
+                status.setText("Not saved: " + current.getName() + " still has unsaved table edits; save or discard them, then edit it again");
+                return;
+            }
             connections.set(connections.indexOf(current), updated);
             LazyItem replacement = new LazyItem(NavNode.connection(updated));
             for (int i = 0; i < treeRoot.getChildren().size(); i++) {
@@ -594,16 +597,23 @@ public class MainWindow implements SessionProvider {
         confirm.initOwner(stage);
         confirm.setHeaderText(null);
         if (InAppDialogs.showAndWait(confirm).orElse(ButtonType.CANCEL) != ButtonType.OK) return;
-        disconnect(c);
+        if (!disconnect(c)) return;
         tabs.getTabs().removeIf(t -> t instanceof ConnectionTab ct && c.getId().equals(ct.editedId()));
         connections.remove(c);
         saveConnections();
         treeRoot.getChildren().remove(item);
     }
 
-    private void disconnect(ConnectionConfig c) {
+    /**
+     * Closes the connection and its table tabs. Unsaved cell edits in those tabs are asked about first; false
+     * (nothing closed) if the user kept them.
+     */
+    private boolean disconnect(ConnectionConfig c) {
+        for (Tab t : List.copyOf(tabs.getTabs())) {
+            if (t instanceof TableTab tt && tt.key().startsWith(c.getId() + "|") && !tt.confirmClose()) return false;
+        }
         DatabaseSession s = sessions.close(c.getId()).orElse(null);
-        if (s == null) return;
+        if (s == null) return true;
         tabs.getTabs().removeIf(t -> t instanceof TableTab tt && tt.key().startsWith(c.getId() + "|"));
         completer.invalidate(s); // also drops it from the table search
         for (Tab t : tabs.getTabs()) {
@@ -618,11 +628,12 @@ public class MainWindow implements SessionProvider {
         tree.refresh();
         updateMenuItems();
         status.setText("Disconnected from " + c.getName());
+        return true;
     }
 
     /** Closes and reopens a connection, then reloads its tree. */
     private void reconnect(ConnectionConfig c) {
-        disconnect(c);
+        if (!disconnect(c)) return;
         for (TreeItem<NavNode> item : treeRoot.getChildren()) {
             if (item.getValue().connection() == c) {
                 tree.getSelectionModel().select(item);
@@ -905,11 +916,10 @@ public class MainWindow implements SessionProvider {
     }
 
     /** Asks about every unsaved script and compare. Returns false if the user cancelled. */
-    private boolean confirmCloseScripts() {
+    /** Asks every tab with unsaved work (scripts, cell edits, compares); false if one was cancelled. */
+    private boolean confirmCloseTabs() {
         for (Tab t : List.copyOf(tabs.getTabs())) {
-            if (t instanceof ScriptTab st && !st.confirmClose()) return false;
-            if (t instanceof DataCompareTab dt && !dt.confirmClose()) return false;
-            if (t instanceof SchemaCompareTab st && !st.confirmClose()) return false;
+            if (t instanceof UnsavedWork w && !w.confirmClose()) return false;
         }
         return true;
     }

@@ -41,7 +41,7 @@ import java.util.List;
 import java.util.Map;
 
 /** A SQL editor bound to a connection, with results and messages below. */
-class ScriptTab extends Tab {
+class ScriptTab extends Tab implements UnsavedWork {
 
     private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("HH:mm:ss");
 
@@ -384,7 +384,8 @@ class ScriptTab extends Tab {
     }
 
     /** Asks about unsaved changes. Returns false if the user cancelled. */
-    boolean confirmClose() {
+    @Override
+    public boolean confirmClose() {
         if (!confirmDiscardResultEdits()) return false;
         if (!dirty) return true;
         getTabPane().getSelectionModel().select(this);
