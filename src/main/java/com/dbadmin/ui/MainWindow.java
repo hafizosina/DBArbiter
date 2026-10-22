@@ -141,6 +141,14 @@ public class MainWindow implements SessionProvider {
         tabs.getStyleClass().add("main-tabs");
         tabs.visibleProperty().bind(javafx.beans.binding.Bindings.isNotEmpty(tabs.getTabs()));
         tabs.getSelectionModel().selectedItemProperty().addListener((o, a, b) -> updateScriptItems());
+        // right-click a tab: Close / Close Others / Close Tabs to the Left / to the Right / Close All
+        tabs.getTabs().addListener((javafx.collections.ListChangeListener<Tab>) change -> {
+            while (change.next()) {
+                for (Tab t : change.getAddedSubList()) {
+                    if (t.getContextMenu() == null) t.setContextMenu(tabMenu(t));
+                }
+            }
+        });
 
         navigator = new TableSearch(tree, sessions::all, this::openTable);
         completer.setOnInvalidate(navigator::invalidate); // DDL and refresh also reload the search
@@ -481,6 +489,38 @@ public class MainWindow implements SessionProvider {
             saveConnections();
             tree.getSelectionModel().select(replacement);
         }));
+    }
+
+    private ContextMenu tabMenu(Tab tab) {
+        MenuItem close = new MenuItem("Close");
+        close.setOnAction(e -> closeTab(tab));
+        MenuItem others = new MenuItem("Close Others");
+        others.setOnAction(e -> closeTabs(tabs.getTabs().stream().filter(t -> t != tab).toList()));
+        MenuItem left = new MenuItem("Close Tabs to the Left");
+        left.setOnAction(e -> closeTabs(List.copyOf(tabs.getTabs().subList(0, tabs.getTabs().indexOf(tab)))));
+        MenuItem right = new MenuItem("Close Tabs to the Right");
+        right.setOnAction(e -> {
+            int i = tabs.getTabs().indexOf(tab);
+            closeTabs(List.copyOf(tabs.getTabs().subList(i + 1, tabs.getTabs().size())));
+        });
+        MenuItem all = new MenuItem("Close All");
+        all.setOnAction(e -> closeTabs(List.copyOf(tabs.getTabs())));
+        ContextMenu menu = new ContextMenu(close, others, left, right, new SeparatorMenuItem(), all);
+        menu.setOnShowing(e -> {
+            int i = tabs.getTabs().indexOf(tab);
+            others.setDisable(tabs.getTabs().size() < 2);
+            left.setDisable(i <= 0);
+            right.setDisable(i < 0 || i == tabs.getTabs().size() - 1);
+        });
+        return menu;
+    }
+
+    /** Closes the tabs one by one, each as its ✕ would; stops at the first one the user keeps open (Cancel). */
+    private void closeTabs(List<Tab> list) {
+        for (Tab t : list) {
+            closeTab(t);
+            if (tabs.getTabs().contains(t) && t.isClosable()) return;
+        }
     }
 
     /** Closes a tab the way its ✕ button does, so unsaved scripts still ask first. */

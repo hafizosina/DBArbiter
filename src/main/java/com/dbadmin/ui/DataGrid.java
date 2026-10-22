@@ -59,7 +59,44 @@ class DataGrid extends TableView<List<Object>> {
         getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
         getSelectionModel().setCellSelectionEnabled(true);
         getFocusModel().focusedCellProperty().addListener((o, a, pos) -> publishFocusedCell());
+        // Ctrl+C: the selected cells; Ctrl+Shift+C: with the column names (not while a cell is being edited)
+        addEventHandler(javafx.scene.input.KeyEvent.KEY_PRESSED, e -> {
+            if (e.getCode() == javafx.scene.input.KeyCode.C && e.isShortcutDown() && !e.isAltDown() && getEditingCell() == null) {
+                copySelection(e.isShiftDown());
+                e.consume();
+            }
+        });
     }
+
+    /** Puts the selected cells on the clipboard, as tab-separated rows (what spreadsheets paste as a grid). */
+    void copySelection(boolean withHeader) {
+        List<TablePosition> cells = getSelectionModel().getSelectedCells();
+        if (cells.isEmpty() || data == null) return;
+        java.util.TreeSet<Integer> rows = new java.util.TreeSet<>();
+        java.util.Set<Integer> picked = new java.util.HashSet<>();
+        for (TablePosition<?, ?> p : cells) {
+            if (p.getTableColumn() == null) continue;
+            rows.add(p.getRow());
+            picked.add((Integer) p.getTableColumn().getUserData());
+        }
+        // columns in the order they are shown (the user may have dragged them)
+        List<Integer> columns = getVisibleLeafColumns().stream().map(c -> (Integer) c.getUserData()).filter(picked::contains).toList();
+        java.util.Set<String> selected = new java.util.HashSet<>();
+        for (TablePosition<?, ?> p : cells) {
+            if (p.getTableColumn() != null) selected.add(p.getRow() + ":" + p.getTableColumn().getUserData());
+        }
+        List<List<Object>> table = new java.util.ArrayList<>();
+        for (int r : rows) {
+            List<Object> row = new java.util.ArrayList<>();
+            for (int c : columns) row.add(selected.contains(r + ":" + c) ? getItems().get(r).get(c) : null);
+            table.add(row);
+        }
+        List<String> header = withHeader ? columns.stream().map(c -> data.columns().get(c)).toList() : null;
+        javafx.scene.input.ClipboardContent content = new javafx.scene.input.ClipboardContent();
+        content.putString(CopyText.tsv(table, header));
+        javafx.scene.input.Clipboard.getSystemClipboard().setContent(content);
+    }
+
 
     /** Publishes the focused cell, also again after its value was edited. */
     void publishFocusedCell() {
