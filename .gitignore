@@ -10,7 +10,7 @@ docker/.env
 /Script/
 /Reports/
 
-# Logs (e.g. launch4j.log from DBAdmin.exe --l4j-debug)
+# Logs (e.g. launch4j.log from DBArbiter.exe --l4j-debug)
 *.log
 
 # IntelliJ IDEA

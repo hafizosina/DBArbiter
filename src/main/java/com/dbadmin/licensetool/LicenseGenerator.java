@@ -33,7 +33,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.function.Function;
 
 /**
- * Issues DBAdmin license keys. Runs only on the signer's machine and is not part of the app jar.
+ * Issues DBArbiter license keys. Runs only on the signer's machine and is not part of the app jar.
  * {@code --init} creates the signing key pair (once).
  */
 public class LicenseGenerator extends Application {
@@ -123,7 +123,7 @@ public class LicenseGenerator extends Application {
 
         Scene scene = new Scene(root, 760, 560);
         MainWindow.applyTheme(scene);
-        stage.setTitle("DBAdmin License Generator");
+        stage.setTitle("DBArbiter License Generator");
         stage.setScene(scene);
         stage.show();
 

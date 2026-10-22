@@ -1,4 +1,4 @@
-# Local test databases for DBAdmin.
+# Local test databases for DBArbiter.
 #   cp docker/.env.example docker/.env   # then set the passwords
 #   docker compose -f docker/docker-compose.yml up -d
 name: antam

@@ -34,7 +34,7 @@ public final class CompareReportFiles {
         return switch (kind) {
             case DataCompareReport.KIND -> MAPPER.treeToValue(json, DataCompareReport.class);
             case SchemaCompareReport.KIND -> MAPPER.treeToValue(json, SchemaCompareReport.class);
-            default -> throw new IOException(file.getFileName() + " is not a DBAdmin compare report.");
+            default -> throw new IOException(file.getFileName() + " is not a DBArbiter compare report.");
         };
     }
 }

@@ -45,11 +45,11 @@ public final class LicenseKey {
     /**
      * Reads and checks a key. Whitespace and line breaks (from pasting) are ignored.
      *
-     * @throws InvalidKeyException with a message for the user if it is not a valid DBAdmin key
+     * @throws InvalidKeyException with a message for the user if it is not a valid DBArbiter key
      */
     public static License verify(String text, PublicKey key) throws InvalidKeyException {
         String compact = text == null ? "" : text.replaceAll("\\s+", "");
-        if (!compact.startsWith(PREFIX)) throw new InvalidKeyException("This is not a DBAdmin license key.");
+        if (!compact.startsWith(PREFIX)) throw new InvalidKeyException("This is not a DBArbiter license key.");
         byte[] all;
         try {
             all = Base64.getUrlDecoder().decode(compact.substring(PREFIX.length()));
@@ -63,9 +63,9 @@ public final class LicenseKey {
             Signature s = Signature.getInstance("Ed25519");
             s.initVerify(key);
             s.update(payload);
-            if (!s.verify(signature)) throw new InvalidKeyException("The key is not valid (it was changed or not issued for DBAdmin).");
+            if (!s.verify(signature)) throw new InvalidKeyException("The key is not valid (it was changed or not issued for DBArbiter).");
         } catch (GeneralSecurityException e) {
-            throw new InvalidKeyException("The key is not valid (it was changed or not issued for DBAdmin).");
+            throw new InvalidKeyException("The key is not valid (it was changed or not issued for DBArbiter).");
         }
         return parse(payload);
     }
@@ -86,7 +86,7 @@ public final class LicenseKey {
 
     private static License parse(byte[] payload) throws InvalidKeyException {
         ByteBuffer in = ByteBuffer.wrap(payload);
-        if (in.get() != VERSION) throw new InvalidKeyException("This key is for a newer version of DBAdmin.");
+        if (in.get() != VERSION) throw new InvalidKeyException("This key is for a newer version of DBArbiter.");
         int type = in.get();
         if (type < 0 || type >= License.Type.values().length) throw new InvalidKeyException("Unknown license type.");
         LocalDate issued = LocalDate.ofEpochDay(in.getInt());

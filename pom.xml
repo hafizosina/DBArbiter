@@ -9,7 +9,7 @@
     <!-- the app version (status bar, About): major.minor from <revision> below; packaging/deploy-linux.sh
          adds 1 to the patch number on every deploy of main and tags the commit (v0.1.1, v0.1.2, ...) -->
     <version>${revision}</version>
-    <name>DBAdmin</name>
+    <name>DBArbiter</name>
 
     <properties>
         <revision>0.1.0</revision>
@@ -24,7 +24,7 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <javafx.version>21.0.5</javafx.version>
         <main.class>com.dbadmin.Launcher</main.class>
-        <shade.finalName>dbadmin</shade.finalName>
+        <shade.finalName>dbarbiter</shade.finalName>
     </properties>
 
     <dependencies>
@@ -110,7 +110,7 @@
                     <mainClass>${main.class}</mainClass>
                 </configuration>
             </plugin>
-            <!-- mvn package -> target/dbadmin.jar (runnable fat jar) -->
+            <!-- mvn package -> target/dbarbiter.jar (runnable fat jar) -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-shade-plugin</artifactId>
@@ -148,13 +148,13 @@
                             </filters>
                         </configuration>
                     </execution>
-                    <!-- target/dbadmin-license-tool.jar: the license generator, for the signer's machine only -->
+                    <!-- target/dbarbiter-license-tool.jar: the license generator, for the signer's machine only -->
                     <execution>
                         <id>license-tool</id>
                         <phase>package</phase>
                         <goals><goal>shade</goal></goals>
                         <configuration>
-                            <finalName>dbadmin-license-tool</finalName>
+                            <finalName>dbarbiter-license-tool</finalName>
                             <createDependencyReducedPom>false</createDependencyReducedPom>
                             <transformers>
                                 <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
@@ -195,7 +195,7 @@
         <profile>
             <id>windows</id>
             <properties>
-                <shade.finalName>dbadmin-win</shade.finalName>
+                <shade.finalName>dbarbiter-win</shade.finalName>
             </properties>
             <build>
                 <plugins>
@@ -221,10 +221,10 @@
                                 <goals><goal>launch4j</goal></goals>
                                 <configuration>
                                     <headerType>gui</headerType>
-                                    <jar>${project.build.directory}/dbadmin-win.jar</jar>
-                                    <outfile>${project.build.directory}/windows/DBAdmin/DBAdmin.exe</outfile>
-                                    <icon>${project.basedir}/packaging/windows/dbadmin.ico</icon>
-                                    <errTitle>DBAdmin</errTitle>
+                                    <jar>${project.build.directory}/dbarbiter-win.jar</jar>
+                                    <outfile>${project.build.directory}/windows/DBArbiter/DBArbiter.exe</outfile>
+                                    <icon>${project.basedir}/packaging/windows/dbarbiter.ico</icon>
+                                    <errTitle>DBArbiter</errTitle>
                                     <downloadUrl>https://adoptium.net/temurin/releases/?version=21</downloadUrl>
                                     <jre>
                                         <!-- the bundled runtime next to the exe, else an installed Java -->
@@ -236,13 +236,13 @@
                                     <versionInfo>
                                         <fileVersion>${revision}.0</fileVersion>
                                         <txtFileVersion>${project.version}</txtFileVersion>
-                                        <fileDescription>DBAdmin database browser</fileDescription>
+                                        <fileDescription>DBArbiter - decide what goes to production</fileDescription>
                                         <copyright>Hafiz Hisbullah</copyright>
                                         <productVersion>${revision}.0</productVersion>
                                         <txtProductVersion>${project.version}</txtProductVersion>
-                                        <productName>DBAdmin</productName>
-                                        <internalName>DBAdmin</internalName>
-                                        <originalFilename>DBAdmin.exe</originalFilename>
+                                        <productName>DBArbiter</productName>
+                                        <internalName>DBArbiter</internalName>
+                                        <originalFilename>DBArbiter.exe</originalFilename>
                                     </versionInfo>
                                 </configuration>
                             </execution>

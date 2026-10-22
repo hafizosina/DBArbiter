@@ -222,13 +222,13 @@ public class MainWindow implements SessionProvider {
         settings.setOnAction(e -> openSettings());
         MenuItem license = new MenuItem("License…");
         license.setOnAction(e -> openLicense());
-        MenuItem about = new MenuItem("About DBAdmin");
+        MenuItem about = new MenuItem("About DBArbiter");
         about.setOnAction(e -> {
             Alert info = new Alert(Alert.AlertType.INFORMATION,
                     "A desktop database browser and SQL editor.\nPostgreSQL · MySQL / MariaDB · SQLite"
                             + "\n\nAuthor: Hafiz Hisbullah\nzhenzhu.gamedev@gmail.com", ButtonType.OK);
             info.setTitle("About");
-            info.setHeaderText("DBAdmin " + AppFooter.version());
+            info.setHeaderText("DBArbiter " + AppFooter.version());
             InAppDialogs.show(info);
         });
         MenuButton gearMenu = new MenuButton(null, new javafx.scene.Group(gear), settings, license, new SeparatorMenuItem(), about);

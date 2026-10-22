@@ -36,7 +36,7 @@ public final class AppLog {
         try {
             init(Path.of(System.getProperty("user.home"), ".dbadmin", "logs"));
         } catch (IOException e) {
-            System.err.println("DBAdmin: no log file: " + e.getMessage());
+            System.err.println("DBArbiter: no log file: " + e.getMessage());
         }
         Thread.setDefaultUncaughtExceptionHandler((thread, e) ->
                 ROOT.log(Level.SEVERE, "Uncaught exception on thread " + thread.getName(), e));
