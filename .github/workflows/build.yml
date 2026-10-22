@@ -47,6 +47,16 @@ jobs:
       - name: Build the Windows download
         run: packaging/build-windows.sh -Drevision=$VERSION -Dbuild.commit=$GITHUB_SHA
 
+      - name: Show the JavaFX jars of the Windows build
+        # for the log only: they should all end in "win"
+        run: mvn -B -Pwindows -Djavafx.platform=win dependency:list -DincludeGroupIds=org.openjfx | grep openjfx
+
+      - name: Check both downloads contain JavaFX
+        # stops here (no upload, no Release) if a download would not start
+        run: |
+          unzip -l target/dbarbiter.jar | grep javafx/application/Application.class
+          unzip -l target/dbarbiter-win.jar | grep javafx/application/Application.class
+
       - name: Keep the downloads on the run page for 7 days
         uses: actions/upload-artifact@v6
         with:
