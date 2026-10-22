@@ -21,7 +21,7 @@ _First review: 2026-10-21 at commit `70ef05a` (the app was called DBAdmin then).
 | 9 | Errors swallowed silently | **Fixed**: non-editable results say why; errors are logged to `~/.dbadmin/logs` |
 | 10 | Small tidy-ups | **Fixed** |
 | 11 | `DataView` growing; side effects in `hasEdits()` / `show()` | **Partly fixed**: pending edits moved to a tested class; the side effects remain |
-| 12 | `DataCompareTab` is the largest class | **Mostly done**: verdict rules → `Verdicts`, column picker → `ColumnPicker`, joins → `JoinEditor` (1,008 lines left) |
+| 12 | `DataCompareTab` is the largest class | **Done**: verdicts → `Verdicts`, columns → `ColumnPicker`, joins → `JoinEditor`, file state → `CompareFile` (956 lines left) |
 | 13 | `MainWindow` growing again | Open (new): 985 lines |
 | 14 | Shipping to other people | **Partly fixed**: "Save password" option. OS keyring, license check, release build remain |
 
@@ -162,7 +162,12 @@ code only. Each new compare feature has landed here, so it keeps growing.
 - ~~`VerdictActions`~~ **done** as `service/compare/Verdicts`: set, paste, suggest and summarise verdicts, no JavaFX,
   4 tests; the tab keeps only the messages and refreshes (and lost an orphaned doc comment on the way). Tried in the
   app: key U on a changed row, key I refused there with the reason, Suggest, the `*` on the tab.
-- `CompareFile`: save / save as / dirty / confirm close, the same in both compare tabs (`SchemaCompareTab` has a copy)
+- ~~`CompareFile`~~ **done**: the file, settings-only or results, results newer than the file, unsaved verdicts, the
+  tab's `*`, the Save button and the Save / Don't Save / Cancel question, in one class both compare tabs use (each had
+  its own copy). Tried in the app: open, verdict (`*`), save (no `*`), compare again (`*`), close (asked why).
+
+What stays in `DataCompareTab` (956 lines) is the form, running the compare, the results grid and Save / Save As /
+Export / Generate SQL wiring: one screen's worth. A further split is not needed until it grows again.
 
 ### 13. `MainWindow` is growing again — open (new)
 
@@ -249,8 +254,8 @@ disconnecting, reconnecting, editing or deleting a connection closed its table t
 first, and Cancel keeps the connection and the tab. Tried in the app against PostgreSQL (close app: keep / discard;
 disconnect: keep).
 
-**Still open:** the menu item and license gate per tool, one shared save / dirty / save-as for the compare tabs, and
-opening a file by its kind through the tool instead of a `switch`.
+**Still open:** the menu item and license gate per tool, and opening a file by its kind through the tool instead of a
+`switch`. (The shared save / dirty state of the compare tabs is done: `CompareFile`, #12.)
 
 **Fixed (found here):** a script tab's result grid can hold cell edits too, and disconnecting dropped them without
 asking. `ScriptTab.confirmConnectionClose` now asks first, like the table tabs. Tried in the app: run a query, edit
@@ -324,7 +329,7 @@ is fine, but a public API or plugin later would carry it.
 |---|---|---|
 | Now (small) | ~~Script bindings by relative path~~, ~~"Save password" option~~ (both done) | #8, #14 |
 | Before the scan tool | A job connection per tool run, a shared `Job` with progress and cancel, streaming | G1, G2, G3 |
-| Before the next tool after that | `ToolTab` and a shared compare file; split `DataCompareTab` | G4, #12 |
+| Before the next tool after that | `ToolTab` (menu, license gate, opening files by kind); ~~shared compare file, split `DataCompareTab`~~ (done) | G4, #12 |
 | Before a fourth database or MySQL migrations | `Dialect` | G5, #5 |
 | Whenever a file format changes next | Format versions with upgrades (compare files done) | G6 |
 | Ongoing | Logic out of screens for new code | G7 |

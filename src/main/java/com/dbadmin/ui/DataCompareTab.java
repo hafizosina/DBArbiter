@@ -86,15 +86,8 @@ class DataCompareTab extends Tab implements UnsavedWork {
     private final DataGrid dataGrid = dataView.grid();
     /** The report shown now (a compare just run, or one opened from a file); null before the first. */
     private DataCompareReport report;
-    private Path reportFile;
-    /** The file holds only the settings (Save keeps it that way); else settings and results. */
-    private boolean fileSettingsOnly;
-    /** Verdicts changed since the report was last saved. */
-    private boolean unsaved;
-    /** Compared again since its results file was saved: the file is out of date. */
-    private boolean resultsUnsaved;
-    /** The tab's name without the "*" of unsaved changes. */
-    private String titleBase = "Data Compare";
+    /** The compare's file and whether the tab differs from it (verdicts not saved, results newer than the file). */
+    private final CompareFile compareFile;
     /** Clickable when there is something to save (always for a compare without a file yet). */
     private final Button saveButton = new Button("Save");
     /** Compare, or Cancel while a compare runs. */
@@ -119,6 +112,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
         CompareSide.pair(dataSource, dataTarget);
         joins = new JoinEditor(dataSource, this::loadColumns);
         setContent(dataPage());
+        compareFile = new CompareFile(this, saveButton, "Data Compare");
         getContent().addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, e -> {
             if (SchemaCompareTab.SAVE_AS_KEY.match(e)) {
                 e.consume();
@@ -142,11 +136,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
 
     /** Shows a report opened from a file; a new compare can still be run from the form above. */
     void showSaved(DataCompareReport saved, Path file) {
-        reportFile = file;
-        fileSettingsOnly = saved.settingsOnly;
-        unsaved = false;
-        resultsUnsaved = false;
-        setTitle("Data Compare: " + file.getFileName());
+        compareFile.at(file, saved.settingsOnly);
         restoreSettings(saved);
         if (saved.settingsOnly) {
             autoCompareColumns = saved.shownColumns;
@@ -211,11 +201,12 @@ class DataCompareTab extends Tab implements UnsavedWork {
      * yet, as {@link #saveAs}. Returns true if the results (and verdicts) were saved.
      */
     private boolean save() {
-        if (reportFile == null) return saveAs();
-        if (!fileSettingsOnly && report != null && !report.settingsOnly) return writeResults(reportFile);
+        Path file = compareFile.file();
+        if (file == null) return saveAs();
+        if (!compareFile.isSettingsOnly() && report != null && !report.settingsOnly) return writeResults(file);
         DataCompareReport settings = formSettings(false);
         if (settings == null) return false; // formSettings said what is missing
-        return writeSettings(reportFile, settings);
+        return writeSettings(file, settings);
     }
 
     /**
@@ -227,7 +218,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
         DataCompareReport settings = formSettings(hasResults);
         if (!hasResults && settings == null) return false; // formSettings said what is missing
         DataCompareReport named = hasResults ? report : settings;
-        CompareReportChooser.SaveChoice choice = CompareReportChooser.saveCompare(getTabPane().getScene().getWindow(), reportFile,
+        CompareReportChooser.SaveChoice choice = CompareReportChooser.saveCompare(getTabPane().getScene().getWindow(), compareFile.file(),
                 CompareReportChooser.defaultName("DataCompare-" + named.source.table(), named.source.label(), named.target.label()),
                 hasResults, settings != null);
         if (choice == null) return false;
@@ -256,11 +247,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
             error("Could not save the settings", e);
             return false;
         }
-        reportFile = file;
-        fileSettingsOnly = true;
-        unsaved = false; // chosen: the settings only (the verdicts were offered)
-        resultsUnsaved = false;
-        setTitle("Data Compare: " + file.getFileName());
+        compareFile.at(file, true); // chosen: the settings only (the verdicts were offered)
         dataStatus.setText("Settings saved to " + file + " · opening it compares again");
         return false;
     }
@@ -272,11 +259,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
             error("Could not save the report", e);
             return false;
         }
-        reportFile = file;
-        fileSettingsOnly = false;
-        unsaved = false;
-        resultsUnsaved = false;
-        setTitle("Data Compare: " + file.getFileName());
+        compareFile.at(file, false);
         dataStatus.setText("Saved to " + file);
         return true;
     }
@@ -572,11 +555,8 @@ class DataCompareTab extends Tab implements UnsavedWork {
                         r.oneToMany = p.oneToMany();
                         r.mainAlias = p.joins().isEmpty() ? null : p.alias();
                         r.joins = p.joins();
-                        unsaved = false;
-                        // a results file is now out of date (Save writes the new results to it); a settings file is not
-                        resultsUnsaved = reportFile != null && !fileSettingsOnly;
+                        compareFile.compared();
                         showReport(r);
-                        refreshDirty();
                     }
 
                     @Override
@@ -657,7 +637,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
             return;
         }
         Consumer<Throwable> failed = ex -> dataStatus.setText("Could not generate the SQL: " + ex.getMessage());
-        String file = reportFile == null ? null : reportFile.getFileName().toString();
+        String file = compareFile.file() == null ? null : compareFile.file().getFileName().toString();
         dataStatus.setText("Reading the columns of " + r.target.table() + " on " + r.target.label() + "…");
         sessions.withSession(target, s -> Async.run(s, () -> MigrationSql.targetColumns(s, r), tables -> {
             if (!tables.containsKey(r.target.table().toLowerCase(java.util.Locale.ROOT))) {
@@ -684,7 +664,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
         StringBuilder sb = new StringBuilder();
         // the counts per status are on the filter boxes
         sb.append(r.sourceRows).append(" rows in ").append(src).append(" · ").append(r.targetRows).append(" rows in ").append(dst);
-        if (reportFile != null) sb.append(" · ").append(reportFile.getFileName());
+        if (compareFile.file() != null) sb.append(" · ").append(compareFile.file().getFileName());
         if (r.duplicateKeys > 0) {
             sb.append("\n⚠ ").append(r.duplicateKeys).append(" key value(s) match more than one row: ")
                     .append(String.join(", ", r.keyColumns)).append(" does not identify rows uniquely.");
@@ -852,7 +832,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
         if (report == null) return;
         int set = Verdicts.suggest(rowsOf(reportRows.stream().map(Map.Entry::getValue).toList()));
         verdictsChanged(set);
-        dataStatus.setText(set + " verdict(s) suggested; rows already decided were kept" + (unsaved ? " · not saved" : ""));
+        dataStatus.setText(set + " verdict(s) suggested; rows already decided were kept" + (compareFile.hasUnsavedEdits() ? " · not saved" : ""));
     }
 
     private void verdictKeys(javafx.scene.input.KeyEvent e) {
@@ -893,7 +873,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
         }
         verdictsChanged(done.changed());
         dataStatus.setText(done.changed() + " verdict(s) pasted" + (done.skipped() > 0 ? "; " + done.skipped()
-                + " row(s) left alone (not a verdict for their status)" : "") + (unsaved ? " · not saved" : ""));
+                + " row(s) left alone (not a verdict for their status)" : "") + (compareFile.hasUnsavedEdits() ? " · not saved" : ""));
     }
 
     /** Sets (null: clears) the verdict of the given grid rows where it fits their status; other rows are left alone. */
@@ -901,7 +881,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
         Verdicts.Applied done = Verdicts.apply(v, rowsOf(rows));
         verdictsChanged(done.changed());
         dataStatus.setText(done.changed() + " verdict(s) set" + (done.skipped() > 0 ? "; " + done.skipped() + " row(s) left alone ("
-                + (v == null ? "" : v.label()) + " does not fit their status)" : "") + (unsaved ? " · not saved" : ""));
+                + (v == null ? "" : v.label()) + " does not fit their status)" : "") + (compareFile.hasUnsavedEdits() ? " · not saved" : ""));
     }
 
     /** The report rows behind grid rows (their Verdict cell holds the row). */
@@ -911,8 +891,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
 
     /** After verdicts were set: the dirty marker, the grid and the summary follow. */
     private void verdictsChanged(int changed) {
-        if (changed > 0) unsaved = true;
-        refreshDirty();
+        if (changed > 0) compareFile.edited(true);
         dataGrid.refresh();
         updateVerdictSummary();
     }
@@ -925,7 +904,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
 
     private void exportHtml() {
         if (report == null) return;
-        Path file = CompareReportChooser.saveHtml(getTabPane().getScene().getWindow(), reportFile, CompareReportChooser.defaultName(
+        Path file = CompareReportChooser.saveHtml(getTabPane().getScene().getWindow(), compareFile.file(), CompareReportChooser.defaultName(
                 "DataCompare-" + report.source.table(), report.source.label(), report.target.label()));
         if (file == null) return;
         try {
@@ -936,41 +915,15 @@ class DataCompareTab extends Tab implements UnsavedWork {
         }
     }
 
-    private void setTitle(String base) {
-        titleBase = base;
-        refreshDirty();
-    }
-
-    /** Unsaved verdicts, or results newer than the compare's results file. */
-    boolean isDirty() {
-        return unsaved || resultsUnsaved;
-    }
-
-    /** "*" before the tab's name while there are unsaved changes; Save clickable when there is something to save. */
-    private void refreshDirty() {
-        setText((isDirty() ? "*" : "") + titleBase);
-        saveButton.setDisable(reportFile != null && !isDirty());
-    }
-
     /** Asks about unsaved changes before the tab (or the app) closes. Returns false if the user cancelled. */
     @Override
     public boolean confirmClose() {
-        if (!isDirty()) return true;
-        if (getTabPane() != null) getTabPane().getSelectionModel().select(this);
-        ButtonType save = new ButtonType("Save", ButtonBar.ButtonData.YES);
-        ButtonType discard = new ButtonType("Don't Save", ButtonBar.ButtonData.NO);
-        Alert alert = new Alert(Alert.AlertType.CONFIRMATION, "\"" + titleBase + "\" has unsaved changes"
-                + (unsaved ? " (verdicts)." : " (the results of the last compare)."), save, discard, ButtonType.CANCEL);
-        alert.initOwner(getTabPane().getScene().getWindow());
-        alert.setHeaderText("Save changes?");
-        ButtonType answer = InAppDialogs.showAndWait(alert).orElse(ButtonType.CANCEL);
-        if (answer == save) return save() || !isDirty();
-        return answer == discard;
+        return compareFile.confirmClose(this::save);
     }
 
     /** Asks before unsaved verdicts are lost (closing, or a new compare replacing the report). */
     private boolean confirmDiscardVerdicts() {
-        if (!unsaved) return true;
+        if (!compareFile.hasUnsavedEdits()) return true;
         if (getTabPane() != null) getTabPane().getSelectionModel().select(this);
         ButtonType save = new ButtonType("Save", ButtonBar.ButtonData.YES);
         ButtonType discard = new ButtonType("Don't Save", ButtonBar.ButtonData.NO);
@@ -979,10 +932,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
         alert.setHeaderText("Save the report?");
         ButtonType answer = InAppDialogs.showAndWait(alert).orElse(ButtonType.CANCEL);
         if (answer == save) return save();
-        if (answer == discard) {
-            unsaved = false;
-            refreshDirty();
-        }
+        if (answer == discard) compareFile.edited(false);
         return answer == discard;
     }
 
