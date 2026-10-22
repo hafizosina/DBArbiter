@@ -71,6 +71,7 @@ final class SqlHighlighter {
     private SqlHighlighter() {
     }
 
+    /** @param type the database whose syntax applies; null: plain SQL, with only what every database shares (no {@code $$} quotes, {@code #} comments or backslash escapes) */
     static StyleSpans<Collection<String>> highlight(String text, DbType type) {
         StyleSpansBuilder<Collection<String>> spans = new StyleSpansBuilder<>();
         highlight(text, 0, text.length(), type != null && type.hashComments() ? MYSQL_PATTERN : PATTERN, Set.of(), spans);

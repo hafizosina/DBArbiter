@@ -20,6 +20,11 @@ public final class SqlSplitter {
     public record Statement(int start, int end, String sql) {
     }
 
+    /**
+     * The statements of a script, trimmed: split at ';' and blank lines outside parentheses, quotes and comments.
+     *
+     * @param type the database whose syntax applies; null: plain SQL, with only what every database shares (no {@code $$} quotes, {@code #} comments or backslash escapes)
+     */
     public static List<String> split(String script, DbType type) {
         return statements(script, type).stream().map(Statement::sql).toList();
     }

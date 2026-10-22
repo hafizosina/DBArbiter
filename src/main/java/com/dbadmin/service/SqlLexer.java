@@ -28,7 +28,11 @@ final class SqlLexer {
     private SqlLexer() {
     }
 
-    /** The tokens covering all of {@code sql}, in order; code characters next to each other form one token. */
+    /**
+     * The tokens covering all of {@code sql}, in order; code characters next to each other form one token.
+     *
+     * @param type the database whose syntax applies; null: plain SQL, with only what every database shares (no {@code $$} quotes, {@code #} comments or backslash escapes)
+     */
     static List<Token> tokens(String sql, DbType type) {
         // no type (plain SQL): only what every database shares
         boolean backslashEscapes = type != null && type.backslashEscapes();

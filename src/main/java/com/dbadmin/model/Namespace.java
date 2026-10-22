@@ -15,6 +15,7 @@ public record Namespace(String catalog, String schema, String label) {
     /**
      * The database's own catalog schemas (PostgreSQL pg_catalog / information_schema; MySQL mysql,
      * sys, performance_schema, information_schema). Hidden in the navigator and search, like DBeaver.
+     * A null type (no database) has none.
      */
     public boolean isSystem(DbType type) {
         return type != null && type.hasSystemSchemas() && SYSTEM.contains(label.toLowerCase(Locale.ROOT));

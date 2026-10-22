@@ -482,7 +482,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
             return null;
         }
         String filter = where.getText() == null ? "" : where.getText().trim();
-        if (!filter.isEmpty() && !isPlainCondition(filter)) {
+        if (!filter.isEmpty() && !isPlainCondition(filter, dataSource.connection.getValue().getType())) {
             dataStatus.setText("The Where filter must be one read-only condition (no ';', INSERT, UPDATE, DELETE, ...).");
             return null;
         }
@@ -650,10 +650,10 @@ class DataCompareTab extends Tab implements UnsavedWork {
         }, failed), failed);
     }
 
-    /** The filter has to stay a condition of one SELECT: one statement, nothing that writes. */
-    private static boolean isPlainCondition(String condition) {
+    /** The filter has to stay a condition of one SELECT: one statement (in the source database's syntax), nothing that writes. */
+    private static boolean isPlainCondition(String condition, com.dbadmin.model.DbType type) {
         String sql = "select * from t where (" + condition + ")";
-        return SqlSplitter.split(sql, null).size() == 1 && SqlSplitter.isReadOnlyQuery(sql);
+        return SqlSplitter.split(sql, type).size() == 1 && SqlSplitter.isReadOnlyQuery(sql);
     }
 
     /** Shows a report: the summary above, one grid row per listed row with its verdict. */

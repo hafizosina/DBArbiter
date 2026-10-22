@@ -335,9 +335,12 @@ database. **Also done:** the metadata queries (views, DDL, constraints, triggers
 database (#5). Generate SQL (`MigrationSql`) still writes PostgreSQL only; giving it a dialect is the next step if
 MySQL migrations are needed.
 
-**New, small (found here):** a null `DbType` means "plain SQL, no database" in the lexer, highlighter, completer and
-`Namespace`, by convention only; the tests caught a crash when the first version of this change forgot it. A
-`DbType.GENERIC` (or an explicit `SqlSyntax` value) would make that visible.
+**Fixed (was new, small, found here):** a null `DbType` meant "plain SQL, no database" in the lexer, highlighter,
+completer and `Namespace` by convention only; the tests caught a crash when the first version of this change forgot
+it. Now it is a written contract on each method that takes it ("null: plain SQL, with only what every database
+shares"), every one of them handles it, and the Data Compare's Where check passes the source database's type instead
+of null (so a MySQL `#` comment there is read as one). A `DbType.GENERIC` constant was not added: it would also show up
+in the connection form's list of types.
 
 ### G6. Saved files have no format versions — partly fixed
 
