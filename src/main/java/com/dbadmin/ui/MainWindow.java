@@ -259,6 +259,26 @@ public class MainWindow implements SessionProvider {
         });
     }
 
+    /** Opens a saved Table or Data Compare report in a new tab. */
+    private void openCompareReport() {
+        Path file = CompareReportChooser.open(stage);
+        if (file == null) return;
+        try {
+            Object report = com.dbadmin.service.compare.CompareReportFiles.open(file);
+            if (report instanceof com.dbadmin.service.compare.DataCompareReport data) {
+                DataCompareTab tab = new DataCompareTab(connections, this, null);
+                showTab(tab);
+                tab.showSaved(data, file);
+            } else if (report instanceof com.dbadmin.service.compare.SchemaCompareReport table) {
+                SchemaCompareTab tab = new SchemaCompareTab(connections, this, null, this::showTab);
+                showTab(tab);
+                tab.showSaved(table, file);
+            }
+        } catch (IOException e) {
+            error("Could not open " + file.getFileName(), e);
+        }
+    }
+
     /** Compare is the licensed feature: without a usable license, says so and offers to enter one. */
     private boolean compareAllowed() {
         footer.showLicense(licensing.current(), licensing.today()); // the date may have changed since startup
@@ -328,7 +348,11 @@ public class MainWindow implements SessionProvider {
         compareData.setOnAction(e -> {
             if (compareAllowed()) showTab(new DataCompareTab(connections, this, selectedConnection().orElse(null)));
         });
-        Menu tools = new Menu("Tools", null, compareSchema, compareData);
+        MenuItem openReport = new MenuItem("Open Compare Report…");
+        openReport.setOnAction(e -> {
+            if (compareAllowed()) openCompareReport();
+        });
+        Menu tools = new Menu("Tools", null, compareSchema, compareData, new SeparatorMenuItem(), openReport);
         return new MenuBar(connection, script, tools);
     }
 
@@ -738,10 +762,11 @@ public class MainWindow implements SessionProvider {
         return tabs.getSelectionModel().getSelectedItem() instanceof ScriptTab st ? Optional.of(st) : Optional.empty();
     }
 
-    /** Asks about every unsaved script. Returns false if the user cancelled. */
+    /** Asks about every unsaved script and compare verdicts. Returns false if the user cancelled. */
     private boolean confirmCloseScripts() {
         for (Tab t : List.copyOf(tabs.getTabs())) {
             if (t instanceof ScriptTab st && !st.confirmClose()) return false;
+            if (t instanceof DataCompareTab dt && !dt.confirmClose()) return false;
         }
         return true;
     }

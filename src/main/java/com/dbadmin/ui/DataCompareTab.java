@@ -6,7 +6,11 @@ import com.dbadmin.model.TableData;
 import com.dbadmin.model.TableRef;
 import com.dbadmin.service.DatabaseSession;
 import com.dbadmin.service.SqlSplitter;
+import com.dbadmin.service.compare.CompareHtml;
+import com.dbadmin.service.compare.CompareReportFiles;
 import com.dbadmin.service.compare.DataCompare;
+import com.dbadmin.service.compare.DataCompareReport;
+import com.dbadmin.service.compare.Verdict;
 import javafx.beans.property.BooleanProperty;
 import javafx.beans.property.ReadOnlyStringWrapper;
 import javafx.beans.property.SimpleBooleanProperty;
@@ -15,9 +19,16 @@ import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
+import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
+import javafx.scene.control.ButtonBar;
+import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckBox;
+import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
+import javafx.scene.control.MenuButton;
+import javafx.scene.control.MenuItem;
+import javafx.scene.control.SeparatorMenuItem;
 import javafx.scene.control.Spinner;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.Tab;
@@ -30,14 +41,23 @@ import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Set;
 import java.util.Map;
 import java.util.function.Consumer;
 
 /**
  * Tools → Compare Data: lists the row differences of one table in two databases, e.g. UAT (source)
- * against Prod (target). Only reads.
+ * against Prod (target), with a verdict per row (insert, update, delete or skip). Only reads. The report
+ * can be saved, reopened later and exported as HTML.
  */
 class DataCompareTab extends Tab {
 
@@ -60,6 +80,14 @@ class DataCompareTab extends Tab {
     private final FlowPane statusBar = new FlowPane(12, 4);
     private final DataView dataView = new DataView();
     private final DataGrid dataGrid = dataView.grid();
+    /** The report shown now (a compare just run, or one opened from a file); null before the first. */
+    private DataCompareReport report;
+    private Path reportFile;
+    /** Verdicts changed since the report was last saved. */
+    private boolean unsaved;
+    private final MenuButton verdictForShown = new MenuButton("Verdict for shown rows");
+    private final Label verdictSummary = new Label();
+    private final Label fileStatus = new Label();
 
     DataCompareTab(ObservableList<ConnectionConfig> connections, SessionProvider sessions, ConnectionConfig initial) {
         super("Data Compare");
@@ -69,6 +97,17 @@ class DataCompareTab extends Tab {
         CompareSide.pair(dataSource, dataTarget);
         setContent(dataPage());
         if (initial != null) dataSource.connection.setValue(initial);
+        setOnCloseRequest(e -> {
+            if (!confirmClose()) e.consume();
+        });
+    }
+
+    /** Shows a report opened from a file; a new compare can still be run from the form above. */
+    void showSaved(DataCompareReport saved, Path file) {
+        reportFile = file;
+        unsaved = false;
+        setText("Data Compare: " + file.getFileName());
+        showReport(saved);
     }
 
     /** Chooses both sides' connection, schema and the table; each list loads first. */
@@ -138,10 +177,21 @@ class DataCompareTab extends Tab {
             paint.run();
             Themes.shownSettings().addListener((o, x, y) -> paint.run());
             box.setGraphic(swatch);
-            box.selectedProperty().addListener((o, a, b) -> showReport());
+            box.selectedProperty().addListener((o, a, b) -> refreshGrid());
             statusFilters.put(status, box);
             statusBar.getChildren().add(box);
         }
+        verdictForShown.setTooltip(new Tooltip("Sets the verdict of every row shown now (use the status boxes to narrow them down)."
+                + "\nRight-click selected rows to set theirs."));
+        Button save = new Button("Save report…");
+        save.setOnAction(e -> saveReport());
+        Button html = new Button("Export HTML…");
+        html.setTooltip(new Tooltip("A page with the summary and the differences, to share with people who do not use DBAdmin"));
+        html.setOnAction(e -> exportHtml());
+        verdictSummary.getStyleClass().add("hint-small");
+        fileStatus.getStyleClass().add("hint-small");
+        statusBar.getChildren().addAll(new javafx.scene.control.Separator(javafx.geometry.Orientation.VERTICAL),
+                verdictForShown, save, html, verdictSummary, fileStatus);
         statusBar.setAlignment(Pos.CENTER_LEFT);
         statusBar.setPadding(new Insets(4, 6, 4, 6));
         statusBar.setVisible(false);
@@ -296,11 +346,21 @@ class DataCompareTab extends Tab {
 
         StatementResult[] read = new StatementResult[2];
         Consumer<Throwable> failed = ex -> dataStatus.setText("Could not compare: " + ex.getMessage());
+        DataCompareReport.Side srcSide = new DataCompareReport.Side(dataSource.connection.getValue().getName(),
+                dataSource.schemaLabel(), t1.name(), src);
+        DataCompareReport.Side dstSide = new DataCompareReport.Side(dataTarget.connection.getValue().getName(),
+                dataTarget.schemaLabel(), t2.name(), dst);
         Runnable whenBoth = () -> {
             if (read[0] == null || read[1] == null) return;
-            Async.run(() -> DataCompare.compare(read[0].data(), read[1].data(), keys, compared, shownOnly, MAX_LISTED_ROWS),
-                    r -> showDataResult(r, src, dst, keys, filter, read[0].truncated() || read[1].truncated(), limit),
-                    failed);
+            boolean truncated = read[0].truncated() || read[1].truncated();
+            Async.run(() -> DataCompareReport.of(DataCompare.compare(read[0].data(), read[1].data(), keys, compared, shownOnly,
+                            MAX_LISTED_ROWS), srcSide, dstSide, keys, filter, limit, truncated, "v" + AppFooter.version()),
+                    r -> {
+                        if (!confirmDiscardVerdicts()) return;
+                        reportFile = null;
+                        unsaved = false;
+                        showReport(r);
+                    }, failed);
         };
         Async.run(s1, () -> s1.fetchOrdered(t1, keys, filter, limit), r -> {
             read[0] = r;
@@ -318,52 +378,201 @@ class DataCompareTab extends Tab {
         return SqlSplitter.split(sql, null).size() == 1 && SqlSplitter.isReadOnlyQuery(sql);
     }
 
-    private void showDataResult(DataCompare.Result r, String src, String dst, List<String> keys, String filter,
-                                boolean truncated, int limit) {
+    /** Shows a report: the summary above, one grid row per listed row with its verdict. */
+    private void showReport(DataCompareReport r) {
+        report = r;
+        String src = r.source.label();
+        String dst = r.target.label();
         StringBuilder sb = new StringBuilder();
-        sb.append(src).append(": ").append(r.sourceRows()).append(" rows · ").append(dst).append(": ").append(r.targetRows())
-                .append(" rows  →  ").append(r.same()).append(" identical · ").append(r.changed()).append(" changed · ")
-                .append(r.onlySource()).append(" only in ").append(src).append(" · ")
-                .append(r.onlyTarget()).append(" only in ").append(dst);
-        if (r.duplicateKeys() > 0) {
-            sb.append("\n⚠ ").append(r.duplicateKeys()).append(" key value(s) match more than one row: ")
-                    .append(String.join(", ", keys)).append(" does not identify rows uniquely.");
+        sb.append(src).append(": ").append(r.sourceRows).append(" rows · ").append(dst).append(": ").append(r.targetRows)
+                .append(" rows  →  ").append(r.same).append(" identical · ").append(r.changed).append(" changed · ")
+                .append(r.onlySource).append(" only in ").append(src).append(" · ")
+                .append(r.onlyTarget).append(" only in ").append(dst);
+        if (r.duplicateKeys > 0) {
+            sb.append("\n⚠ ").append(r.duplicateKeys).append(" key value(s) match more than one row: ")
+                    .append(String.join(", ", r.keyColumns)).append(" does not identify rows uniquely.");
         }
-        if (!filter.isEmpty()) sb.append("\nWhere: ").append(filter);
-        sb.append("\nCompared columns: ").append(r.comparedColumns().isEmpty() ? "none (only which keys exist)"
-                : String.join(", ", r.comparedColumns()));
-        if (truncated) {
-            sb.append("\n⚠ Only the first ").append(limit).append(" rows of each side (in key order) were compared; ")
+        if (r.where != null && !r.where.isEmpty()) sb.append("\nWhere: ").append(r.where);
+        sb.append("\nCompared columns: ").append(r.comparedColumns.isEmpty() ? "none (only which keys exist)"
+                : String.join(", ", r.comparedColumns));
+        if (r.truncated) {
+            sb.append("\n⚠ Only the first ").append(r.rowsPerSide).append(" rows of each side (in key order) were compared; ")
                     .append("rows near that limit may wrongly show as only on one side. Raise \"Rows per side\" to compare more.");
         }
-        if (r.rows().size() >= MAX_LISTED_ROWS) sb.append("\nListing the first ").append(r.rows().size()).append(" rows.");
+        if (r.rows.size() >= MAX_LISTED_ROWS) sb.append("\nListing the first ").append(r.rows.size()).append(" rows.");
         dataStatus.setText(sb.toString());
 
         // one column per key / compared / shown column; a changed cell shows "old → new"
         reportHeader = new ArrayList<>();
         reportHeader.add("Status");
-        reportHeader.addAll(r.shownColumns());
+        reportHeader.add("Verdict");
+        reportHeader.addAll(r.shownColumns);
         reportHeader.add("Note");
         reportRows.clear();
         Map<DataCompare.RowStatus, Integer> counts = new java.util.EnumMap<>(DataCompare.RowStatus.class);
-        for (DataCompare.RowDiff d : r.rows()) {
-            counts.merge(d.status(), 1, Integer::sum);
+        for (DataCompareReport.Row d : r.rows) {
+            counts.merge(d.status, 1, Integer::sum);
             List<Object> row = new ArrayList<>();
-            row.add(new StatusValue(d.status().name(), statusLabel(d.status(), src, dst)));
-            for (int c = 0; c < r.shownColumns().size(); c++) {
-                Object a = d.sourceValues() == null ? null : d.sourceValues().get(c);
-                Object b = d.targetValues() == null ? null : d.targetValues().get(c);
-                boolean isCompared = r.comparedColumns().contains(r.shownColumns().get(c));
-                row.add(new ComparedValue(a, b, d.sourceValues() != null, d.targetValues() != null, src, dst, isCompared));
+            row.add(new StatusValue(d.status.name(), statusLabel(d.status, src, dst)));
+            row.add(new VerdictCell(d));
+            for (int c = 0; c < r.shownColumns.size(); c++) {
+                Object a = d.source == null ? null : d.source.get(c);
+                Object b = d.target == null ? null : d.target.get(c);
+                boolean isCompared = r.comparedColumns.contains(r.shownColumns.get(c));
+                row.add(new ComparedValue(a, b, d.source != null, d.target != null, src, dst, isCompared));
             }
-            row.add(d.status() == DataCompare.RowStatus.CHANGED || d.status() == DataCompare.RowStatus.MATCH ? ""
-                    : d.details().replace("in source", "in " + src).replace("in target", "in " + dst));
-            reportRows.add(Map.entry(d.status(), row));
+            row.add(d.status == DataCompare.RowStatus.CHANGED || d.status == DataCompare.RowStatus.MATCH ? ""
+                    : d.note.replace("in source", "in " + src).replace("in target", "in " + dst));
+            reportRows.add(Map.entry(d.status, row));
         }
         statusFilters.forEach((status, box) -> box.setText(statusLabel(status, src, dst) + " (" + counts.getOrDefault(status, 0) + ")"));
+        verdictForShown.getItems().setAll(verdictItems(v -> applyVerdict(v, List.copyOf(dataGrid.getItems()))));
+        fileStatus.setText(reportFile == null ? "" : "Saved as " + reportFile.getFileName());
         statusBar.setVisible(true);
         statusBar.setManaged(true);
-        showReport();
+        updateVerdictSummary();
+        refreshGrid();
+    }
+
+    /** The report rows whose status is ticked in the filter bar. */
+    private void refreshGrid() {
+        List<List<Object>> rows = reportRows.stream()
+                .filter(e -> statusFilters.get(e.getKey()).isSelected())
+                .map(Map.Entry::getValue)
+                .toList();
+        dataGrid.setPlaceholder(new Label(reportRows.isEmpty() ? "No rows to compare." : "No rows with the ticked statuses."));
+        dataGrid.show(new TableData(reportHeader, rows));
+        // show() starts without a menu: right-click sets the verdict of the selected rows
+        dataGrid.setContextMenu(report == null ? null : new ContextMenu(verdictItems(v -> applyVerdict(v, selectedRows()))
+                .toArray(MenuItem[]::new)));
+    }
+
+    // ---- verdicts ----------------------------------------------------------
+
+    /** The Verdict cell of a grid row: shows the report row's verdict, "–" while undecided. */
+    private final class VerdictCell {
+        final DataCompareReport.Row row;
+
+        VerdictCell(DataCompareReport.Row row) {
+            this.row = row;
+        }
+
+        @Override
+        public String toString() {
+            if (row.verdict != null) return row.verdict.label(report.target.label());
+            return Verdict.allowed(row.status).isEmpty() ? "" : "–";
+        }
+    }
+
+    /** Insert / Update / Delete / Skip / Clear, each applying to the rows given when it is clicked. */
+    private List<MenuItem> verdictItems(Consumer<Verdict> apply) {
+        List<MenuItem> items = new ArrayList<>();
+        for (Verdict v : Verdict.values()) {
+            MenuItem item = new MenuItem(v.label(report.target.label()));
+            item.setOnAction(e -> apply.accept(v));
+            items.add(item);
+        }
+        MenuItem clear = new MenuItem("Clear verdict");
+        clear.setOnAction(e -> apply.accept(null));
+        items.add(new SeparatorMenuItem());
+        items.add(clear);
+        return items;
+    }
+
+    /** The rows with a selected cell, each once. */
+    private Collection<List<Object>> selectedRows() {
+        Set<List<Object>> rows = Collections.newSetFromMap(new IdentityHashMap<>());
+        rows.addAll(dataGrid.getSelectionModel().getSelectedItems());
+        return rows;
+    }
+
+    /** Sets (null: clears) the verdict of the given grid rows where it fits their status; other rows are left alone. */
+    private void applyVerdict(Verdict v, Collection<List<Object>> rows) {
+        int changed = 0;
+        int skipped = 0;
+        for (List<Object> row : rows) {
+            DataCompareReport.Row r = ((VerdictCell) row.get(1)).row;
+            if (v != null && !Verdict.allowed(r.status).contains(v)) {
+                skipped++;
+                continue;
+            }
+            if (r.verdict != v) {
+                r.verdict = v;
+                changed++;
+            }
+        }
+        if (changed > 0) unsaved = true;
+        dataGrid.refresh();
+        updateVerdictSummary();
+        fileStatus.setText(changed + " verdict(s) set" + (skipped > 0 ? "; " + skipped + " row(s) left alone (" + (v == null ? "" : v.label())
+                + " does not fit their status)" : "") + (unsaved ? " · not saved" : ""));
+    }
+
+    private void updateVerdictSummary() {
+        if (report == null) return;
+        verdictSummary.setText(report.count(Verdict.INSERT) + " insert · " + report.count(Verdict.UPDATE) + " update · "
+                + report.count(Verdict.DELETE) + " delete · " + report.count(Verdict.SKIP) + " skip · "
+                + report.undecided() + " not decided");
+    }
+
+    // ---- saving --------------------------------------------------------------
+
+    private boolean saveReport() {
+        if (report == null) return false;
+        Path file = CompareReportChooser.saveReport(getTabPane().getScene().getWindow(), reportFile, CompareReportChooser.defaultName(
+                "DataCompare-" + report.source.table(), report.source.label(), report.target.label()));
+        if (file == null) return false;
+        try {
+            CompareReportFiles.save(file, report);
+        } catch (IOException e) {
+            error("Could not save the report", e);
+            return false;
+        }
+        reportFile = file;
+        unsaved = false;
+        setText("Data Compare: " + file.getFileName());
+        fileStatus.setText("Saved as " + file);
+        return true;
+    }
+
+    private void exportHtml() {
+        if (report == null) return;
+        Path file = CompareReportChooser.saveHtml(getTabPane().getScene().getWindow(), reportFile, CompareReportChooser.defaultName(
+                "DataCompare-" + report.source.table(), report.source.label(), report.target.label()));
+        if (file == null) return;
+        try {
+            Files.writeString(file, CompareHtml.data(report), StandardCharsets.UTF_8);
+            fileStatus.setText("HTML saved as " + file);
+        } catch (IOException e) {
+            error("Could not save the HTML report", e);
+        }
+    }
+
+    /** Asks about unsaved verdicts before the tab closes. Returns false if the user cancelled. */
+    boolean confirmClose() {
+        return confirmDiscardVerdicts();
+    }
+
+    /** Asks before unsaved verdicts are lost (closing, or a new compare replacing the report). */
+    private boolean confirmDiscardVerdicts() {
+        if (!unsaved) return true;
+        if (getTabPane() != null) getTabPane().getSelectionModel().select(this);
+        ButtonType save = new ButtonType("Save", ButtonBar.ButtonData.YES);
+        ButtonType discard = new ButtonType("Don't Save", ButtonBar.ButtonData.NO);
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION, "The verdicts of this compare are not saved.", save, discard, ButtonType.CANCEL);
+        alert.initOwner(getTabPane().getScene().getWindow());
+        alert.setHeaderText("Save the report?");
+        ButtonType answer = InAppDialogs.showAndWait(alert).orElse(ButtonType.CANCEL);
+        if (answer == save) return saveReport();
+        if (answer == discard) unsaved = false;
+        return answer == discard;
+    }
+
+    private void error(String header, Exception e) {
+        Alert alert = new Alert(Alert.AlertType.ERROR, String.valueOf(e.getMessage()), ButtonType.OK);
+        alert.initOwner(getTabPane().getScene().getWindow());
+        alert.setHeaderText(header);
+        InAppDialogs.showAndWait(alert);
     }
 
     private static String statusLabel(DataCompare.RowStatus status, String src, String dst) {
@@ -376,13 +585,4 @@ class DataCompareTab extends Tab {
         };
     }
 
-    /** The report rows whose status is ticked in the filter bar. */
-    private void showReport() {
-        List<List<Object>> rows = reportRows.stream()
-                .filter(e -> statusFilters.get(e.getKey()).isSelected())
-                .map(Map.Entry::getValue)
-                .toList();
-        dataGrid.setPlaceholder(new Label(reportRows.isEmpty() ? "No rows to compare." : "No rows with the ticked statuses."));
-        dataGrid.show(new TableData(reportHeader, rows));
-    }
 }

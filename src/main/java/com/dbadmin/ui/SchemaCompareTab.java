@@ -8,6 +8,9 @@ import com.dbadmin.service.DatabaseSession;
 import com.dbadmin.service.compare.SchemaCompare.Status;
 import com.dbadmin.service.compare.SchemaCompare.TableDiff;
 import com.dbadmin.service.compare.SchemaCompare;
+import com.dbadmin.service.compare.CompareHtml;
+import com.dbadmin.service.compare.CompareReportFiles;
+import com.dbadmin.service.compare.SchemaCompareReport;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
@@ -30,6 +33,10 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -38,7 +45,8 @@ import java.util.function.Consumer;
 
 /**
  * Tools → Compare Table: lists the structural differences of all or some tables of two schemas, e.g.
- * UAT (source) against Prod (target) before a release. Only reads.
+ * UAT (source) against Prod (target) before a release. Only reads. The result can be saved, reopened
+ * later and exported as HTML.
  */
 class SchemaCompareTab extends Tab {
 
@@ -64,6 +72,9 @@ class SchemaCompareTab extends Tab {
     private final Button tablesButton = new Button("All tables");
     private String sourceName = "Source";
     private String targetName = "Target";
+    private final Button saveButton = new Button("Save report…");
+    private final Button htmlButton = new Button("Export HTML…");
+    private Path reportFile;
 
     SchemaCompareTab(ObservableList<ConnectionConfig> connections, SessionProvider sessions, ConnectionConfig initial,
                      Consumer<Tab> openTab) {
@@ -114,7 +125,13 @@ class SchemaCompareTab extends Tab {
         // a different schema means a different list of tables
         schemaSource.schema.valueProperty().addListener((o, a, b) -> resetPickedTables());
         schemaTarget.schema.valueProperty().addListener((o, a, b) -> resetPickedTables());
-        FlowPane form = new FlowPane(10, 6, schemaSource, swap, schemaTarget, tablesButton, compare, showIdentical);
+        saveButton.setOnAction(e -> saveReport());
+        htmlButton.setOnAction(e -> exportHtml());
+        htmlButton.setTooltip(new Tooltip("A page with the summary and the differences, to share with people who do not use DBAdmin"));
+        saveButton.disableProperty().bind(javafx.beans.binding.Bindings.isEmpty(diffs));
+        htmlButton.disableProperty().bind(javafx.beans.binding.Bindings.isEmpty(diffs));
+        FlowPane form = new FlowPane(10, 6, schemaSource, swap, schemaTarget, tablesButton, compare, showIdentical,
+                saveButton, htmlButton);
         form.setAlignment(Pos.CENTER_LEFT);
         VBox top = new VBox(6, form, schemaStatus);
         top.setPadding(new Insets(8));
@@ -173,6 +190,7 @@ class SchemaCompareTab extends Tab {
         Runnable whenBoth = () -> {
             if (snapshots[0] == null || snapshots[1] == null) return;
             diffs.setAll(SchemaCompare.compare(snapshots[0], snapshots[1]));
+            reportFile = null;
             schemaStatus.setText(summary());
             diffList.getSelectionModel().selectFirst();
         };
@@ -193,6 +211,47 @@ class SchemaCompareTab extends Tab {
             snapshots[1] = snap;
             whenBoth.run();
         }, failed);
+    }
+
+    /** Shows a report opened from a file; a new compare can still be run from the form above. */
+    void showSaved(SchemaCompareReport saved, Path file) {
+        reportFile = file;
+        sourceName = saved.sourceLabel;
+        targetName = saved.targetLabel;
+        setText("Table Compare: " + file.getFileName());
+        diffs.setAll(saved.tables);
+        schemaStatus.setText(summary() + " · opened " + file.getFileName());
+        diffList.getSelectionModel().selectFirst();
+    }
+
+    private SchemaCompareReport report() {
+        return SchemaCompareReport.of(diffs, sourceName, targetName, "v" + AppFooter.version());
+    }
+
+    private void saveReport() {
+        Path file = CompareReportChooser.saveReport(getTabPane().getScene().getWindow(), reportFile,
+                CompareReportChooser.defaultName("TableCompare", sourceName, targetName));
+        if (file == null) return;
+        try {
+            CompareReportFiles.save(file, report());
+            reportFile = file;
+            setText("Table Compare: " + file.getFileName());
+            schemaStatus.setText(summary() + " · saved as " + file);
+        } catch (IOException e) {
+            schemaStatus.setText("Could not save the report: " + e.getMessage());
+        }
+    }
+
+    private void exportHtml() {
+        Path file = CompareReportChooser.saveHtml(getTabPane().getScene().getWindow(), reportFile,
+                CompareReportChooser.defaultName("TableCompare", sourceName, targetName));
+        if (file == null) return;
+        try {
+            Files.writeString(file, CompareHtml.table(report()), StandardCharsets.UTF_8);
+            schemaStatus.setText(summary() + " · HTML saved as " + file);
+        } catch (IOException e) {
+            schemaStatus.setText("Could not save the HTML report: " + e.getMessage());
+        }
     }
 
     private String summary() {

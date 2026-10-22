@@ -10,7 +10,7 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.PosixFilePermissions;
 
 /** Writes the app's JSON files so that a crash or full disk never leaves a half-written file behind. */
-final class JsonFiles {
+public final class JsonFiles {
 
     private JsonFiles() {
     }
@@ -20,7 +20,7 @@ final class JsonFiles {
      * in one step: readers see the old content or the new, never a mix. With {@code ownerOnly} the
      * file is readable by the owner only (on POSIX systems) from the moment it is created.
      */
-    static void write(ObjectMapper mapper, Path file, Object value, boolean ownerOnly) throws IOException {
+    public static void write(ObjectMapper mapper, Path file, Object value, boolean ownerOnly) throws IOException {
         Path dir = file.toAbsolutePath().getParent();
         Files.createDirectories(dir);
         Path temp = createTemp(dir, file.getFileName().toString(), ownerOnly);

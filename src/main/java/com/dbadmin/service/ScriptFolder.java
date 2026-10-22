@@ -31,6 +31,17 @@ public final class ScriptFolder {
         return dir;
     }
 
+    /** "Reports" next to the app (like Script): where compare reports are saved by default. */
+    public static Path reportDir() {
+        Path dir = appDir().resolve("Reports");
+        try {
+            Files.createDirectories(dir);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Cannot create " + dir, e);
+        }
+        return dir;
+    }
+
     private static Path appDir() {
         try {
             Path location = Path.of(ScriptFolder.class.getProtectionDomain().getCodeSource().getLocation().toURI());

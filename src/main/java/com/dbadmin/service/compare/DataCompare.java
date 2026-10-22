@@ -25,9 +25,11 @@ public final class DataCompare {
      * A row of the report. {@code sourceValues} / {@code targetValues} hold the row's values for the
      * result's {@code shownColumns} (null when the row is not on that side; a duplicate key shows
      * its first row). {@code details}: for a changed row "column: source → target" per difference.
+     * {@code sourceRow}: the whole source row (all of the result's {@code sourceColumns}), null when
+     * the row is not in the source; what an INSERT or UPDATE of the target is generated from.
      */
     public record RowDiff(RowStatus status, String key, String details, List<Object> sourceValues,
-                          List<Object> targetValues) {
+                          List<Object> targetValues, List<Object> sourceRow) {
     }
 
     /**
@@ -36,7 +38,7 @@ public final class DataCompare {
      */
     public record Result(int sourceRows, int targetRows, int same, int changed, int onlySource, int onlyTarget,
                          int duplicateKeys, List<String> comparedColumns, List<String> shownColumns,
-                         List<RowDiff> rows) {
+                         List<String> sourceColumns, List<RowDiff> rows) {
     }
 
     private DataCompare() {
@@ -82,7 +84,8 @@ public final class DataCompare {
                 onlySource += srcRows.size();
                 if (srcRows.size() > 1) duplicateKeys++;
                 add(diffs, maxRows, new RowDiff(RowStatus.ONLY_SOURCE, e.getKey(),
-                        srcRows.size() > 1 ? srcRows.size() + " rows with this key" : "", pick(srcRows.get(0), srcShown), null));
+                        srcRows.size() > 1 ? srcRows.size() + " rows with this key" : "", pick(srcRows.get(0), srcShown), null,
+                        srcRows.get(0)));
                 continue;
             }
             if (srcRows.size() == 1 && dstRows.size() == 1) {
@@ -95,11 +98,11 @@ public final class DataCompare {
                 if (changes.isEmpty()) {
                     same++;
                     add(diffs, maxRows, new RowDiff(RowStatus.MATCH, e.getKey(), "",
-                            pick(srcRows.get(0), srcShown), pick(dstRows.get(0), dstShown)));
+                            pick(srcRows.get(0), srcShown), pick(dstRows.get(0), dstShown), srcRows.get(0)));
                 } else {
                     changed++;
                     add(diffs, maxRows, new RowDiff(RowStatus.CHANGED, e.getKey(), String.join("; ", changes),
-                            pick(srcRows.get(0), srcShown), pick(dstRows.get(0), dstShown)));
+                            pick(srcRows.get(0), srcShown), pick(dstRows.get(0), dstShown), srcRows.get(0)));
                 }
                 continue;
             }
@@ -120,19 +123,19 @@ public final class DataCompare {
             add(diffs, maxRows, new RowDiff(RowStatus.DUPLICATE_KEY, e.getKey(), srcRows.size() + "× in source, "
                     + dstRows.size() + "× in target; " + (leftSource == 0 && leftTarget == 0 ? "all rows match"
                     : "unmatched: " + leftSource + " in source, " + leftTarget + " in target"),
-                    pick(srcRows.get(0), srcShown), pick(dstRows.get(0), dstShown)));
+                    pick(srcRows.get(0), srcShown), pick(dstRows.get(0), dstShown), srcRows.get(0)));
         }
         for (Map.Entry<String, List<List<Object>>> e : dst.entrySet()) {
             onlyTarget += e.getValue().size();
             if (e.getValue().size() > 1) duplicateKeys++;
             add(diffs, maxRows, new RowDiff(RowStatus.ONLY_TARGET, e.getKey(),
                     e.getValue().size() > 1 ? e.getValue().size() + " rows with this key" : "", null,
-                    pick(e.getValue().get(0), dstShown)));
+                    pick(e.getValue().get(0), dstShown), null));
         }
         // the report in key order, whichever side a row came from
         diffs.sort(java.util.Comparator.comparing(RowDiff::key, DataCompare::compareKeys));
         return new Result(source.rows().size(), target.rows().size(), same, changed, onlySource, onlyTarget,
-                duplicateKeys, compared, shown, diffs);
+                duplicateKeys, compared, shown, source.columns(), diffs);
     }
 
     /** Orders "12 | A" after "9 | B": numeric parts compare as numbers. */
