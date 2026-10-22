@@ -236,8 +236,9 @@ disconnect: keep).
 **Still open:** the menu item and license gate per tool, one shared save / dirty / save-as for the compare tabs, and
 opening a file by its kind through the tool instead of a `switch`.
 
-**New, small:** a script tab's result grid can hold cell edits too; disconnecting tells the script tab its session
-closed (`sessionClosed`) without asking about those edits.
+**Fixed (found here):** a script tab's result grid can hold cell edits too, and disconnecting dropped them without
+asking. `ScriptTab.confirmConnectionClose` now asks first, like the table tabs. Tried in the app: run a query, edit
+a cell, disconnect (keep / discard).
 
 ### G5. Database differences are spread across the code — medium, before a fourth database
 

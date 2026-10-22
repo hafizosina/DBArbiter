@@ -605,12 +605,13 @@ public class MainWindow implements SessionProvider {
     }
 
     /**
-     * Closes the connection and its table tabs. Unsaved cell edits in those tabs are asked about first; false
-     * (nothing closed) if the user kept them.
+     * Closes the connection and its table tabs. Unsaved cell edits in those tabs and in the result grids of its
+     * scripts are asked about first; false (nothing closed) if the user kept them.
      */
     private boolean disconnect(ConnectionConfig c) {
         for (Tab t : List.copyOf(tabs.getTabs())) {
             if (t instanceof TableTab tt && tt.key().startsWith(c.getId() + "|") && !tt.confirmClose()) return false;
+            if (t instanceof ScriptTab st && !st.confirmConnectionClose(c)) return false;
         }
         DatabaseSession s = sessions.close(c.getId()).orElse(null);
         if (s == null) return true;

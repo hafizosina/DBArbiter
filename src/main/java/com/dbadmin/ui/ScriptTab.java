@@ -301,6 +301,18 @@ class ScriptTab extends Tab implements UnsavedWork {
     }
 
     /** Called when a session is closed (disconnect), so a script running on it does not hang. */
+    /**
+     * Before the connection {@code c} closes: unsaved cell edits in this script's result grids (saved through that
+     * connection) are asked about, showing this tab first. False if the user kept them.
+     */
+    boolean confirmConnectionClose(ConnectionConfig c) {
+        boolean ours = connection.getValue() != null && connection.getValue().getId().equals(c.getId());
+        boolean edited = results.getTabs().stream().anyMatch(t -> t.getContent() instanceof DataView view && view.hasEdits());
+        if (!ours || !edited) return true;
+        if (getTabPane() != null) getTabPane().getSelectionModel().select(this);
+        return confirmDiscardResultEdits();
+    }
+
     void sessionClosed(DatabaseSession session) {
         runner.sessionClosed(session);
     }
