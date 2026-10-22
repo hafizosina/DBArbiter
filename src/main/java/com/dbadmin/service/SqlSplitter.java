@@ -115,4 +115,30 @@ public final class SqlSplitter {
     public static boolean isReadOnlyQuery(String sql) {
         return QUERY_START.matcher(sql).lookingAt() && !WRITES.matcher(sql).find();
     }
+
+    private static final Pattern ORDER_BY = Pattern.compile("\\border\\s+by\\b", Pattern.CASE_INSENSITIVE);
+
+    /**
+     * True if the statement itself is sorted: ORDER BY outside parentheses, so not one that only sorts
+     * a subquery or a window. Without it, a query re-run to fetch its next rows may return them in
+     * another order.
+     */
+    public static boolean hasOrderBy(String sql, DbType type) {
+        // the code outside parentheses; everything else (quotes, comments, nested parts) becomes a space
+        StringBuilder top = new StringBuilder();
+        int depth = 0;
+        for (SqlLexer.Token t : SqlLexer.tokens(sql, type)) {
+            if (t.kind() != SqlLexer.Kind.CODE) {
+                top.append(' ');
+                continue;
+            }
+            for (int i = t.start(); i < t.end(); i++) {
+                char c = sql.charAt(i);
+                if (c == '(') depth++;
+                top.append(depth == 0 ? c : ' ');
+                if (c == ')' && depth > 0) depth--;
+            }
+        }
+        return ORDER_BY.matcher(top).find();
+    }
 }

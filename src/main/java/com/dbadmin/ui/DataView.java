@@ -326,6 +326,8 @@ class DataView extends BorderPane {
     private DatabaseSession chunkSession;
     private int fetched;
     private boolean canFetchMore;
+    /** Re-run without ORDER BY: the next chunk may repeat or miss rows. */
+    private boolean unordered;
     private boolean fetching;
     private boolean showingChunk;
 
@@ -342,6 +344,7 @@ class DataView extends BorderPane {
         chunkSession = session;
         fetched = result.data().rows().size();
         canFetchMore = result.truncated() && SqlSplitter.isReadOnlyQuery(result.sql());
+        unordered = !SqlSplitter.hasOrderBy(result.sql(), session.getConfig().getType());
         fetching = false;
         updateMoreBar();
     }
@@ -355,7 +358,8 @@ class DataView extends BorderPane {
         if (fetching) {
             moreInfo.setText(fetched + " rows fetched · fetching more…");
         } else if (canFetchMore) {
-            moreInfo.setText(fetched + " rows fetched · more available");
+            moreInfo.setText(fetched + " rows fetched · more available" + (unordered
+                    ? ". No ORDER BY: the query is re-run for each chunk, so rows may repeat or be missed" : ""));
         } else if (chunked != null && chunked.truncated() && fetched == chunked.data().rows().size()) {
             moreInfo.setText("First " + fetched + " rows. More exist, but this statement is not re-run to fetch them "
                     + "(only plain read-only queries are).");

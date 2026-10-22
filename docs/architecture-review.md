@@ -1,8 +1,8 @@
 # DBAdmin Architecture Review
 
-_First review: 2026-10-21 at commit `70ef05a`. Updated the same day after three rounds of follow-up fixes (see [Status](#status))._
+_First review: 2026-10-21 at commit `70ef05a`. Updated after four rounds of follow-up fixes (see [Status](#status)), last on 2026-10-22._
 
-**Scope:** every service and model class was read in full, along with the main UI classes (MainWindow, DataView, CompareTab, ScriptRunner, TableEditing, Themes, Async). The app was not run for this review; the fixes are covered by unit tests, but the UI changes have not been tried in the running app.
+**Scope:** every service and model class was read in full, along with the main UI classes (MainWindow, DataView, CompareTab, ScriptRunner, TableEditing, Themes, Async). The fixes are covered by unit tests, and the UI changes were tried in the running app against a SQLite test database: cell editing, the "Not editable" messages, connecting and reconnecting, the log, fetching more rows, and both compare tabs.
 
 **Size:** about 9.5k lines of Java 17 in a JavaFX 21 desktop app. It supports PostgreSQL, MySQL and SQLite over JDBC and builds into a fat jar, plus a launch4j `.exe` for Windows.
 
@@ -11,11 +11,11 @@ _First review: 2026-10-21 at commit `70ef05a`. Updated the same day after three 
 | # | Issue | Status |
 |---|---|---|
 | 1 | Edits mapped to table columns by result label | **Fixed**: only `*` or plain column lists are editable |
-| 2 | No tests | **Mostly done**: 115 JUnit tests cover every class without a screen; the screens themselves are untested |
+| 2 | No tests | **Mostly done**: 125 JUnit tests cover every class without a screen; the screens themselves are untested |
 | 3 | SQL scanner written three times | **Fixed**: one `SqlLexer`; splitting and autocomplete share statement boundaries |
-| 4 | Fetching more rows re-runs the query | Open |
+| 4 | Fetching more rows re-runs the query | **Partly fixed**: a warning when the query has no ORDER BY; it is still re-run for each chunk |
 | 5 | `DatabaseSession` does too much | Open |
-| 6 | `MainWindow` and `CompareTab` do too much | **Partly fixed**: sessions moved to a tested `SessionManager`; `CompareTab` still holds two tools |
+| 6 | `MainWindow` and `CompareTab` do too much | **Fixed**: sessions moved to a tested `SessionManager`; `CompareTab` split into two tabs |
 | 7 | Global static state | Open |
 | 8 | Saved files can be corrupted | **Partly fixed**: atomic writes. Plain-text passwords and path-keyed script bindings remain |
 | 9 | Errors swallowed silently | **Fixed**: non-editable results say why; errors are logged to `~/.dbadmin/logs` |
@@ -72,14 +72,20 @@ src/test/         JUnit 5 tests (mvn test)
 
 **Still heuristic:** `EditableQuery`, `isReadOnlyQuery` (a blocklist of words) and the `DDL` pattern in `ScriptRunner` are regex checks. `isReadOnlyQuery` gates re-running a query to fetch more rows and the compare tool's Where filter, and `select f()` passes even if `f` writes. The read-only connection flag is the real safeguard.
 
-### 4. Fetching more rows re-runs the query and skips rows — open
+### 4. Fetching more rows re-runs the query and skips rows — partly fixed
 
 Where: `DataView.fetchMore`, `DatabaseSession.execute(..., skip)`.
 
 - Every chunk re-runs the query and reads past everything already fetched, so cost grows with the square of the rows fetched.
 - Without an ORDER BY, rows can repeat or go missing between chunks.
 
-Keeping a cursor open (autocommit off plus `setFetchSize`) avoids both, but ties up the session's single worker thread, so it is a design decision. At minimum, the UI could warn when the query has no ORDER BY.
+**Fixed:** when more rows are available and the query has no ORDER BY of its own, the bar under the grid says so: "No ORDER BY: the query is re-run for each chunk, so rows may repeat or be missed". `SqlSplitter.hasOrderBy` looks for ORDER BY outside parentheses only, so one that sorts a subquery or a window does not count. It ignores quotes and comments and has 10 tests.
+
+**Not done, on purpose:** keeping a cursor open between chunks. Each session has one connection, and the scripts run on it with autocommit on.
+- PostgreSQL only streams rows with autocommit off, so the user's next statements would run inside an open transaction.
+- MySQL's streaming mode blocks the connection for every other statement until the rows are read to the end.
+
+A second connection just for paging would avoid both. That is worth doing only if fetching tens of thousands of rows turns out to be common.
 
 ### 5. `DatabaseSession` (about 800 lines) does too much — open
 
@@ -88,7 +94,7 @@ It handles connection lifecycle and retry, metadata, editing, and running statem
 ### 6. Some UI classes have absorbed non-UI work — partly fixed
 
 - **Fixed:** the open sessions and the queue of callers waiting for a connection to open moved from `MainWindow` into `SessionManager`, which has no JavaFX dependency and 6 tests. They cover callers sharing one session while it opens, failures reaching every caller, a connection edited or deleted while opening, and closing. `MainWindow` (776 lines) keeps the window, connection create/edit/delete and tree loading, and only updates the status bar and tree when told a session opened or failed.
-- **Open:** `CompareTab` (848 lines) holds two separate tools, schema compare and data compare, and could be split in two.
+- **Fixed:** `CompareTab` (848 lines, two tools behind a `Mode` flag) is now `SchemaCompareTab` (319 lines) and `DataCompareTab` (388 lines). They share `CompareSide` (192 lines), one side's connection, schema and table pickers, with the swap button and the target following the source. The code moved without changing behaviour, with one exception: each tab now shows a side's errors in its own status line. Before, a data compare's schema-loading errors went to the hidden schema page.
 
 ### 7. Global static state — open
 
@@ -124,5 +130,6 @@ It handles connection lifecycle and retry, metadata, editing, and running statem
 
 ## Suggested next steps
 
-1. Try the app: cell editing (the grid, the value panel, HTML values, the "Not editable" messages), and connecting, disconnecting and reconnecting, since that now goes through `SessionManager`. Check `~/.dbadmin/logs` afterwards.
-2. Then as needed: split `CompareTab` (#6), `Dialect` (#5), fetching with a cursor (#4).
+1. `Dialect` (#5), before adding a fourth database.
+2. Key script bindings by a path relative to `Script/` (#8), so moving the app folder keeps them.
+3. As needed: a second connection for paging (#4), and less static state (#7) if the screens get tests.

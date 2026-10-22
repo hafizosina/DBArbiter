@@ -133,4 +133,28 @@ class SqlSplitterTest {
     void queriesThatMayWrite(String sql) {
         assertFalse(SqlSplitter.isReadOnlyQuery(sql), sql);
     }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "select * from t order by id",
+            "select * from t\nORDER\n  BY id limit 10",
+            "select a from t union select a from u order by 1",
+            "select * from t order /* why */ by id",
+    })
+    void sortedQueries(String sql) {
+        assertTrue(SqlSplitter.hasOrderBy(sql, DbType.POSTGRESQL), sql);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "select * from t",
+            "select * from (select * from t order by id) s",
+            "select row_number() over (order by id) from t",
+            "select * from t where note = 'order by id'",
+            "select * from t -- order by id",
+            "select * from orders by_day",
+    })
+    void unsortedQueries(String sql) {
+        assertFalse(SqlSplitter.hasOrderBy(sql, DbType.POSTGRESQL), sql);
+    }
 }

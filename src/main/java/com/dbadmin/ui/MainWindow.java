@@ -224,10 +224,6 @@ public class MainWindow implements SessionProvider {
         return bar;
     }
 
-    private void openCompare(CompareTab.Mode mode) {
-        showTab(new CompareTab(mode, connections, this, selectedConnection().orElse(null), this::showTab));
-    }
-
     private void showTab(Tab tab) {
         tabs.getTabs().add(tab);
         tabs.getSelectionModel().select(tab);
@@ -284,9 +280,9 @@ public class MainWindow implements SessionProvider {
                 new SeparatorMenuItem(), saveScriptItem, saveScriptAsItem,
                 new SeparatorMenuItem(), runStatementItem, runScriptItem, stopScriptItem);
         MenuItem compareSchema = new MenuItem("Compare Table…");
-        compareSchema.setOnAction(e -> openCompare(CompareTab.Mode.SCHEMA));
+        compareSchema.setOnAction(e -> showTab(new SchemaCompareTab(connections, this, selectedConnection().orElse(null), this::showTab)));
         MenuItem compareData = new MenuItem("Compare Data…");
-        compareData.setOnAction(e -> openCompare(CompareTab.Mode.DATA));
+        compareData.setOnAction(e -> showTab(new DataCompareTab(connections, this, selectedConnection().orElse(null))));
         Menu tools = new Menu("Tools", null, compareSchema, compareData);
         return new MenuBar(connection, script, tools);
     }
