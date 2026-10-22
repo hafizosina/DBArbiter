@@ -18,6 +18,8 @@
 .sql-editor .sql-number { -fx-fill: #1750eb; }
 .sql-editor .sql-comment { -fx-fill: #8c8c8c; -fx-font-style: italic; }
 .sql-editor .sql-param { -fx-fill: #c2185b; }
+.sql-editor .sql-dollar { -fx-fill: #d35400; -fx-font-weight: bold; }
+.sql-editor .sql-variable { -fx-fill: #8a5a00; }
 .hint-small { -fx-text-fill: #888; -fx-font-size: 11px; }
 .error-text-inline { -fx-text-fill: #c62828; }
 .mode-write { -fx-text-fill: #e65100; -fx-font-size: 11px; -fx-font-weight: bold; }
