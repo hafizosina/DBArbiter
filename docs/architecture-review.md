@@ -289,11 +289,17 @@ browser) would roughly halve the download and the memory used.
 About 400 UI texts are written directly in the Java code. If the app should ever offer Bahasa Indonesia for Antam
 users, moving the texts into a resource bundle gets more expensive with every screen. Decide before the next big UI.
 
-### G10. Build and release logic is duplicated — low
+### G10. Build and release logic is duplicated — mostly fixed
 
 The jlink module list and the launcher script exist in both `deploy-linux.sh` and `build-linux.sh`, and the version
 number is worked out in the deploy script and again in CI. `deploy-linux.sh` could call `build-linux.sh` and only
-install what it builds. Also, the internal names are still the old one (`com.dbadmin` packages, `~/.dbadmin`); that
+install what it builds.
+
+**Done:** `deploy-linux.sh` now runs `build-linux.sh` (the same build as the Linux download, tests included) and
+installs its jar, launcher, icon and, the first time, its Java runtime; the jlink module list and the launcher exist
+once. It also no longer rewrites `scripts.json` with `sed` after moving `Script/` (#8 makes that unneeded). Tried by
+deploying into a fresh home. **Still duplicated:** the version number (local tags in the deploy script, the tag name
+in CI); they serve different purposes, so that stays. Also, the internal names are still the old one (`com.dbadmin` packages, `~/.dbadmin`); that
 is fine, but a public API or plugin later would carry it.
 
 ### Order for a growing app
@@ -306,7 +312,7 @@ is fine, but a public API or plugin later would carry it.
 | Before a fourth database or MySQL migrations | `Dialect` | G5, #5 |
 | Whenever a file format changes next | Format versions with upgrades (compare files done) | G6 |
 | Ongoing | Logic out of screens for new code | G7 |
-| Optional | Drop WebView, resource bundle, single build script | G8, G9, G10 |
+| Optional | Drop WebView, resource bundle (single build script: done) | G8, G9, G10 |
 
 ## Suggested next steps
 

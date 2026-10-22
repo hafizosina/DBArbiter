@@ -2,7 +2,8 @@
 # Builds a commit (default: main) and installs it as the desktop app:
 #   ~/App/DBArbiter/DBArbiter       launcher (also in the start menu)
 #   ~/App/DBArbiter/dbarbiter.jar   the app
-#   ~/App/DBArbiter/jre/            bundled Java runtime (made once with jlink)
+#   ~/App/DBArbiter/jre/            bundled Java runtime (installed once)
+# The app itself is built by build-linux.sh, the same build as the Linux download; this script installs it.
 #   ~/App/DBArbiter/Script/         scripts saved by the app (kept)
 #   ~/App/DBArbiter-License/        the license generator (start menu: "DBArbiter License Generator")
 # The app was called DBAdmin: its scripts in ~/App/DBAdmin/Script move here once; ~/App/DBAdmin is then left to delete.
@@ -35,35 +36,27 @@ if [ -z "$VERSION" ]; then
     NEW_TAG=1
 fi
 echo "version $VERSION"
-(cd "$BUILD" && mvn -B -q package -Drevision="$VERSION" -Dbuild.commit="$SHORT" -Dbuild.date="$(date '+%F %H:%M')")
+# the same build as the Linux download (jar, launcher, icon, Java runtime); the tests run as part of it
+(cd "$BUILD" && packaging/build-linux.sh -Drevision="$VERSION" -Dbuild.commit="$SHORT" -Dbuild.date="$(date '+%F %H:%M')")
+OUT="$BUILD/target/linux/DBArbiter"
 
 mkdir -p "$DEST"
-# once, from the old name: the saved scripts, and their connections in ~/.dbadmin/scripts.json (kept by path)
+# once, from the old name: the saved scripts (the app finds their connections again by their place in Script/)
 OLD="$HOME/App/DBAdmin"
 if [ -d "$OLD/Script" ] && [ ! -e "$DEST/Script" ]; then
     mv "$OLD/Script" "$DEST/Script"
-    BINDINGS="$HOME/.dbadmin/scripts.json"
-    if [ -f "$BINDINGS" ]; then sed -i "s#\"$OLD/Script/#\"$DEST/Script/#g" "$BINDINGS"; fi
     echo "moved the scripts from $OLD/Script to $DEST/Script"
 fi
+# the Java runtime is installed once (a running app keeps using it)
 if [ ! -x "$DEST/jre/bin/java" ]; then
-    echo "Creating the Java runtime..."
-    jlink --add-modules java.se,jdk.unsupported,jdk.crypto.ec,jdk.zipfs,jdk.localedata \
-        --strip-debug --no-header-files --no-man-pages --compress=2 --output "$DEST/jre"
+    cp -r "$OUT/jre" "$DEST/jre"
 fi
 
 # copy then rename: an app that is still running keeps reading the old jar
-cp "$BUILD/target/dbarbiter.jar" "$DEST/dbarbiter.jar.new"
+cp "$OUT/dbarbiter.jar" "$DEST/dbarbiter.jar.new"
 mv -f "$DEST/dbarbiter.jar.new" "$DEST/dbarbiter.jar"
-cp "$BUILD/src/main/resources/com/dbadmin/app-icon/icon-256.png" "$DEST/dbarbiter.png"
-
-cat > "$DEST/DBArbiter" <<'EOF'
-#!/usr/bin/env bash
-# Starts DBArbiter with its bundled Java runtime. Scripts are saved in ./Script next to dbarbiter.jar.
-DIR="$(cd "$(dirname "$(readlink -f "$0")")" && pwd)"
-exec "$DIR/jre/bin/java" -jar "$DIR/dbarbiter.jar" "$@"
-EOF
-chmod +x "$DEST/DBArbiter"
+cp "$OUT/dbarbiter.png" "$DEST/dbarbiter.png"
+cp "$OUT/DBArbiter" "$DEST/DBArbiter"
 
 APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 mkdir -p "$APPS"
