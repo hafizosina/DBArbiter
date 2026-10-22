@@ -437,7 +437,8 @@ public class DatabaseSession implements AutoCloseable {
                 String serial = serialType(String.valueOf(c.get(1)), expr, String.valueOf(c.get(6)));
                 StringBuilder col = new StringBuilder("    ").append(c.get(0)).append(' ');
                 if (serial != null) {
-                    lines.add(col.append(serial).toString()); // the default and NOT NULL are part of serial
+                    // the default comes with serial; NOT NULL does too, but is written out as DBeaver does, to read clearly
+                    lines.add(col.append(serial).append(" NOT NULL").toString());
                     continue;
                 }
                 col.append(c.get(1));
@@ -515,13 +516,18 @@ public class DatabaseSession implements AutoCloseable {
      * The caller makes sure {@code where} is a plain condition (see SqlSplitter.isReadOnlyQuery).
      */
     public StatementResult fetchOrdered(TableRef t, List<String> orderBy, String where, int maxRows) throws SQLException {
+        return execute(orderedSql(t, orderBy, where), List.of(), maxRows);
+    }
+
+    /** The query {@link #fetchOrdered} runs: the table's rows, filtered, in the given order. */
+    public String orderedSql(TableRef t, List<String> orderBy, String where) throws SQLException {
         String q = connection.getMetaData().getIdentifierQuoteString().trim();
         StringBuilder sql = new StringBuilder("SELECT * FROM ").append(qualifiedName(t));
         if (where != null && !where.isBlank()) sql.append(" WHERE (").append(where).append(")");
         for (int i = 0; i < orderBy.size(); i++) {
             sql.append(i == 0 ? " ORDER BY " : ", ").append(quote(orderBy.get(i), q));
         }
-        return execute(sql.toString(), List.of(), maxRows);
+        return sql.toString();
     }
 
     /** One row per index, with its columns in order. */

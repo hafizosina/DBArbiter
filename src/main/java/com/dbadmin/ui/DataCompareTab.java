@@ -97,6 +97,8 @@ class DataCompareTab extends Tab {
     /** The alias last filled in automatically, replaced when the main table changes (unless the user typed one). */
     private String autoAlias = "";
     private final VBox joinRows = new VBox(4);
+    /** Several rows per key: a key's rows are matched by their compared values (see DataCompare). */
+    private final CheckBox oneToMany = new CheckBox("Several rows per key (one-to-many)");
 
     private final ObservableList<ConnectionConfig> connections;
 
@@ -108,6 +110,12 @@ class DataCompareTab extends Tab {
         dataTarget.preferredTable = dataSource::tableName;
         CompareSide.pair(dataSource, dataTarget);
         setContent(dataPage());
+        getContent().addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, e -> {
+            if (SchemaCompareTab.SAVE_KEY.match(e)) {
+                e.consume();
+                save();
+            }
+        });
         if (initial != null) dataSource.connection.setValue(initial);
         setOnCloseRequest(e -> {
             if (!confirmClose()) e.consume();
@@ -141,15 +149,18 @@ class DataCompareTab extends Tab {
         runDataCompare();
     }
 
-    /** The form's settings as a file that compares again when opened; null (with a message) when incomplete. */
-    private DataCompareReport formSettings() {
+    /**
+     * The form's settings as a file that compares again when opened; null when incomplete (said in the status
+     * line unless {@code quiet}).
+     */
+    private DataCompareReport formSettings(boolean quiet) {
         if (!dataSource.readyWithTable() || !dataTarget.readyWithTable()) {
-            dataStatus.setText("Pick a connection, schema and table on both sides first.");
+            if (!quiet) dataStatus.setText("Pick a connection, schema and table on both sides first.");
             return null;
         }
         List<String> keys = columnChoices.stream().filter(c -> c.key.get()).map(c -> c.name).toList();
         if (keys.isEmpty()) {
-            dataStatus.setText("Tick Key for the column(s) that identify a row first.");
+            if (!quiet) dataStatus.setText("Tick Key for the column(s) that identify a row first.");
             return null;
         }
         List<String> compared = columnChoices.stream().filter(c -> c.compare.get() && !c.key.get()).map(c -> c.name).toList();
@@ -169,6 +180,7 @@ class DataCompareTab extends Tab {
         r.shownColumns = shown;
         r.where = where.getText() == null ? "" : where.getText().trim();
         r.rowsPerSide = rowLimit.getValue();
+        r.oneToMany = oneToMany.isSelected();
         if (!activeJoinRows().isEmpty()) {
             r.mainAlias = mainAlias.getText().strip();
             r.joins = activeJoinRows().stream().map(JoinRow::join).toList();
@@ -176,35 +188,55 @@ class DataCompareTab extends Tab {
         return r;
     }
 
-    private void saveSettings() {
-        DataCompareReport r = formSettings();
-        if (r == null) return;
-        long verdicts = report == null || report.settingsOnly ? 0 : report.rows.stream().filter(x -> x.verdict != null).count();
+    /**
+     * Save…: the in-app dialog asks where, and what: the settings and results (the default) or the settings only.
+     * Returns true if the results (and verdicts) were saved.
+     */
+    private boolean save() {
+        boolean hasResults = report != null && !report.settingsOnly;
+        DataCompareReport settings = formSettings(hasResults);
+        if (!hasResults && settings == null) return false; // formSettings said what is missing
+        DataCompareReport named = hasResults ? report : settings;
+        CompareReportChooser.SaveChoice choice = CompareReportChooser.saveCompare(getTabPane().getScene().getWindow(), reportFile,
+                CompareReportChooser.defaultName("DataCompare-" + named.source.table(), named.source.label(), named.target.label()),
+                hasResults, settings != null);
+        if (choice == null) return false;
+        if (choice.withResults()) return writeResults(choice.file());
+        long verdicts = hasResults ? report.rows.stream().filter(x -> x.verdict != null).count() : 0;
         if (verdicts > 0) {
-            // settings only would leave the verdicts out: offer the results too
-            ButtonType withResults = new ButtonType("Save with verdicts", ButtonBar.ButtonData.YES);
+            // settings only would leave the verdicts out
+            ButtonType withVerdicts = new ButtonType("Save with verdicts", ButtonBar.ButtonData.YES);
             ButtonType settingsOnly = new ButtonType("Settings only", ButtonBar.ButtonData.NO);
             Alert ask = new Alert(Alert.AlertType.WARNING, verdicts + " verdict(s) are set. Saving the settings only leaves them out: "
-                    + "the file compares again when opened, without verdicts.", withResults, settingsOnly, ButtonType.CANCEL);
+                    + "the file compares again when opened, without verdicts.", withVerdicts, settingsOnly, ButtonType.CANCEL);
             ask.initOwner(getTabPane().getScene().getWindow());
             ask.setHeaderText("Save the verdicts too?");
             ask.getDialogPane().setPrefWidth(560);
             ButtonType answer = InAppDialogs.showAndWait(ask).orElse(ButtonType.CANCEL);
-            if (answer == withResults) {
-                saveReport();
-                return;
-            }
-            if (answer != settingsOnly) return;
+            if (answer == withVerdicts) return writeResults(choice.file());
+            if (answer != settingsOnly) return false;
         }
-        Path file = CompareReportChooser.saveReport(getTabPane().getScene().getWindow(), reportFile, CompareReportChooser.defaultName(
-                "DataCompare-" + r.source.table(), r.source.label(), r.target.label()));
-        if (file == null) return;
         try {
-            CompareReportFiles.save(file, r);
-            dataStatus.setText("Settings saved as " + file + " · opening it compares again");
+            CompareReportFiles.save(choice.file(), settings);
+            dataStatus.setText("Settings saved as " + choice.file() + " · opening it compares again");
         } catch (IOException e) {
             error("Could not save the settings", e);
         }
+        return false;
+    }
+
+    private boolean writeResults(Path file) {
+        try {
+            CompareReportFiles.save(file, report);
+        } catch (IOException e) {
+            error("Could not save the report", e);
+            return false;
+        }
+        reportFile = file;
+        unsaved = false;
+        setText("Data Compare: " + file.getFileName());
+        fileStatus.setText("Saved as " + file);
+        return true;
     }
 
     /**
@@ -214,6 +246,7 @@ class DataCompareTab extends Tab {
     private void restoreSettings(DataCompareReport r) {
         where.setText(r.where == null ? "" : r.where);
         if (r.rowsPerSide > 0) rowLimit.getValueFactory().setValue(r.rowsPerSide);
+        oneToMany.setSelected(r.oneToMany);
         // the ticks: kept by name when the tables' columns arrive (see setColumns)
         List<ColumnChoice> ticks = new ArrayList<>();
         for (String c : r.shownColumns) {
@@ -324,15 +357,13 @@ class DataCompareTab extends Tab {
         where.setOnAction(e -> runDataCompare());
         HBox.setHgrow(where, Priority.ALWAYS);
         // Save: the settings (opening the file compares again); the arrow: with the results and verdicts too
-        javafx.scene.control.SplitMenuButton save = new javafx.scene.control.SplitMenuButton();
-        save.setText("Save settings…");
-        save.setTooltip(new Tooltip("Save this compare's settings: opening the file compares again with them"));
-        save.setOnAction(e -> saveSettings());
-        MenuItem withResults = new MenuItem("Save settings and results…");
-        withResults.setOnAction(e -> saveReport());
-        save.getItems().add(withResults);
-        save.setOnShowing(e -> withResults.setDisable(report == null || report.settingsOnly));
-        HBox options = new HBox(8, new Label("Where:"), where, new Label("Rows per side:"), rowLimit, compare, save,
+        Button save = new Button("Save…");
+        save.setTooltip(new Tooltip("Save this compare (Ctrl+S): with its results (rows and verdicts) or its settings only"));
+        save.setOnAction(e -> save());
+        Button sql = new Button("SQL…");
+        sql.setTooltip(new Tooltip("The queries Compare data runs on each side, to copy and run yourself"));
+        sql.setOnAction(e -> showQueries());
+        HBox options = new HBox(8, new Label("Where:"), where, new Label("Rows per side:"), rowLimit, compare, sql, save,
                 columnsToggle, advanced);
         options.setAlignment(Pos.CENTER_LEFT);
         dataStatus.setWrapText(true);
@@ -433,7 +464,9 @@ class DataCompareTab extends Tab {
         hint.setWrapText(true);
         hint.getStyleClass().add("hint-small");
         HBox buttons = new HBox(6, all, showAll, none);
-        VBox pane = new VBox(6, hint, columnChooser, buttons);
+        oneToMany.setTooltip(new Tooltip("For a key with several rows (e.g. the images of a tier code): each row is matched by the "
+                + "compared columns.\nOn both sides: MATCH · only in the source: new, to add · only in the target: old, to remove."));
+        VBox pane = new VBox(6, hint, oneToMany, columnChooser, buttons);
         pane.setPadding(new Insets(6));
         VBox.setVgrow(columnChooser, Priority.ALWAYS);
         return pane;
@@ -519,7 +552,7 @@ class DataCompareTab extends Tab {
         JoinRow() {
             super(6);
             setAlignment(Pos.CENTER_LEFT);
-            type.setValue("join");
+            type.setValue("left join"); // keeps main rows whose joined row is missing (a NULL id)
             table.setItems(dataSource.table.getItems());
             alias.setPrefColumnCount(5);
             alias.setPromptText("alias");
@@ -679,10 +712,17 @@ class DataCompareTab extends Tab {
         maybeAutoCompare();
     }
 
-    private void runDataCompare() {
+    /** What a compare reads, taken from the form. */
+    private record Plan(List<String> keys, List<String> compared, List<String> shownOnly, String filter,
+                        List<String> joinedColumns, List<KeyJoins.Join> joins, String alias,
+                        List<TableRef> srcJoins, List<TableRef> dstJoins, int limit, boolean oneToMany) {
+    }
+
+    /** The form as a {@link Plan}; null (with the reason in the status line) when something is missing. */
+    private Plan plan() {
         if (!dataSource.readyWithTable() || !dataTarget.readyWithTable()) {
             dataStatus.setText("Pick a connection, schema and table on both sides.");
-            return;
+            return null;
         }
         List<String> keys = columnChoices.stream().filter(c -> c.key.get()).map(c -> c.name).toList();
         List<String> compared = columnChoices.stream().filter(c -> c.compare.get() && !c.key.get()).map(c -> c.name).toList();
@@ -690,12 +730,12 @@ class DataCompareTab extends Tab {
                 .map(c -> c.name).toList();
         if (keys.isEmpty()) {
             dataStatus.setText("Tick Key for the column(s) that identify a row (e.g. id).");
-            return;
+            return null;
         }
         String filter = where.getText() == null ? "" : where.getText().trim();
         if (!filter.isEmpty() && !isPlainCondition(filter)) {
             dataStatus.setText("The Where filter must be one read-only condition (no ';', INSERT, UPDATE, DELETE, ...).");
-            return;
+            return null;
         }
         // joins only matter when a joined column is used (as key, compared or shown)
         List<String> joinedColumns = java.util.stream.Stream.of(keys, compared, shownOnly).flatMap(List::stream)
@@ -705,7 +745,7 @@ class DataCompareTab extends Tab {
         String joinProblem = joins.isEmpty() ? null : KeyJoins.problem(alias, joins);
         if (joinProblem != null) {
             dataStatus.setText(joinProblem);
-            return;
+            return null;
         }
         List<TableRef> srcJoins = joins.isEmpty() ? List.of() : activeJoinRows().stream().map(r -> r.table.getValue()).toList();
         List<TableRef> dstJoins = new ArrayList<>();
@@ -713,11 +753,17 @@ class DataCompareTab extends Tab {
             TableRef t = dataTarget.table.getItems().stream().filter(x -> x.name().equalsIgnoreCase(j.table())).findFirst().orElse(null);
             if (t == null) {
                 dataStatus.setText(j.table() + " is not in the target schema " + dataTarget.schemaLabel() + ".");
-                return;
+                return null;
             }
             dstJoins.add(t);
         }
-        int limit = rowLimit.getValue();
+        return new Plan(keys, compared, shownOnly, filter, joinedColumns, joins, alias, srcJoins, dstJoins, rowLimit.getValue(),
+                oneToMany.isSelected());
+    }
+
+    private void runDataCompare() {
+        Plan p = plan();
+        if (p == null) return;
         String src = dataSource.label();
         String dst = dataTarget.label();
         DatabaseSession s1 = dataSource.session;
@@ -736,36 +782,51 @@ class DataCompareTab extends Tab {
         Runnable whenBoth = () -> {
             if (read[0] == null || read[1] == null) return;
             boolean truncated = read[0].truncated() || read[1].truncated();
-            Async.run(() -> DataCompareReport.of(DataCompare.compare(read[0].data(), read[1].data(), keys, compared, shownOnly,
-                            MAX_LISTED_ROWS), srcSide, dstSide, keys, filter, limit, truncated, "v" + AppFooter.version()),
+            Async.run(() -> DataCompareReport.of(DataCompare.compare(read[0].data(), read[1].data(), p.keys(), p.compared(),
+                            p.shownOnly(), MAX_LISTED_ROWS, p.oneToMany()), srcSide, dstSide, p.keys(), p.filter(), p.limit(), truncated,
+                            "v" + AppFooter.version()),
                     r -> {
                         if (!confirmDiscardVerdicts()) return;
-                        r.mainAlias = joins.isEmpty() ? null : alias;
-                        r.joins = joins;
+                        r.oneToMany = p.oneToMany();
+                        r.mainAlias = p.joins().isEmpty() ? null : p.alias();
+                        r.joins = p.joins();
                         reportFile = null;
                         unsaved = false;
                         showReport(r);
                     }, failed);
         };
-        Async.run(s1, () -> read(s1, t1, alias, joins, srcJoins, joinedColumns, filter, keys, limit), r -> {
+        Async.run(s1, () -> s1.execute(sideSql(s1, t1, p.srcJoins(), p), p.limit()), r -> {
             read[0] = r;
             whenBoth.run();
         }, failed);
-        Async.run(s2, () -> read(s2, t2, alias, joins, dstJoins, joinedColumns, filter, keys, limit), r -> {
+        Async.run(s2, () -> s2.execute(sideSql(s2, t2, p.dstJoins(), p), p.limit()), r -> {
             read[1] = r;
             whenBoth.run();
         }, failed);
     }
 
-    /** One side's rows in key order: the table alone, or with the joins that give its key. Session thread. */
-    private static StatementResult read(DatabaseSession s, TableRef main, String alias, List<KeyJoins.Join> joins,
-                                        List<TableRef> joinTables, List<String> joinedColumns, String filter,
-                                        List<String> keys, int limit) throws java.sql.SQLException {
-        if (joins.isEmpty()) return s.fetchOrdered(main, keys, filter, limit);
+    /** The query one side runs: its rows in key order, alone or with the joins. Session thread. */
+    private static String sideSql(DatabaseSession s, TableRef main, List<TableRef> joinTables, Plan p) throws java.sql.SQLException {
+        if (p.joins().isEmpty()) return s.orderedSql(main, p.keys(), p.filter());
         List<String> qualified = new ArrayList<>();
         for (TableRef t : joinTables) qualified.add(s.qualifiedName(t));
-        return s.execute(KeyJoins.select(s.qualifiedName(main), alias, joins, qualified, joinedColumns, filter, keys,
-                s.identifierQuote()), limit);
+        return KeyJoins.select(s.qualifiedName(main), p.alias(), p.joins(), qualified, p.joinedColumns(), p.filter(), p.keys(),
+                s.identifierQuote());
+    }
+
+    /** SQL…: the two queries Compare data runs, to read or run by hand. */
+    private void showQueries() {
+        Plan p = plan();
+        if (p == null) return;
+        DatabaseSession s1 = dataSource.session;
+        DatabaseSession s2 = dataTarget.session;
+        TableRef t1 = dataSource.table.getValue();
+        TableRef t2 = dataTarget.table.getValue();
+        Consumer<Throwable> failed = ex -> dataStatus.setText("Could not build the queries: " + ex.getMessage());
+        Async.run(s1, () -> sideSql(s1, t1, p.srcJoins(), p), sql1 -> Async.run(s2, () -> sideSql(s2, t2, p.dstJoins(), p),
+                sql2 -> InAppDialogs.show(new CompareQueriesDialog(getTabPane().getScene().getWindow(),
+                        dataSource.label(), sql1, s1.getConfig().getType(), dataTarget.label(), sql2, s2.getConfig().getType(),
+                        p.limit())), failed), failed);
     }
 
     /** The filter has to stay a condition of one SELECT: one statement, nothing that writes. */
@@ -792,6 +853,7 @@ class DataCompareTab extends Tab {
             sb.append("\nKey joins: ").append(r.source.table()).append(' ').append(r.mainAlias).append(' ')
                     .append(String.join(" ", r.joins.stream().map(KeyJoins::describe).toList()));
         }
+        if (r.oneToMany) sb.append("\nOne-to-many: a key's rows are matched by the compared columns (only in source = new, only in target = old).");
         if (r.where != null && !r.where.isEmpty()) sb.append("\nWhere: ").append(r.where);
         if (r.truncated) {
             sb.append("\n⚠ Only the first ").append(r.rowsPerSide).append(" rows of each side (in key order) were compared; ")
@@ -973,24 +1035,6 @@ class DataCompareTab extends Tab {
 
     // ---- saving --------------------------------------------------------------
 
-    private boolean saveReport() {
-        if (report == null) return false;
-        Path file = CompareReportChooser.saveReport(getTabPane().getScene().getWindow(), reportFile, CompareReportChooser.defaultName(
-                "DataCompare-" + report.source.table(), report.source.label(), report.target.label()));
-        if (file == null) return false;
-        try {
-            CompareReportFiles.save(file, report);
-        } catch (IOException e) {
-            error("Could not save the report", e);
-            return false;
-        }
-        reportFile = file;
-        unsaved = false;
-        setText("Data Compare: " + file.getFileName());
-        fileStatus.setText("Saved as " + file);
-        return true;
-    }
-
     private void exportHtml() {
         if (report == null) return;
         Path file = CompareReportChooser.saveHtml(getTabPane().getScene().getWindow(), reportFile, CompareReportChooser.defaultName(
@@ -1019,7 +1063,7 @@ class DataCompareTab extends Tab {
         alert.initOwner(getTabPane().getScene().getWindow());
         alert.setHeaderText("Save the report?");
         ButtonType answer = InAppDialogs.showAndWait(alert).orElse(ButtonType.CANCEL);
-        if (answer == save) return saveReport();
+        if (answer == save) return save();
         if (answer == discard) unsaved = false;
         return answer == discard;
     }

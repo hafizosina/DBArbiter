@@ -33,6 +33,8 @@ import java.util.Set;
 /** A data grid with the value panel beside it. The panel's visibility is shared by all views. */
 class DataView extends BorderPane {
 
+    private static final javafx.scene.input.KeyCombination SAVE_KEY = javafx.scene.input.KeyCombination.keyCombination("Shortcut+S");
+
     /** Show/hide the value panel everywhere at once. */
     private static final BooleanProperty SHOW_VALUE_PANEL = new SimpleBooleanProperty(true);
     /** One row as a list of column / value pairs, in every view that offers it. */
@@ -58,6 +60,13 @@ class DataView extends BorderPane {
 
     DataView() {
         grid.selectedCellProperty().addListener((o, a, cell) -> showCell(cell));
+        // Ctrl+S here saves the rows' unsaved changes; without any it is left to the window (e.g. Save Script)
+        addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, e -> {
+            if (SAVE_KEY.match(e) && hasEdits() && editTarget != null) {
+                e.consume();
+                saveEdits();
+            }
+        });
         pairPanel.setOrientation(Orientation.VERTICAL);
         compareLegend.getStyleClass().add("hint-small");
         compareLegend.setMaxWidth(Double.MAX_VALUE);
@@ -162,12 +171,17 @@ class DataView extends BorderPane {
                 // Source → Target: the target's value is the old one, the source's the new one
                 diffView.show(cv.inTarget() ? text(cv.target()) : null, cv.inSource() ? text(cv.source()) : null, false);
                 long[] n = diffView.counts();
+                boolean onlyLineEnds = cv.inSource() && cv.inTarget() && cv.source() != null && cv.target() != null
+                        && text(cv.source()).replace("\r\n", "\n").equals(text(cv.target()).replace("\r\n", "\n"));
                 compareLegend.setText(cell.column() + (!cv.inTarget() ? "   + new in " + cv.targetName()
                         : !cv.inSource() ? "   − only in " + cv.targetName()
-                        : "   − " + cv.targetName() + " (" + n[0] + ")   + " + cv.sourceName() + " (" + n[1] + ")"));
+                        : "   − " + cv.targetName() + " (" + n[0] + ")   + " + cv.sourceName() + " (" + n[1] + ")")
+                        + (onlyLineEnds ? "   · only the line endings differ (Windows CRLF ␍ vs LF)" : ""));
+                compareLegend.setTooltip(new Tooltip(compareLegend.getText().strip())); // the panel may be too narrow for it
                 compareBody.getChildren().setAll(diffView);
             } else {
                 compareLegend.setText(cell.column() + (differs ? "" : cv.inSource() && cv.inTarget() ? "   · same on both sides" : ""));
+                compareLegend.setTooltip(null);
                 compareBody.getChildren().setAll(pairPanel);
             }
         } else {

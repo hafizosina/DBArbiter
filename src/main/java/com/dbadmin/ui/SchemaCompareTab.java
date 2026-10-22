@@ -72,8 +72,9 @@ class SchemaCompareTab extends Tab {
     private final Button tablesButton = new Button("All tables");
     private String sourceName = "Source";
     private String targetName = "Target";
-    /** Save: the settings (opening the file compares again); the arrow: with the results too. */
-    private final javafx.scene.control.SplitMenuButton saveButton = new javafx.scene.control.SplitMenuButton();
+    /** Save… (Ctrl+S): the in-app dialog asks where, and whether with the results or the settings only. */
+    private final Button saveButton = new Button("Save…");
+    static final javafx.scene.input.KeyCombination SAVE_KEY = javafx.scene.input.KeyCombination.keyCombination("Shortcut+S");
     private final Button htmlButton = new Button("Export HTML…");
     private Path reportFile;
 
@@ -87,6 +88,12 @@ class SchemaCompareTab extends Tab {
         schemaTarget = new CompareSide("Target", false, connections, sessions, schemaStatus::setText);
         CompareSide.pair(schemaSource, schemaTarget);
         setContent(schemaPage());
+        getContent().addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, e -> {
+            if (SAVE_KEY.match(e)) {
+                e.consume();
+                save();
+            }
+        });
         if (initial != null) schemaSource.connection.setValue(initial);
     }
 
@@ -126,13 +133,8 @@ class SchemaCompareTab extends Tab {
         // a different schema means a different list of tables
         schemaSource.schema.valueProperty().addListener((o, a, b) -> resetPickedTables());
         schemaTarget.schema.valueProperty().addListener((o, a, b) -> resetPickedTables());
-        saveButton.setText("Save settings…");
-        saveButton.setTooltip(new Tooltip("Save this compare's settings: opening the file compares again with them"));
-        saveButton.setOnAction(e -> saveSettings());
-        javafx.scene.control.MenuItem withResults = new javafx.scene.control.MenuItem("Save settings and results…");
-        withResults.setOnAction(e -> saveReport());
-        withResults.disableProperty().bind(javafx.beans.binding.Bindings.isEmpty(diffs));
-        saveButton.getItems().add(withResults);
+        saveButton.setTooltip(new Tooltip("Save this compare (Ctrl+S): with its results or its settings only"));
+        saveButton.setOnAction(e -> save());
         htmlButton.setOnAction(e -> exportHtml());
         htmlButton.setTooltip(new Tooltip("A page with the summary and the differences, to share with people who do not use DBAdmin"));
         htmlButton.disableProperty().bind(javafx.beans.binding.Bindings.isEmpty(diffs));
@@ -167,26 +169,41 @@ class SchemaCompareTab extends Tab {
         }
     }
 
-    private void saveSettings() {
-        if (!schemaSource.ready() || !schemaTarget.ready()) {
+    /** Save… (Ctrl+S): where, and whether with the results (the default when there are some) or the settings only. */
+    void save() {
+        boolean hasResults = !diffs.isEmpty();
+        boolean hasSettings = schemaSource.ready() && schemaTarget.ready();
+        if (!hasResults && !hasSettings) {
             schemaStatus.setText("Pick a connection and schema on both sides first.");
             return;
         }
-        SchemaCompareReport r = SchemaCompareReport.of(List.of(), schemaSource.label(), schemaTarget.label(), "v" + AppFooter.version());
-        r.settingsOnly = true;
-        r.sourceConnection = schemaSource.connection.getValue().getName();
-        r.sourceSchema = schemaSource.schemaLabel();
-        r.targetConnection = schemaTarget.connection.getValue().getName();
-        r.targetSchema = schemaTarget.schemaLabel();
-        r.pickedTables = List.copyOf(pickedTables);
-        Path file = CompareReportChooser.saveReport(getTabPane().getScene().getWindow(), reportFile,
-                CompareReportChooser.defaultName("TableCompare", schemaSource.label(), schemaTarget.label()));
-        if (file == null) return;
+        CompareReportChooser.SaveChoice choice = CompareReportChooser.saveCompare(getTabPane().getScene().getWindow(), reportFile,
+                CompareReportChooser.defaultName("TableCompare", hasResults ? sourceName : schemaSource.label(),
+                        hasResults ? targetName : schemaTarget.label()), hasResults, hasSettings);
+        if (choice == null) return;
+        SchemaCompareReport r;
+        if (choice.withResults()) {
+            r = report();
+        } else {
+            r = SchemaCompareReport.of(List.of(), schemaSource.label(), schemaTarget.label(), "v" + AppFooter.version());
+            r.settingsOnly = true;
+            r.sourceConnection = schemaSource.connection.getValue().getName();
+            r.sourceSchema = schemaSource.schemaLabel();
+            r.targetConnection = schemaTarget.connection.getValue().getName();
+            r.targetSchema = schemaTarget.schemaLabel();
+            r.pickedTables = List.copyOf(pickedTables);
+        }
         try {
-            CompareReportFiles.save(file, r);
-            schemaStatus.setText("Settings saved as " + file + " · opening it compares again");
+            CompareReportFiles.save(choice.file(), r);
+            if (choice.withResults()) {
+                reportFile = choice.file();
+                setText("Table Compare: " + choice.file().getFileName());
+                schemaStatus.setText(summary() + " · saved as " + choice.file());
+            } else {
+                schemaStatus.setText("Settings saved as " + choice.file() + " · opening it compares again");
+            }
         } catch (IOException e) {
-            schemaStatus.setText("Could not save the settings: " + e.getMessage());
+            schemaStatus.setText("Could not save: " + e.getMessage());
         }
     }
 
@@ -298,20 +315,6 @@ class SchemaCompareTab extends Tab {
         r.targetSchema = schemaTarget.schemaLabel();
         r.pickedTables = List.copyOf(pickedTables);
         return r;
-    }
-
-    private void saveReport() {
-        Path file = CompareReportChooser.saveReport(getTabPane().getScene().getWindow(), reportFile,
-                CompareReportChooser.defaultName("TableCompare", sourceName, targetName));
-        if (file == null) return;
-        try {
-            CompareReportFiles.save(file, report());
-            reportFile = file;
-            setText("Table Compare: " + file.getFileName());
-            schemaStatus.setText(summary() + " · saved as " + file);
-        } catch (IOException e) {
-            schemaStatus.setText("Could not save the report: " + e.getMessage());
-        }
     }
 
     private void exportHtml() {

@@ -63,6 +63,7 @@ public final class CompareHtml {
                     r.joins.stream().map(KeyJoins::describe).toList()));
         }
         meta(h, "Compared columns", r.comparedColumns.isEmpty() ? "none (only which keys exist)" : String.join(", ", r.comparedColumns));
+        if (r.oneToMany) meta(h, "Rows per key", "several (one-to-many): matched by the compared columns");
         if (r.where != null && !r.where.isBlank()) meta(h, "Where", r.where);
         meta(h, "Rows", r.sourceRows + " in source · " + r.targetRows + " in target");
         h.append("</table>");

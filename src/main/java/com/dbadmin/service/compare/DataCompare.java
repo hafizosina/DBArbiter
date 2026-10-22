@@ -50,6 +50,16 @@ public final class DataCompare {
      */
     public static Result compare(TableData source, TableData target, List<String> keyColumns,
                                  List<String> compareColumns, List<String> showColumns, int maxRows) {
+        return compare(source, target, keyColumns, compareColumns, showColumns, maxRows, false);
+    }
+
+    /**
+     * @param oneToMany a key may have several rows on a side (e.g. the images of a product): a key's rows are
+     *                  matched by their compared values, each one listed as MATCH, ONLY_SOURCE (new: to add) or
+     *                  ONLY_TARGET (old: to remove), instead of the key being reported as a duplicate
+     */
+    public static Result compare(TableData source, TableData target, List<String> keyColumns,
+                                 List<String> compareColumns, List<String> showColumns, int maxRows, boolean oneToMany) {
         for (String k : keyColumns) {
             if (index(source, k) < 0 || index(target, k) < 0) {
                 throw new IllegalArgumentException("Key column \"" + k + "\" is not in both tables");
@@ -82,6 +92,12 @@ public final class DataCompare {
             List<List<Object>> dstRows = dst.remove(e.getKey());
             if (dstRows == null) {
                 onlySource += srcRows.size();
+                if (oneToMany) {
+                    for (List<Object> row : srcRows) {
+                        add(diffs, maxRows, new RowDiff(RowStatus.ONLY_SOURCE, e.getKey(), "", pick(row, srcShown), null, row));
+                    }
+                    continue;
+                }
                 if (srcRows.size() > 1) duplicateKeys++;
                 add(diffs, maxRows, new RowDiff(RowStatus.ONLY_SOURCE, e.getKey(),
                         srcRows.size() > 1 ? srcRows.size() + " rows with this key" : "", pick(srcRows.get(0), srcShown), null,
@@ -106,6 +122,27 @@ public final class DataCompare {
                 }
                 continue;
             }
+            if (oneToMany) {
+                // each row of the key: the same on both sides (compared values), new in the source, or only in the target
+                List<List<Object>> leftTarget = new ArrayList<>(dstRows);
+                for (List<Object> row : srcRows) {
+                    String sig = signature(row, srcCols);
+                    List<Object> twin = leftTarget.stream().filter(t -> signature(t, dstCols).equals(sig)).findFirst().orElse(null);
+                    if (twin != null) {
+                        leftTarget.remove(twin);
+                        same++;
+                        add(diffs, maxRows, new RowDiff(RowStatus.MATCH, e.getKey(), "", pick(row, srcShown), pick(twin, dstShown), row));
+                    } else {
+                        onlySource++;
+                        add(diffs, maxRows, new RowDiff(RowStatus.ONLY_SOURCE, e.getKey(), "", pick(row, srcShown), null, row));
+                    }
+                }
+                for (List<Object> row : leftTarget) {
+                    onlyTarget++;
+                    add(diffs, maxRows, new RowDiff(RowStatus.ONLY_TARGET, e.getKey(), "", null, pick(row, dstShown), null));
+                }
+                continue;
+            }
             // duplicate key: pair up rows with identical compared values; what is left over differs
             duplicateKeys++;
             List<String> unmatched = new ArrayList<>();
@@ -127,6 +164,12 @@ public final class DataCompare {
         }
         for (Map.Entry<String, List<List<Object>>> e : dst.entrySet()) {
             onlyTarget += e.getValue().size();
+            if (oneToMany) {
+                for (List<Object> row : e.getValue()) {
+                    add(diffs, maxRows, new RowDiff(RowStatus.ONLY_TARGET, e.getKey(), "", null, pick(row, dstShown), null));
+                }
+                continue;
+            }
             if (e.getValue().size() > 1) duplicateKeys++;
             add(diffs, maxRows, new RowDiff(RowStatus.ONLY_TARGET, e.getKey(),
                     e.getValue().size() > 1 ? e.getValue().size() + " rows with this key" : "", null,

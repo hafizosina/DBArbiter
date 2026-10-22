@@ -67,6 +67,15 @@ class LineDiffTest {
     }
 
     @Test
+    void windowsLineEndsShowAsAChange() {
+        List<Line> d = LineDiff.diff("Nusantara'.\r\n\r\n'Indonesian", "Nusantara'.\n\n'Indonesian", false);
+        assertEquals(List.of("-Nusantara'.␍", "-␍", "+Nusantara'.", "+", " 'Indonesian"), show(d));
+        assertEquals("␍", marked(d.get(0)));
+        // ignored with the rest of the whitespace (the SQL diff)
+        assertEquals(List.of(" a", " b"), show(LineDiff.diff("a\r\nb", "a\nb", true)));
+    }
+
+    @Test
     void whitespaceCanBeIgnored() {
         assertEquals(List.of(" select  *", " from t"), show(LineDiff.diff("select  *\nfrom t", "select *\n  from t", true)));
         assertTrue(show(LineDiff.diff("select  *", "select *", false)).contains("-select  *"));

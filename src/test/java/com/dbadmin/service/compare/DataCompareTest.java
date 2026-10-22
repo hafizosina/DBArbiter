@@ -123,4 +123,27 @@ class DataCompareTest {
         assertThrows(IllegalArgumentException.class, () -> compare(
                 table(List.of("id")), table(List.of("code")), List.of()));
     }
+
+    /** A tier code with several images: matched image by image, new ones to add and old ones to remove. */
+    @Test
+    void oneToManyMatchesTheRowsOfAKey() {
+        List<String> cols = List.of("code", "image_path");
+        Result r = DataCompare.compare(
+                table(cols, new Object[]{"A02", "x.jpg"}, new Object[]{"A02", "y.jpg"}, new Object[]{"A05", "p.jpg"}, new Object[]{"A05", "q.jpg"}),
+                table(cols, new Object[]{"A02", "y.jpg"}, new Object[]{"A02", "z.jpg"}, new Object[]{"A09", "old.jpg"}),
+                List.of("code"), List.of("image_path"), List.of(), 100, true);
+        List<String> rows = r.rows().stream().map(d -> d.status() + " " + d.key() + " "
+                + (d.sourceValues() != null ? d.sourceValues().get(1) : d.targetValues().get(1))).toList();
+        assertEquals(List.of("ONLY_SOURCE A02 x.jpg", "MATCH A02 y.jpg", "ONLY_TARGET A02 z.jpg",
+                "ONLY_SOURCE A05 p.jpg", "ONLY_SOURCE A05 q.jpg", "ONLY_TARGET A09 old.jpg"), rows);
+        assertEquals(1, r.same());
+        assertEquals(3, r.onlySource());
+        assertEquals(2, r.onlyTarget());
+        assertEquals(0, r.duplicateKeys());
+        // without the mode, the same keys are duplicates
+        assertEquals(2, DataCompare.compare(
+                table(cols, new Object[]{"A02", "x.jpg"}, new Object[]{"A02", "y.jpg"}, new Object[]{"A05", "p.jpg"}, new Object[]{"A05", "q.jpg"}),
+                table(cols, new Object[]{"A02", "y.jpg"}, new Object[]{"A02", "z.jpg"}), List.of("code"), List.of("image_path"), List.of(), 100)
+                .duplicateKeys());
+    }
 }

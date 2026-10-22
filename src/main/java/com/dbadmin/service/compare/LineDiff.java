@@ -33,11 +33,16 @@ public final class LineDiff {
 
     /** The diff of {@code a} (source) and {@code b} (target), with unchanged runs folded. */
     public static List<Line> diff(String a, String b, boolean ignoreSpace) {
-        return fold(lines(lines(a), lines(b), ignoreSpace), CONTEXT);
+        return fold(lines(lines(a, ignoreSpace), lines(b, ignoreSpace), ignoreSpace), CONTEXT);
     }
 
-    static List<String> lines(String s) {
-        return s == null ? List.of() : List.of(s.split("\\R", -1));
+    /** Shown for a carriage return, so a Windows line end (CRLF) differs visibly from a plain one (LF). */
+    public static final char CR = '␍';
+
+    /** The lines of a text (none for null); a carriage return is kept as {@link #CR}, unless whitespace is ignored. */
+    static List<String> lines(String s, boolean ignoreSpace) {
+        if (s == null) return List.of();
+        return ignoreSpace ? List.of(s.split("\\R", -1)) : List.of(s.replace('\r', CR).split("\n", -1));
     }
 
     /** Longest-common-subsequence line diff, with word changes marked in each removed / added pair. */

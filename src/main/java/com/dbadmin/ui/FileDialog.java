@@ -54,6 +54,9 @@ class FileDialog extends Dialog<Path> {
     private final TextField fileName = new TextField();
     private final Label message = new Label();
     private final Button up = new Button("↑");
+    private final VBox content;
+    /** The file accepted by the OK button: checked (and Replace asked) once, then returned. */
+    private Path chosen;
     private Path dir;
 
     /**
@@ -113,7 +116,7 @@ class FileDialog extends Dialog<Path> {
         nameRow.setAlignment(Pos.CENTER_LEFT);
         message.getStyleClass().add("error-text-inline");
 
-        VBox content = new VBox(8, navBar, entries, nameRow, message);
+        content = new VBox(8, navBar, entries, nameRow, message);
         content.setPadding(new Insets(10));
         VBox.setVgrow(entries, Priority.ALWAYS);
         getDialogPane().setContent(content);
@@ -123,9 +126,10 @@ class FileDialog extends Dialog<Path> {
         Node okButton = getDialogPane().lookupButton(ok);
         if (mode == Mode.OPEN) okButton.disableProperty().bind(fileName.textProperty().isEmpty());
         okButton.addEventFilter(javafx.event.ActionEvent.ACTION, e -> {
-            if (chosenFile() == null) e.consume();
+            chosen = chosenFile();
+            if (chosen == null) e.consume();
         });
-        setResultConverter(b -> b == ok ? chosenFile() : null);
+        setResultConverter(b -> b == ok ? chosen : null);
 
         if (suggestedName != null) fileName.setText(suggestedName);
         navigate(startDir != null && Files.isDirectory(startDir) ? startDir : homeDir);
@@ -140,6 +144,11 @@ class FileDialog extends Dialog<Path> {
             int dot = name.toLowerCase(Locale.ROOT).lastIndexOf(this.extension);
             fileName.selectRange(0, dot > 0 ? dot : name.length());
         });
+    }
+
+    /** Adds a row of options under the file name (e.g. what to save). */
+    void addOptions(Node options) {
+        content.getChildren().add(content.getChildren().size() - 1, options);
     }
 
     /** Opening: the selected file (double-click, Enter) closes the dialog with it. */

@@ -25,9 +25,34 @@ final class CompareReportChooser {
         return ScriptFolder.safe(what + "-" + source + "-vs-" + target + "-" + STAMP.format(LocalDateTime.now()));
     }
 
-    /** Asks where to save a report; null if cancelled. */
-    static Path saveReport(Window owner, Path current, String name) {
-        return save(owner, current, name, CompareReportFiles.EXTENSION, "Save Compare", "compare files");
+    /** Where to save a compare, and whether with its results (rows, verdicts) or only its settings. */
+    record SaveChoice(Path file, boolean withResults) {
+    }
+
+    /**
+     * The Save dialog of a compare, with the choice of what to save: the settings and results (the default when
+     * there are results) or the settings only (opening such a file compares again). Null if cancelled.
+     */
+    static SaveChoice saveCompare(Window owner, Path current, String name, boolean hasResults, boolean hasSettings) {
+        Path home = reportDir();
+        Path start = current != null && current.getParent() != null ? current.getParent() : home;
+        // a compare opened from (or saved to) a file: its own name first
+        String suggested = current != null ? current.getFileName().toString() : name + CompareReportFiles.EXTENSION;
+        FileDialog dialog = new FileDialog(owner, FileDialog.Mode.SAVE, "Save Compare", home, "Reports", start,
+                CompareReportFiles.EXTENSION, "compare files", suggested);
+        javafx.scene.control.ToggleGroup what = new javafx.scene.control.ToggleGroup();
+        javafx.scene.control.RadioButton results = new javafx.scene.control.RadioButton("Settings and results (rows and verdicts, as they are now)");
+        javafx.scene.control.RadioButton settings = new javafx.scene.control.RadioButton("Settings only (opening the file compares again)");
+        results.setToggleGroup(what);
+        settings.setToggleGroup(what);
+        results.setDisable(!hasResults);
+        settings.setDisable(!hasSettings);
+        (hasResults ? results : settings).setSelected(true);
+        javafx.scene.layout.HBox row = new javafx.scene.layout.HBox(12, new javafx.scene.control.Label("Save:"),
+                new javafx.scene.layout.VBox(4, results, settings));
+        dialog.addOptions(row);
+        Path file = InAppDialogs.showAndWait(dialog).orElse(null);
+        return file == null ? null : new SaveChoice(file, results.isSelected());
     }
 
     /** Asks where to save the HTML version; null if cancelled. */
