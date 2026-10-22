@@ -134,6 +134,11 @@ final class Metadata {
         return result;
     }
 
+    /** The columns exactly as defined, for editing them (see {@link ColumnSpec}). */
+    public List<ColumnSpec> columnSpecs(TableRef t) throws SQLException {
+        return dialect.columns(this, t);
+    }
+
     /** Columns the database fills itself on insert: serial / identity / auto-increment, or a nextval default. */
     public Set<String> generatedColumns(TableRef t) throws SQLException {
         Set<String> result = new HashSet<>();

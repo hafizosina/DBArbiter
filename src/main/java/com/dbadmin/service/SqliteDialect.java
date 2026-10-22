@@ -100,4 +100,17 @@ final class SqliteDialect implements Dialect {
         }
         return result;
     }
+
+    /** From pragma_table_xinfo: the declared type, NOT NULL, the default as written; hidden columns are generated ones. */
+    @Override
+    public List<ColumnSpec> columns(Metadata m, TableRef t) throws SQLException {
+        List<ColumnSpec> result = new ArrayList<>();
+        for (List<Object> r : m.query("select name, type, \"notnull\", coalesce(dflt_value, ''), hidden from pragma_table_xinfo(?) order by cid",
+                t.name())) {
+            String def = String.valueOf(r.get(3));
+            result.add(new ColumnSpec(String.valueOf(r.get(0)), String.valueOf(r.get(1)), !"1".equals(String.valueOf(r.get(2))),
+                    def.isEmpty() ? null : def, "", "", "", !"0".equals(String.valueOf(r.get(4)))));
+        }
+        return result;
+    }
 }

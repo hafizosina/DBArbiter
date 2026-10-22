@@ -6,4 +6,5 @@
 4. [x] in connection settings if read only un checked. there new check box that active. warning level (0. no warning at all 1. only truly  widely danger query get warning. 2. less danger query get warning, 3. even insert get warning), this user full if user accidenly select prod connection and run some query. even insert and update query can be danger in prod. (this query event count change data in tabel view panel)
    - done: "Warn before" in the connection form (0 nothing, 1 drop / truncate / update or delete without WHERE, 2 any change, 3 inserts too; old connections get 1). Scripts and the table query box ask before running, naming the connection; Cancel is the default. Saving table edits and importing already ask every time, with the SQL.
 5. depend on warning level. right click table give options to drop table. reset table
-6. 
+6. in table detail tab: add, delete and alter columns; the same for constraints, indexes and foreign keys. (changes the schema, so it goes through the warning level of #4)
+7. 

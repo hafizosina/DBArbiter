@@ -40,6 +40,9 @@ interface Dialect {
      */
     List<List<Object>> constraints(Metadata m, TableRef t) throws SQLException;
 
+    /** The table's columns in order, exactly as defined (see {@link ColumnSpec}), for editing them. */
+    List<ColumnSpec> columns(Metadata m, TableRef t) throws SQLException;
+
     /** Triggers as rows of (name, timing, event, level, definition). */
     List<List<Object>> triggers(Metadata m, TableRef t) throws SQLException;
 }

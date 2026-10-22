@@ -79,4 +79,35 @@ final class MySqlDialect implements Dialect {
                 order by TRIGGER_NAME
                 """, t.catalog(), t.name());
     }
+
+    /**
+     * From information_schema.COLUMNS: COLUMN_TYPE is the full type (enum values, unsigned, display width). A default
+     * becomes an SQL expression: MySQL lists a literal unquoted and an expression (DEFAULT_GENERATED) as written;
+     * MariaDB lists literals quoted already and a NULL default as NULL.
+     */
+    @Override
+    public List<ColumnSpec> columns(Metadata m, TableRef t) throws SQLException {
+        boolean maria = m.connection().getMetaData().getDatabaseProductVersion().contains("MariaDB");
+        List<ColumnSpec> result = new ArrayList<>();
+        for (List<Object> r : m.query("""
+                select COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, case when COLUMN_DEFAULT is null then 'NO' else 'YES' end,
+                       coalesce(COLUMN_DEFAULT, ''), EXTRA, COLUMN_COMMENT, coalesce(COLLATION_NAME, '')
+                from information_schema.COLUMNS
+                where TABLE_SCHEMA = ? and TABLE_NAME = ?
+                order by ORDINAL_POSITION
+                """, t.catalog(), t.name())) {
+            String extra = String.valueOf(r.get(5));
+            String raw = String.valueOf(r.get(4));
+            String def = null;
+            if ("YES".equals(r.get(3)) && !(maria && raw.equalsIgnoreCase("NULL"))) {
+                if (maria || raw.matches("b'[01]*'")) def = raw; // a bit value is listed as b'…'
+                else if (!extra.contains("DEFAULT_GENERATED")) def = "'" + raw.replace("\\", "\\\\").replace("'", "''") + "'";
+                else def = raw.toUpperCase().startsWith("CURRENT_TIMESTAMP") ? raw : "(" + raw + ")";
+            }
+            boolean generated = extra.contains("VIRTUAL GENERATED") || extra.contains("STORED GENERATED");
+            result.add(new ColumnSpec(String.valueOf(r.get(0)), String.valueOf(r.get(1)), "YES".equals(r.get(2)), def,
+                    String.valueOf(r.get(6)), extra.replace("DEFAULT_GENERATED", "").strip(), String.valueOf(r.get(7)), generated));
+        }
+        return result;
+    }
 }

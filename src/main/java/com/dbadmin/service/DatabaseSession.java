@@ -212,6 +212,11 @@ public class DatabaseSession implements AutoCloseable {
         return metadata.generatedColumns(t);
     }
 
+    /** The columns exactly as defined, for editing them (see {@link ColumnSpec}). */
+    public List<ColumnSpec> columnSpecs(TableRef t) throws SQLException {
+        return metadata.columnSpecs(t);
+    }
+
     public List<String> primaryKey(TableRef t) throws SQLException {
         return metadata.primaryKey(t);
     }
@@ -336,6 +341,38 @@ public class DatabaseSession implements AutoCloseable {
             if (b.isTruncated()) throw new SQLException("A binary value of " + b.length() + " bytes is too large to copy here.");
             ps.setBytes(i, b.head());
         } else ps.setString(i, v.toString());
+    }
+
+    /**
+     * Runs schema changes (see {@link SchemaChange}) in order. PostgreSQL and SQLite run them in one transaction, so a
+     * failure changes nothing; MySQL commits each one at once, so the message says which ones were already made.
+     */
+    public void applySchemaChange(List<String> statements) throws SQLException {
+        boolean transactional = config.getType() != DbType.MYSQL;
+        boolean autoCommit = connection.getAutoCommit();
+        statementSent = true;
+        if (transactional) connection.setAutoCommit(false);
+        try {
+            for (int i = 0; i < statements.size(); i++) {
+                try (Statement st = connection.createStatement()) {
+                    running = st;
+                    st.execute(statements.get(i));
+                } catch (SQLException e) {
+                    String done = transactional || i == 0 ? " Nothing was changed."
+                            : " MySQL makes each schema change at once: the " + i + " statement(s) before it were made.";
+                    throw new SQLException((statements.size() > 1 ? "Statement " + (i + 1) + " of " + statements.size() + ": " : "")
+                            + e.getMessage() + done, e);
+                } finally {
+                    running = null;
+                }
+            }
+            if (transactional) connection.commit();
+        } catch (SQLException | RuntimeException e) {
+            if (transactional) connection.rollback();
+            throw e;
+        } finally {
+            if (transactional) connection.setAutoCommit(autoCommit);
+        }
     }
 
     public String viewDefinition(TableRef t) throws SQLException {
