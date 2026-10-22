@@ -41,6 +41,8 @@
 .form-scroll, .form-scroll > .viewport { -fx-background-color: -fx-background; }
 .default-look { -fx-base: #3d7bd9; -fx-text-fill: white; }
 .binding-warning { -fx-text-fill: #e65100; -fx-font-weight: bold; }
+/* blinks on the script's connection box when Run is pressed without a connection */
+.combo-box.attention { -fx-effect: dropshadow(gaussian, #e65100, 10, 0.6, 0, 0); }
 
 /* table Properties: vertical section list */
 .section-nav { -fx-background-color: #f5f5f5; -fx-border-color: transparent #d0d0d0 transparent transparent; }

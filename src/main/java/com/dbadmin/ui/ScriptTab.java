@@ -5,6 +5,8 @@ import com.dbadmin.model.StatementResult;
 import com.dbadmin.service.DatabaseSession;
 import com.dbadmin.service.ScriptBindings;
 import com.dbadmin.service.ScriptFolder;
+import javafx.animation.KeyFrame;
+import javafx.animation.Timeline;
 import javafx.beans.property.ReadOnlyBooleanProperty;
 import javafx.collections.ListChangeListener;
 import javafx.collections.ObservableList;
@@ -26,6 +28,7 @@ import javafx.scene.control.Tooltip;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.BorderPane;
 import javafx.stage.Window;
+import javafx.util.Duration;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -47,6 +50,7 @@ class ScriptTab extends Tab {
     private String boundId;
     private final Label bindingWarning = new Label();
     private final ComboBox<ConnectionConfig> connection = new ComboBox<>();
+    private Timeline flash;
     /** The same editor and runner as a table's query box; this tab adds saving and results tabs. */
     private final SqlEditor editor;
     private final ScriptRunner runner;
@@ -167,6 +171,22 @@ class ScriptTab extends Tab {
         return InAppDialogs.showAndWait(alert).orElse(ButtonType.CANCEL) == runAnyway;
     }
 
+    /** Blinks the connection box a few times to point at it (run without a connection). */
+    private void flashConnection() {
+        if (flash != null) flash.stop();
+        connection.getStyleClass().remove("attention");
+        flash = new Timeline();
+        for (int i = 0; i < 6; i++) {
+            boolean on = i % 2 == 0;
+            flash.getKeyFrames().add(new KeyFrame(Duration.millis(i * 250), e -> {
+                if (on) connection.getStyleClass().add("attention");
+                else connection.getStyleClass().remove("attention");
+            }));
+        }
+        flash.setOnFinished(e -> connection.getStyleClass().remove("attention"));
+        flash.play();
+    }
+
     private static void showMode(Label mode, ConnectionConfig c) {
         mode.setText(c == null ? "" : c.isReadOnly() ? "read-only" : "read-write");
         mode.getStyleClass().setAll("label", c != null && !c.isReadOnly() ? "mode-write" : "hint-small");
@@ -216,7 +236,9 @@ class ScriptTab extends Tab {
         if (!confirmDiscardResultEdits()) return;
         ConnectionConfig config = connection.getValue();
         if (config == null) {
-            log("Select a connection first.");
+            results.getSelectionModel().select(messagesTab);
+            log("Please select a connection first.");
+            flashConnection();
             return;
         }
         if (runner.runningProperty().get()) return;

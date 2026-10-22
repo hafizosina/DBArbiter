@@ -29,10 +29,13 @@ import javafx.scene.control.TabPane;
 import javafx.scene.control.TreeCell;
 import javafx.scene.control.TreeItem;
 import javafx.scene.control.TreeView;
+import javafx.scene.input.DragEvent;
+import javafx.scene.input.Dragboard;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyCombination;
 import javafx.scene.input.KeyEvent;
 import javafx.scene.input.MouseButton;
+import javafx.scene.input.TransferMode;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.StackPane;
@@ -156,6 +159,7 @@ public class MainWindow implements SessionProvider {
         });
         root.setCenter(split);
         root.setBottom(status);
+        installScriptDrop();
         updateMenuItems();
         updateScriptItems();
     }
@@ -264,7 +268,7 @@ public class MainWindow implements SessionProvider {
 
         MenuItem newScript = new MenuItem("New Script");
         newScript.setAccelerator(KeyCombination.keyCombination("Shortcut+Shift+N"));
-        newScript.setOnAction(e -> newScript());
+        newScript.setOnAction(e -> newScript(null)); // no connection until the user picks one
         MenuItem openScript = new MenuItem("Open Script…");
         openScript.setAccelerator(KeyCombination.keyCombination("Shortcut+O"));
         openScript.setOnAction(e -> openScript());
@@ -302,7 +306,7 @@ public class MainWindow implements SessionProvider {
         reconnect.setOnAction(e -> selectedConnection().ifPresent(this::reconnect));
         // scripts for the right-clicked connection (the tree selects the row on right-click)
         MenuItem newScript = new MenuItem("New Script");
-        newScript.setOnAction(e -> newScript());
+        newScript.setOnAction(e -> newScript(selectedConnection().orElse(null)));
         MenuItem openScript = new MenuItem("Open Script…");
         openScript.setOnAction(e -> openScript());
         MenuItem openLastScript = new MenuItem("Open Last Script");
@@ -584,8 +588,8 @@ public class MainWindow implements SessionProvider {
 
     // ---- scripts ---------------------------------------------------------
 
-    private void newScript() {
-        ConnectionConfig c = defaultConnection();
+    /** A new empty script for the given connection, or with no connection chosen yet (null). */
+    private void newScript(ConnectionConfig c) {
         List<String> open = tabs.getTabs().stream()
                 .filter(t -> t instanceof ScriptTab).map(t -> ((ScriptTab) t).displayName()).toList();
         // "Untitled-n" until saved; the Save dialog suggests the file name for the connection
@@ -643,6 +647,35 @@ public class MainWindow implements SessionProvider {
         }
     }
 
+    /**
+     * Opens .sql files dropped anywhere on the window. Filters, so a drop on the editor opens the file
+     * instead of pasting its path; other drags (text) are left alone.
+     */
+    private void installScriptDrop() {
+        root.addEventFilter(DragEvent.DRAG_OVER, e -> {
+            if (!sqlFiles(e.getDragboard()).isEmpty()) {
+                e.acceptTransferModes(TransferMode.COPY);
+                e.consume();
+            }
+        });
+        root.addEventFilter(DragEvent.DRAG_DROPPED, e -> {
+            List<Path> files = sqlFiles(e.getDragboard());
+            if (files.isEmpty()) return;
+            e.setDropCompleted(true);
+            e.consume();
+            // after the drop returns, so the file manager is not held by an error dialog
+            Platform.runLater(() -> openScripts(files));
+        });
+    }
+
+    private static List<Path> sqlFiles(Dragboard board) {
+        if (!board.hasFiles()) return List.of();
+        return board.getFiles().stream()
+                .filter(f -> f.isFile() && f.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".sql"))
+                .map(f -> f.toPath().toAbsolutePath().normalize())
+                .toList();
+    }
+
     /** The default script folder, or null if it cannot be created. */
     private Path scriptDir() {
         try {
@@ -658,11 +691,6 @@ public class MainWindow implements SessionProvider {
         tabs.getTabs().add(tab);
         tabs.getSelectionModel().select(tab);
         tab.focusEditor(); // waits until the tab's editor is on screen (else focus stays e.g. in the search box)
-    }
-
-    /** The connection selected in the tree, or the only/first one. */
-    private ConnectionConfig defaultConnection() {
-        return selectedConnection().orElse(connections.isEmpty() ? null : connections.get(0));
     }
 
     private Optional<ScriptTab> currentScript() {

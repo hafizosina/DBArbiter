@@ -14,6 +14,7 @@
 .hint, .hint-small, .completion-detail, .null-value { -fx-text-fill: #8a8f96; }
 .error-text, .error-text-inline, .find-none { -fx-text-fill: #ff7b72; }
 .mode-write, .binding-warning { -fx-text-fill: #ffb74d; }
+.combo-box.attention { -fx-effect: dropshadow(gaussian, #ffb74d, 10, 0.6, 0, 0); }
 .param-name { -fx-text-fill: #f48fb1; }
 .nav-icon { -fx-text-fill: #8fa4b8; }
 .nav-icon.table, .table-header-icon.table { -fx-text-fill: #6aa9ff; }
