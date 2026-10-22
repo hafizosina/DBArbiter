@@ -25,6 +25,7 @@ import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 
 import java.util.HashSet;
+import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -68,12 +69,21 @@ class TableTab extends Tab implements UnsavedWork {
     /** The query whose rows the grid shows (custom mode), when it can be exported: one plain SELECT without parameters. */
     private String exportableQuery;
     private final TableTransfer.Host transferHost;
+    private final SqlCompleter completer;
+    private final StructureEditing structure;
+    /** The Properties section shown now (or DDL). */
+    private String currentSection;
+    private final Button addItem = new Button("Add…");
+    private final Button editItem = new Button("Edit…");
+    private final Button dropItem = new Button("Drop");
 
     TableTab(DatabaseSession session, TableRef table, SessionProvider sessions, SqlCompleter completer, TableTransfer.Host transferHost) {
         super(table.name());
         this.session = session;
         this.table = table;
         this.transferHost = transferHost;
+        this.completer = completer;
+        this.structure = new StructureEditing(session, table, this::structureChanged);
         this.queryEditor = new SqlEditor(completer, sessions, session::getConfig, this::runStatement);
         this.runner = new ScriptRunner(sessions, completer);
         setOnSelectionChanged(e -> queryEditor.hidePopup());
@@ -163,7 +173,27 @@ class TableTab extends Tab implements UnsavedWork {
             javafx.scene.input.Clipboard.getSystemClipboard().setContent(c);
         });
         ddlCopy.setVisible(false);
-        HBox bar = new HBox(8, refresh, ddlCopy);
+        ddlCopy.managedProperty().bind(ddlCopy.visibleProperty()); // no gap where it is hidden
+        String notEditable = structure.notEditable();
+        addItem.setOnAction(e -> structureAction(StructureAction.ADD));
+        editItem.setOnAction(e -> structureAction(StructureAction.EDIT));
+        dropItem.setOnAction(e -> structureAction(StructureAction.DROP));
+        for (Button b : List.of(addItem, editItem, dropItem)) {
+            b.managedProperty().bind(b.visibleProperty());
+            if (notEditable != null) b.setTooltip(new Tooltip(notEditable));
+        }
+        for (Map.Entry<String, Section> s : sections.entrySet()) {
+            if (!StructureEditing.SECTIONS.contains(s.getKey()) || notEditable != null) continue;
+            DataGrid grid = s.getValue().grid();
+            grid.setContextMenu(structureMenu());
+            grid.setOnMouseClicked(e -> {
+                if (e.getClickCount() == 2 && e.getButton() == javafx.scene.input.MouseButton.PRIMARY && selectedStructureRow() != null) {
+                    structureAction(StructureAction.EDIT);
+                }
+            });
+            grid.getFocusModel().focusedIndexProperty().addListener((o, a, b) -> updateStructureButtons());
+        }
+        HBox bar = new HBox(8, refresh, ddlCopy, addItem, editItem, dropItem);
         bar.setPadding(new Insets(6));
         sectionContent.setTop(bar);
 
@@ -190,6 +220,8 @@ class TableTab extends Tab implements UnsavedWork {
         }
         sectionContent.setCenter(ddlPane);
         ddlCopy.setVisible(true);
+        currentSection = DDL;
+        updateStructureButtons();
         if (ddlLoaded && !reload) return;
         ddlLoaded = true;
         ddlArea.replaceText("-- loading…");
@@ -205,6 +237,8 @@ class TableTab extends Tab implements UnsavedWork {
         Section section = sections.get(name);
         sectionContent.setCenter(section.grid());
         ddlCopy.setVisible(false);
+        currentSection = name;
+        updateStructureButtons();
         if (!loadedSections.add(name) && !reload) return;
         section.grid().getItems().clear();
         section.grid().setPlaceholder(new Label("Loading…"));
@@ -216,6 +250,75 @@ class TableTab extends Tab implements UnsavedWork {
 
     String key() {
         return key(session, table);
+    }
+
+    // ---- changing the structure ----
+
+    private enum StructureAction { ADD, EDIT, DROP }
+
+    /** Add / Edit / Drop show on the sections whose structure can change; Edit and Drop need a row. */
+    private void updateStructureButtons() {
+        boolean shown = currentSection != null && StructureEditing.SECTIONS.contains(currentSection);
+        boolean editable = structure.notEditable() == null;
+        boolean row = selectedStructureRow() != null;
+        addItem.setVisible(shown);
+        editItem.setVisible(shown);
+        dropItem.setVisible(shown);
+        addItem.setDisable(!editable);
+        editItem.setDisable(!editable || !row);
+        dropItem.setDisable(!editable || !row);
+    }
+
+    private List<Object> selectedStructureRow() {
+        if (currentSection == null || !sections.containsKey(currentSection)) return null;
+        DataGrid grid = sections.get(currentSection).grid();
+        int i = grid.getFocusModel().getFocusedIndex();
+        return i >= 0 && i < grid.getItems().size() ? grid.getItems().get(i) : null;
+    }
+
+    private javafx.scene.control.ContextMenu structureMenu() {
+        javafx.scene.control.MenuItem add = new javafx.scene.control.MenuItem("Add…");
+        add.setOnAction(e -> structureAction(StructureAction.ADD));
+        javafx.scene.control.MenuItem edit = new javafx.scene.control.MenuItem("Edit…");
+        edit.setOnAction(e -> structureAction(StructureAction.EDIT));
+        javafx.scene.control.MenuItem drop = new javafx.scene.control.MenuItem("Drop");
+        drop.setOnAction(e -> structureAction(StructureAction.DROP));
+        javafx.scene.control.ContextMenu menu = new javafx.scene.control.ContextMenu(add, edit, drop);
+        menu.setOnShowing(e -> {
+            boolean row = selectedStructureRow() != null;
+            edit.setDisable(!row);
+            drop.setDisable(!row);
+        });
+        return menu;
+    }
+
+    private void structureAction(StructureAction action) {
+        if (structure.notEditable() != null || currentSection == null || !StructureEditing.SECTIONS.contains(currentSection)) return;
+        // the rows are read again after a change: unsaved edits would be lost
+        if (!dataView.confirmDiscard()) return;
+        javafx.stage.Window owner = getTabPane() == null ? null : getTabPane().getScene().getWindow();
+        List<Object> row = selectedStructureRow();
+        switch (action) {
+            case ADD -> structure.add(currentSection, owner);
+            case EDIT -> {
+                if (row != null) structure.edit(currentSection, row, owner);
+            }
+            case DROP -> {
+                if (row != null) structure.drop(currentSection, row, owner);
+            }
+        }
+    }
+
+    /** The structure changed: every section, the DDL, autocomplete and the rows are read again. */
+    private void structureChanged() {
+        completer.invalidate(session);
+        loadedSections.clear();
+        ddlLoaded = false;
+        if (currentSection != null && sections.containsKey(currentSection)) showSection(currentSection, true);
+        if (dataLoaded && !customMode) {
+            loadCount();
+            loadPage();
+        }
     }
 
     /** Rows were imported elsewhere: shows the table's rows again (a custom query result stays as it is). */

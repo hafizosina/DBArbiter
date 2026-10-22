@@ -46,7 +46,7 @@ public final class SchemaChange {
 
     /** The database cannot make this change; the message says why. */
     public static final class Unsupported extends RuntimeException {
-        Unsupported(String message) {
+        public Unsupported(String message) {
             super(message);
         }
     }

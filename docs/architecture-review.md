@@ -355,6 +355,17 @@ shares"), every one of them handles it, and the Data Compare's Where check passe
 of null (so a MySQL `#` comment there is read as one). A `DbType.GENERIC` constant was not added: it would also show up
 in the connection form's list of types.
 
+**New (2026-10-23, structure editing, todo #6):** the table tab can now add, change and drop columns, constraints,
+indexes and foreign keys. Reading a column exactly (`ColumnSpec`) is one more `Dialect` method per database, as it
+should be. Writing the DDL (`SchemaChange`) is one class with a `switch` on the database per kind of change, about a
+dozen branches; a fourth database means filling in each of them. Move them onto the `Dialect` when that day comes, or
+when `MigrationSql` gets its dialect, so both write SQL the same way. Two smaller gaps found on the way:
+- SQLite's JDBC driver does not say which index columns are DESC, so the Indexes section never showed it, and editing
+  such an index on SQLite (drop + create) would create it ascending. `pragma index_xinfo` has the order; read it in
+  `SqliteDialect` if this matters.
+- MariaDB lists column defaults differently from MySQL (quoted, NULL as text); `MySqlDialect.columns` handles it as
+  documented, but it was tried on MySQL 8.4 only.
+
 ### G6. Saved files have no format versions — partly fixed
 
 `.dbcompare` files carry `"version": 1`, but nothing reads it; `settings.json`, `connections.json` and
