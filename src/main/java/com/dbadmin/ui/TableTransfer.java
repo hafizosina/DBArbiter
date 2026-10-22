@@ -46,6 +46,14 @@ final class TableTransfer {
 
         /** Rows were imported into the table (open views of it reload). */
         void imported(DatabaseSession session, TableRef table);
+
+        /** An export or import started: {@code cancel} stops it (e.g. a Cancel button next to the status). */
+        default void running(Runnable cancel) {
+        }
+
+        /** The export or import ended (done, failed or cancelled). */
+        default void stopped() {
+        }
     }
 
     private static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmm");
@@ -69,7 +77,7 @@ final class TableTransfer {
             lastDir = file.getParentFile();
             Path path = file.toPath();
             host.status("Exporting " + table.name() + "…");
-            inJob(session, s -> {
+            inJob(session, host, s -> {
                 String sql = choice.currentQuery() ? currentQuery : "SELECT * FROM " + s.qualifiedName(table);
                 try (OutputStream out = new BufferedOutputStream(Files.newOutputStream(path))) {
                     Writer text = new BufferedWriter(new OutputStreamWriter(out, StandardCharsets.UTF_8));
@@ -93,6 +101,10 @@ final class TableTransfer {
                         try {
                             Files.deleteIfExists(path); // no half-written file
                         } catch (java.io.IOException ignored) {
+                        }
+                        if (ex instanceof java.util.concurrent.CancellationException) {
+                            host.status("Export cancelled");
+                            return;
                         }
                         host.status("Export failed");
                         error(owner, "Could not export " + table.name(), ex);
@@ -138,7 +150,7 @@ final class TableTransfer {
                 .indexOf(k.toLowerCase())).toList();
         boolean keyImported = !primaryKey.isEmpty() && !keyAt.contains(-1);
         host.status("Checking which rows already exist…");
-        inJob(session, s -> keyImported ? s.keyValues(table, primaryKey) : Set.<String>of(), existing -> {
+        inJob(session, host, s -> keyImported ? s.keyValues(table, primaryKey) : Set.<String>of(), existing -> {
             List<List<String>> fresh = plan.rows().stream()
                     .filter(r -> !keyImported || !existing.contains(DatabaseSession.keyText(keyAt.stream().map(r::get).toList())))
                     .toList();
@@ -158,15 +170,22 @@ final class TableTransfer {
             ask.setHeaderText("Insert " + fresh.size() + " row(s) into " + table.name() + "?");
             if (InAppDialogs.showAndWait(ask).orElse(ButtonType.CANCEL) != go) return;
             host.status("Importing into " + table.name() + "…");
-            inJob(session, s -> s.insertRows(table, plan.columns(), fresh, n -> Platform.runLater(
+            inJob(session, host, s -> s.insertRows(table, plan.columns(), fresh, n -> Platform.runLater(
                     () -> host.status("Importing into " + table.name() + ": " + String.format("%,d", n) + " rows…"))), n -> {
                 host.status("Imported " + n + " row(s) into " + table.name() + (skipped > 0 ? " (" + skipped + " already there, left out)" : ""));
                 host.imported(session, table);
             }, ex -> {
+                if (ex instanceof java.util.concurrent.CancellationException) {
+                    host.status("Import cancelled: nothing was imported");
+                    return;
+                }
                 host.status("Import failed: nothing was imported");
                 error(owner, "Nothing was imported", ex);
             });
-        }, ex -> error(owner, "Could not check the existing rows of " + table.name(), ex));
+        }, ex -> {
+            if (ex instanceof java.util.concurrent.CancellationException) host.status("Import cancelled");
+            else error(owner, "Could not check the existing rows of " + table.name(), ex);
+        });
     }
 
     /** Work on a connection of its own (a {@link Job}), so the navigator and scripts on this connection keep working. */
@@ -174,20 +193,34 @@ final class TableTransfer {
         T run(DatabaseSession session) throws Exception;
     }
 
-    private static <T> void inJob(DatabaseSession session, OnSession<T> work, java.util.function.Consumer<T> done,
+    /**
+     * Runs {@code work} as a {@link Job}; the host shows a Cancel while it runs. Cancelled, it ends like a failure
+     * with a {@link java.util.concurrent.CancellationException} (an export then deletes its half-written file;
+     * an import's transaction is rolled back with its connection).
+     */
+    private static <T> void inJob(DatabaseSession session, Host host, OnSession<T> work, java.util.function.Consumer<T> done,
                                   java.util.function.Consumer<Throwable> failed) {
-        Job.start(List.of(session.getConfig()), DatabaseSession::open, Async.background(), Platform::runLater,
-                (sessions, job) -> work.run(sessions.get(0)), new Job.Listener<T>() {
+        Job<T> job = Job.start(List.of(session.getConfig()), DatabaseSession::open, Async.background(), Platform::runLater,
+                (sessions, j) -> work.run(sessions.get(0)), new Job.Listener<T>() {
                     @Override
                     public void done(T result) {
+                        host.stopped();
                         done.accept(result);
                     }
 
                     @Override
                     public void failed(Throwable error) {
+                        host.stopped();
                         failed.accept(error);
                     }
+
+                    @Override
+                    public void cancelled() {
+                        host.stopped();
+                        failed.accept(new java.util.concurrent.CancellationException("Cancelled"));
+                    }
                 });
+        host.running(job::cancel);
     }
 
     private static FileChooser chooser(String title) {

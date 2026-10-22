@@ -140,6 +140,8 @@
 .cmp-icon { -fx-font-weight: bold; }
 /* compare tabs: the settings above the results; a status filter is dimmed while off */
 .compare-settings { -fx-border-color: transparent transparent #d0d0d0 transparent; }
+/* a small button inside a bar, e.g. Cancel next to the status */
+.small-button { -fx-padding: 1 8 1 8; -fx-font-size: 11px; }
 .cmp-filter { -fx-font-weight: bold; -fx-padding: 2 8 2 8; -fx-opacity: 0.5; }
 .cmp-filter:selected { -fx-opacity: 1; }
 .cmp-same { -fx-text-fill: #78909c; }

@@ -234,7 +234,10 @@ rows) run as a `Job` on a connection of their own; fetching more rows has its ow
 failures to the app log like `Async` does, so moving work to it loses nothing. Tried in the app: an export of 40 rows
 and an import of 2, each on its own session, the interactive connection alone afterwards. **What stays on the shared
 connection** is short, interactive work: the navigator, table pages, scripts the user runs, autocomplete metadata.
-**Not yet:** a Cancel for export and import (the status line has no button; see G2's shared progress bar).
+**Cancel for export and import: done**: the window's bottom bar shows **Cancel** next to the status while
+one runs (`TableTransfer.Host.running` / `stopped`); a cancelled export deletes its half-written file and says
+"Export cancelled", an import's transaction ends with its connection ("nothing was imported"). Tried in the app: a
+20-second export cancelled after 1.5 s, Cancel gone, its connection closed.
 
 ### G2. No shared idea of a long job — partly fixed
 
@@ -251,7 +254,8 @@ reports progress, and on Cancel cancels the running statements; exactly one of d
 after its sessions are closed. 4 tests on SQLite (result, failure, cancel, a connection that cannot open). Both
 compares use it, and their Compare button turns into **Cancel** while they run (the data compare could not be
 stopped before); closing the tab cancels too. Tried in the app: a data compare slowed with `pg_sleep(8)` stopped
-within 0.8 s of Cancel. **Not yet:** a shared progress bar widget (each tool shows the text in its own status line).
+within 0.8 s of Cancel. **Not yet:** one shared progress widget: the compares show progress and Cancel in their own
+tab, export and import in the window's bottom bar (G1); a third kind of tool should pick one of those two places.
 
 ### G3. Whole result sets in memory — medium, high for the scan
 

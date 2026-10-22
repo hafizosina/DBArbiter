@@ -739,6 +739,16 @@ public class MainWindow implements SessionProvider {
         }
 
         @Override
+        public void running(Runnable cancel) {
+            footer.showCancel(cancel);
+        }
+
+        @Override
+        public void stopped() {
+            footer.hideCancel();
+        }
+
+        @Override
         public void imported(DatabaseSession session, TableRef table) {
             String key = TableTab.key(session, table);
             for (Tab t : tabs.getTabs()) {

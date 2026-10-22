@@ -35,6 +35,8 @@ class AppFooter extends HBox {
 
     private final Label status;
     private final Label license = new Label();
+    /** Next to the status while a long job (an export or import) runs: stops it. */
+    private final javafx.scene.control.Button cancel = new javafx.scene.control.Button("Cancel");
     /** "Update available: v0.1.20", shown when a newer release is out; opens its download page. */
     private final javafx.scene.control.Hyperlink update = new javafx.scene.control.Hyperlink();
 
@@ -48,7 +50,10 @@ class AppFooter extends HBox {
         for (Label l : new Label[]{status, license, version}) l.setPadding(new Insets(3, 8, 3, 8));
         update.setVisible(false);
         update.setManaged(false);
-        getChildren().addAll(status, update, license, version);
+        cancel.setVisible(false);
+        cancel.setManaged(false);
+        cancel.getStyleClass().add("small-button");
+        getChildren().addAll(status, cancel, update, license, version);
         setAlignment(Pos.CENTER_LEFT);
     }
 
@@ -76,6 +81,23 @@ class AppFooter extends HBox {
         }
         license.setText(text);
         license.getStyleClass().setAll("label", warn ? "binding-warning" : "hint-small");
+    }
+
+    /** Shows Cancel next to the status while a job runs; clicking it runs {@code action} once. */
+    void showCancel(Runnable action) {
+        cancel.setOnAction(e -> {
+            cancel.setDisable(true);
+            action.run();
+        });
+        cancel.setDisable(false);
+        cancel.setVisible(true);
+        cancel.setManaged(true);
+    }
+
+    /** The job ended: no Cancel. */
+    void hideCancel() {
+        cancel.setVisible(false);
+        cancel.setManaged(false);
     }
 
     /** Shows that a newer release is out; clicking it runs {@code open} (the download page in the browser). */
