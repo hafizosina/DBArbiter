@@ -14,7 +14,7 @@ _First review: 2026-10-21 at commit `70ef05a` (the app was called DBAdmin then).
 | 2 | No tests | **Mostly done**: 125 JUnit tests cover every class without a screen; the screens themselves are untested |
 | 3 | SQL scanner written three times | **Fixed**: one `SqlLexer`; splitting and autocomplete share statement boundaries |
 | 4 | Fetching more rows re-runs the query | **Fixed**: the rest is read from one kept-open cursor on a connection of its own |
-| 5 | `DatabaseSession` does too much | Open, and grown: 1,108 lines, 43 public methods, 29 per-database branches |
+| 5 | `DatabaseSession` does too much | **Partly fixed**: structure reading moved to `Metadata` (session 757 lines); per-database `Dialect` still open |
 | 6 | `MainWindow` and `CompareTab` do too much | **Fixed**: sessions moved to a tested `SessionManager`; `CompareTab` split into two tabs |
 | 7 | Global static state | Open |
 | 8 | Saved files can be corrupted | **Mostly fixed**: atomic writes; script bindings relative to `Script/`; a password can be left unsaved. Saved passwords are still plain text |
@@ -105,9 +105,20 @@ may order rows differently from the first chunk's run, so the boundary between t
 bar says so ("the rest may not line up"). Running the very first chunk on the cursor too would remove that, at the
 cost of a connection per result.
 
-### 5. `DatabaseSession` (now 1,108 lines) does too much — open
+### 5. `DatabaseSession` (now 1,108 lines) does too much — partly fixed
 
 Re-checked 2026-10-22: 43 public methods and 29 branches on the database type. It handles connection lifecycle and retry, metadata, editing, and running statements. Its `switch (config.getType())` blocks are spread across about 8 methods. Before adding a 4th database (SQL Server, Oracle), pull the per-database SQL out into a `Dialect` interface, one implementation per `DbType`.
+
+**Done, first step (2026-10-23):** everything that reads the structure (schemas, tables, columns, keys, indexes,
+constraints, foreign keys, triggers, view definitions, DDL: 517 lines) moved unchanged into `service/Metadata`;
+`DatabaseSession` keeps the same public methods as one-line delegations, so no caller changed, and is down to 757
+lines: connection lifecycle and retry, running statements, streaming and cursors, editing and inserting. The 25
+remaining per-database branches are now all in `Metadata` (catalog queries), which is where a `Dialect` per database
+plugs in next. **Checked by comparison:** every metadata answer for every table and view, printed by the installed
+app (before) and by this branch (after), is identical on PostgreSQL (with a materialized view, FK, check, index and
+trigger), MySQL 8 and SQLite. **Bug found by that comparison and fixed:** `Metadata` was first created in a field
+initializer, before the session had its config, so every type-dependent call failed; no unit test called one.
+`MetadataTest` (SQLite) now does, and was checked to fail with the bug back in.
 
 ### 6. Some UI classes have absorbed non-UI work — partly fixed
 
