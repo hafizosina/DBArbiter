@@ -4,6 +4,7 @@
 #   ~/App/DBAdmin/dbadmin.jar   the app
 #   ~/App/DBAdmin/jre/          bundled Java runtime (made once with jlink)
 #   ~/App/DBAdmin/Script/       scripts saved by the app (kept)
+#   ~/App/DBAdmin-License/      the license generator (start menu: "DBAdmin License Generator")
 # Builds from a clean export of the commit, so uncommitted changes are never deployed.
 # Tests run as part of the build; if they fail, the installed app is left as it was.
 # Run by .githooks/reference-transaction whenever main moves; also fine to run by hand.
@@ -54,6 +55,28 @@ Terminal=false
 Categories=Development;Database;
 MimeType=application/sql;text/x-sql;
 StartupWMClass=com.dbadmin.Launcher
+EOF
+# the license generator: a separate folder, so ~/App/DBAdmin never contains it
+TOOL="$DEST-License"
+mkdir -p "$TOOL"
+cp "$BUILD/target/dbadmin-license-tool.jar" "$TOOL/license-tool.jar.new"
+mv -f "$TOOL/license-tool.jar.new" "$TOOL/license-tool.jar"
+cat > "$TOOL/LicenseGenerator" <<EOF
+#!/usr/bin/env bash
+# Issues DBAdmin license keys with the signing key in ~/.dbadmin-signing. "--init" creates that key (once).
+exec "$DEST/jre/bin/java" -jar "$TOOL/license-tool.jar" "\$@"
+EOF
+chmod +x "$TOOL/LicenseGenerator"
+cat > "$APPS/dbadmin-license.desktop" <<EOF
+[Desktop Entry]
+Type=Application
+Name=DBAdmin License Generator
+Comment=Issue DBAdmin license keys
+Exec=$TOOL/LicenseGenerator
+Icon=$DEST/dbadmin.png
+Terminal=false
+Categories=Development;
+StartupWMClass=com.dbadmin.licensetool.LicenseGenerator
 EOF
 update-desktop-database "$APPS" 2>/dev/null || true
 

@@ -4,6 +4,7 @@ import com.dbadmin.model.ConnectionConfig;
 import com.dbadmin.model.DbType;
 import com.dbadmin.model.Namespace;
 import com.dbadmin.model.TableRef;
+import com.dbadmin.license.Licensing;
 import com.dbadmin.service.ConnectionStore;
 import com.dbadmin.service.DatabaseSession;
 import com.dbadmin.service.ScriptBindings;
@@ -73,6 +74,7 @@ public class MainWindow implements SessionProvider {
     private final TabPane tabs = new TabPane();
     private final AppFooter footer = new AppFooter("Ready");
     private final Label status = footer.status();
+    private final Licensing licensing = new Licensing();
     private final BorderPane root = new BorderPane();
     /** Holds the window content plus in-window dialogs layered on top (see InAppDialogs). */
     private final StackPane shell = new StackPane(root);
@@ -158,6 +160,7 @@ public class MainWindow implements SessionProvider {
         });
         root.setCenter(split);
         root.setBottom(footer);
+        footer.showLicense(licensing.current(), licensing.today());
         installScriptDrop();
         updateMenuItems();
         updateScriptItems();
@@ -192,6 +195,8 @@ public class MainWindow implements SessionProvider {
 
         MenuItem settings = new MenuItem("Settings…");
         settings.setOnAction(e -> openSettings());
+        MenuItem license = new MenuItem("License…");
+        license.setOnAction(e -> openLicense());
         MenuItem about = new MenuItem("About DBAdmin");
         about.setOnAction(e -> {
             Alert info = new Alert(Alert.AlertType.INFORMATION,
@@ -200,7 +205,7 @@ public class MainWindow implements SessionProvider {
             info.setHeaderText("DBAdmin " + AppFooter.version());
             InAppDialogs.show(info);
         });
-        MenuButton gearMenu = new MenuButton(null, new javafx.scene.Group(gear), settings, new SeparatorMenuItem(), about);
+        MenuButton gearMenu = new MenuButton(null, new javafx.scene.Group(gear), settings, license, new SeparatorMenuItem(), about);
         gearMenu.getStyleClass().add("gear-menu");
         gearMenu.setTooltip(new javafx.scene.control.Tooltip("Settings"));
 
@@ -240,6 +245,39 @@ public class MainWindow implements SessionProvider {
                 error("Could not save settings", e);
             }
         });
+    }
+
+    private void openLicense() {
+        InAppDialogs.showAndWait(new LicenseDialog(stage, licensing)).ifPresent(key -> {
+            try {
+                licensing.install(key);
+                status.setText("License activated: " + LicenseDialog.describe(licensing.check(key)));
+            } catch (Exception e) {
+                error("Could not activate the license", e);
+            }
+            footer.showLicense(licensing.current(), licensing.today());
+        });
+    }
+
+    /** Compare is the licensed feature: without a usable license, says so and offers to enter one. */
+    private boolean compareAllowed() {
+        footer.showLicense(licensing.current(), licensing.today()); // the date may have changed since startup
+        if (licensing.allowsCompare()) return true;
+        String why = licensing.current()
+                .map(l -> "The " + l.type().label().toLowerCase(java.util.Locale.ROOT) + " license for " + l.name()
+                        + " ended on " + java.time.format.DateTimeFormatter.ofPattern("d MMM yyyy").format(l.expires()) + ".")
+                .orElse("No license is installed.");
+        ButtonType enter = new ButtonType("Enter License…", javafx.scene.control.ButtonBar.ButtonData.OK_DONE);
+        Alert locked = new Alert(Alert.AlertType.INFORMATION,
+                why + "\n\nTo continue, contact " + Licensing.CONTACT + ".", enter, ButtonType.CLOSE);
+        locked.initOwner(stage);
+        locked.setTitle("License");
+        locked.setHeaderText("Compare Table and Compare Data need a license");
+        if (InAppDialogs.showAndWait(locked).orElse(ButtonType.CLOSE) == enter) {
+            openLicense();
+            return licensing.allowsCompare();
+        }
+        return false;
     }
 
     /** Styles the main window's scene with the current theme (and follows later changes). */
@@ -283,9 +321,13 @@ public class MainWindow implements SessionProvider {
                 new SeparatorMenuItem(), saveScriptItem, saveScriptAsItem,
                 new SeparatorMenuItem(), runStatementItem, runScriptItem, stopScriptItem);
         MenuItem compareSchema = new MenuItem("Compare Table…");
-        compareSchema.setOnAction(e -> showTab(new SchemaCompareTab(connections, this, selectedConnection().orElse(null), this::showTab)));
+        compareSchema.setOnAction(e -> {
+            if (compareAllowed()) showTab(new SchemaCompareTab(connections, this, selectedConnection().orElse(null), this::showTab));
+        });
         MenuItem compareData = new MenuItem("Compare Data…");
-        compareData.setOnAction(e -> showTab(new DataCompareTab(connections, this, selectedConnection().orElse(null))));
+        compareData.setOnAction(e -> {
+            if (compareAllowed()) showTab(new DataCompareTab(connections, this, selectedConnection().orElse(null)));
+        });
         Menu tools = new Menu("Tools", null, compareSchema, compareData);
         return new MenuBar(connection, script, tools);
     }

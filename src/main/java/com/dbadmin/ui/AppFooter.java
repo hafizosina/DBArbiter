@@ -1,5 +1,6 @@
 package com.dbadmin.ui;
 
+import com.dbadmin.license.License;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Label;
@@ -9,6 +10,9 @@ import javafx.scene.layout.Priority;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.Optional;
 import java.util.Properties;
 
 /**
@@ -27,7 +31,10 @@ class AppFooter extends HBox {
         }
     }
 
+    private static final DateTimeFormatter DATE = DateTimeFormatter.ofPattern("d MMM yyyy");
+
     private final Label status;
+    private final Label license = new Label();
 
     AppFooter(String statusText) {
         status = new Label(statusText);
@@ -36,9 +43,35 @@ class AppFooter extends HBox {
         Label version = new Label("v" + version() + " · built " + build("date"));
         version.getStyleClass().add("hint-small");
         version.setTooltip(new Tooltip("Commit " + build("commit")));
-        for (Label l : new Label[]{status, version}) l.setPadding(new Insets(3, 8, 3, 8));
-        getChildren().addAll(status, version);
+        for (Label l : new Label[]{status, license, version}) l.setPadding(new Insets(3, 8, 3, 8));
+        getChildren().addAll(status, license, version);
         setAlignment(Pos.CENTER_LEFT);
+    }
+
+    /** The license line next to the version: who it is for and how long it lasts; orange near and after the end. */
+    void showLicense(Optional<License> current, LocalDate today) {
+        boolean warn = false;
+        String text;
+        if (current.isEmpty()) {
+            text = "No license";
+        } else {
+            License l = current.get();
+            long left = l.daysLeft(today);
+            String ends = l.expires() == null ? "" : DATE.format(l.expires());
+            text = switch (l.status(today)) {
+                case VALID -> l.type() == License.Type.LIFETIME ? "Licensed to " + l.name()
+                        : l.type() == License.Type.TRIAL ? "Trial · " + (left + 1) + " days left · " + l.name()
+                        : "Licensed to " + l.name() + " · until " + ends;
+                case EXPIRING -> (l.type() == License.Type.TRIAL ? "Trial" : l.name()) + " · "
+                        + (left == 0 ? "last day today" : (left + 1) + " days left");
+                case GRACE -> l.name() + " · ended " + ends + ", renew within "
+                        + (License.GRACE_DAYS + left + 1) + " days";
+                case EXPIRED -> (l.type() == License.Type.TRIAL ? "Trial" : l.name()) + " ended " + ends;
+            };
+            warn = l.status(today) != License.Status.VALID;
+        }
+        license.setText(text);
+        license.getStyleClass().setAll("label", warn ? "binding-warning" : "hint-small");
     }
 
     /** The status text on the left. */
