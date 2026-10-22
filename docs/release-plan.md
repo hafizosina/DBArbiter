@@ -21,7 +21,7 @@ The link to share never changes and always gives the newest version:
 
 ## What CI does
 
-- **Every push to main:** runs the tests, builds both downloads and keeps them as build artifacts for a few days (for a quick look).
+- **A push to main:** nothing runs on GitHub (the local deploy hook still builds and installs your copy).
 - **A pushed version tag (`v0.1.12`, …):** builds both downloads and publishes them as a Release in `dbarbiter-download`.
 - **One Linux runner** builds both: the Windows version is already built on Linux (`packaging/build-windows.sh`: launch4j exe +
   a Temurin Windows JRE, zipped). No Windows runner needed.
