@@ -62,7 +62,7 @@ class DataGrid extends TableView<List<Object>> {
     }
 
     /** Publishes the focused cell, also again after its value was edited. */
-    private void publishFocusedCell() {
+    void publishFocusedCell() {
         TablePosition<List<Object>, ?> pos = getFocusModel().getFocusedCell();
         if (data == null || pos == null || pos.getRow() < 0 || pos.getTableColumn() == null
                 || pos.getRow() >= getItems().size()) {
@@ -87,6 +87,27 @@ class DataGrid extends TableView<List<Object>> {
         }
         int c = (Integer) pos.getTableColumn().getUserData();
         return editableColumns.contains(c) ? new EditableCell(getItems().get(pos.getRow()), c) : null;
+    }
+
+    /** True if the column (original index) can be edited now. */
+    boolean isEditableColumn(int column) {
+        return editor != null && editableColumns.contains(column);
+    }
+
+    /** Where edits go; null while the rows are read-only. */
+    Editor editor() {
+        return editor;
+    }
+
+    /** The column showing the data's column {@code index}, wherever the user dragged it. */
+    TableColumn<List<Object>, ?> column(int index) {
+        for (TableColumn<List<Object>, ?> col : getColumns()) if ((Integer) col.getUserData() == index) return col;
+        return null;
+    }
+
+    /** The type of the data's column {@code index}; null for metadata grids. */
+    ColumnType columnType(int index) {
+        return data == null ? null : data.type(index);
     }
 
     ReadOnlyObjectProperty<CellValue> selectedCellProperty() {
@@ -295,15 +316,19 @@ class DataGrid extends TableView<List<Object>> {
             } else if (value instanceof ComparedValue cv) {
                 setText(cv.toString().replace('\n', '↵'));
                 if (cv.differs()) getStyleClass().add("cmp-cell-changed");
-            } else if (value == null || value instanceof BlobValue) {
-                setText(value == null ? "[NULL]" : value.toString());
-                getStyleClass().add("null-value");
             } else {
-                // one line per row: show line breaks as a symbol, full text is in the value panel
-                String s = value.toString();
-                if (s.length() > MAX_CELL_CHARS) s = s.substring(0, MAX_CELL_CHARS) + "…";
-                setText(s.replace("\r\n", "↵").replace('\n', '↵').replace('\r', '↵'));
+                setText(oneLine(value));
+                if (value == null || value instanceof BlobValue) getStyleClass().add("null-value");
             }
         }
+    }
+
+    /** A value as one line of a cell: line breaks as a symbol, long text cut; the value panel has it all. */
+    static String oneLine(Object value) {
+        if (value == null) return "[NULL]";
+        String s = value.toString();
+        if (value instanceof BlobValue) return s;
+        if (s.length() > MAX_CELL_CHARS) s = s.substring(0, MAX_CELL_CHARS) + "…";
+        return s.replace("\r\n", "↵").replace('\n', '↵').replace('\r', '↵');
     }
 }

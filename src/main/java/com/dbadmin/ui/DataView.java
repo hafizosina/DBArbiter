@@ -35,6 +35,8 @@ class DataView extends BorderPane {
 
     /** Show/hide the value panel everywhere at once. */
     private static final BooleanProperty SHOW_VALUE_PANEL = new SimpleBooleanProperty(true);
+    /** One row as a list of column / value pairs, in every view that offers it. */
+    private static final BooleanProperty RECORD_MODE = new SimpleBooleanProperty(false);
 
     private final DataGrid grid = new DataGrid();
     private final CellInspector inspector = new CellInspector();
@@ -44,6 +46,7 @@ class DataView extends BorderPane {
     private final javafx.scene.layout.StackPane inspectorHost = new javafx.scene.layout.StackPane(inspector);
     private final SplitPane split = new SplitPane(grid);
     private double divider = 0.7;
+    private final RecordView record = new RecordView(grid, () -> this.canFetchMore, this::fetchMore);
 
     DataView() {
         grid.selectedCellProperty().addListener((o, a, cell) -> showCell(cell));
@@ -88,6 +91,26 @@ class DataView extends BorderPane {
 
     DataGrid grid() {
         return grid;
+    }
+
+    /** Follows the Record toggle (see {@link #recordToggle}); views without one stay a grid. */
+    void offerRecordMode() {
+        RECORD_MODE.addListener((o, a, on) -> showRecord(on));
+        showRecord(RECORD_MODE.get());
+    }
+
+    private void showRecord(boolean on) {
+        if (on == split.getItems().contains(record)) return;
+        double[] dividers = split.getDividerPositions();
+        if (on) {
+            split.getItems().set(0, record);
+            record.showFocusedRow();
+        } else {
+            split.getItems().set(0, grid);
+            int row = grid.getFocusModel().getFocusedIndex();
+            if (row >= 0) grid.scrollTo(row);
+        }
+        split.setDividerPositions(dividers);
     }
 
     /** One view for a value; two (source, target) for a value from a data compare. */
@@ -259,6 +282,7 @@ class DataView extends BorderPane {
         editBar.setManaged(show);
         saveEdits.setVisible(!edits.isEmpty());
         revertEdits.setVisible(!edits.isEmpty());
+        record.refresh();
         if (!editable) return;
         if (edits.isEmpty()) {
             editInfo.setText("✎ Editable: double-click a cell or edit it in the value panel (right-click: Set NULL / Revert). "
@@ -413,6 +437,14 @@ class DataView extends BorderPane {
             divider = split.getDividerPositions()[0];
             split.getItems().remove(inspectorHost);
         }
+    }
+
+    /** A toolbar toggle for record mode: one row at a time, its columns listed down the page. */
+    static ToggleButton recordToggle() {
+        ToggleButton toggle = new ToggleButton("Record");
+        toggle.setTooltip(new Tooltip("Show one row at a time as a list of columns and values; ◀ ▶ step through the rows"));
+        toggle.selectedProperty().bindBidirectional(RECORD_MODE);
+        return toggle;
     }
 
     /** A toolbar toggle for the value panel. */

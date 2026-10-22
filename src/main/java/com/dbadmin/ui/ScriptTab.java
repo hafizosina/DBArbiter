@@ -102,7 +102,7 @@ class ScriptTab extends Tab {
         showMode(mode, initial);
         ToolBar bar = new ToolBar(runButton, runAllButton, stopButton, new Separator(Orientation.VERTICAL),
                 new Label("Connection:"), connection, mode, bindingWarning,
-                new Separator(Orientation.VERTICAL), DataView.valuePanelToggle());
+                new Separator(Orientation.VERTICAL), DataView.recordToggle(), DataView.valuePanelToggle());
         bindingWarning.getStyleClass().add("binding-warning");
         updateBindingWarning();
 
@@ -265,6 +265,7 @@ class ScriptTab extends Tab {
                 (r.truncated() ? " (first " + ScriptRunner.FETCH_SIZE + "; more below the grid)" : "")
                 + " (" + r.millis() + " ms)");
         DataView view = new DataView();
+        view.offerRecordMode();
         view.showResult(r, session);
         TableEditing.forQuery(session, r.sql(), t -> view.enableEditing(t, () -> { }), view::showNotEditable);
         Tab tab = new Tab("Result " + number, view);

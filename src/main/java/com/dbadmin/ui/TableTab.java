@@ -71,6 +71,7 @@ class TableTab extends Tab {
         this.queryEditor = new SqlEditor(completer, sessions, session::getConfig, this::runStatement);
         this.runner = new ScriptRunner(sessions, completer);
         setOnSelectionChanged(e -> queryEditor.hidePopup());
+        dataView.offerRecordMode();
         setTooltip(new javafx.scene.control.Tooltip(session.getConfig().getName() + " · " + table.displayName()));
         setOnCloseRequest(e -> {
             if (!dataView.confirmDiscard()) e.consume(); // unsaved edits
@@ -224,7 +225,7 @@ class TableTab extends Tab {
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
         HBox bar = new HBox(8, run, runAll, stop, reset, new Separator(Orientation.VERTICAL), refresh,
-                DataView.valuePanelToggle(), queryMessage, spacer, pageInfo, prev, next);
+                DataView.recordToggle(), DataView.valuePanelToggle(), queryMessage, spacer, pageInfo, prev, next);
         bar.setAlignment(Pos.CENTER_LEFT);
         bar.setPadding(new Insets(6));
 
