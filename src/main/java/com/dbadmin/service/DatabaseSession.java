@@ -302,9 +302,9 @@ public class DatabaseSession implements AutoCloseable {
         return metadata.resolveTable(qualifier, name);
     }
 
-    /** See {@link Metadata#serialType}. */
+    /** See {@link PostgresDialect#serialType}. */
     static String serialType(String type, String defaultExpr, String ownedSequence) {
-        return Metadata.serialType(type, defaultExpr, ownedSequence);
+        return PostgresDialect.serialType(type, defaultExpr, ownedSequence);
     }
 
     /**

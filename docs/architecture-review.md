@@ -14,7 +14,7 @@ _First review: 2026-10-21 at commit `70ef05a` (the app was called DBAdmin then).
 | 2 | No tests | **Mostly done**: 125 JUnit tests cover every class without a screen; the screens themselves are untested |
 | 3 | SQL scanner written three times | **Fixed**: one `SqlLexer`; splitting and autocomplete share statement boundaries |
 | 4 | Fetching more rows re-runs the query | **Fixed**: the rest is read from one kept-open cursor on a connection of its own |
-| 5 | `DatabaseSession` does too much | **Partly fixed**: structure reading moved to `Metadata` (session 757 lines); per-database `Dialect` still open |
+| 5 | `DatabaseSession` does too much | **Mostly fixed**: structure → `Metadata`, its catalog queries → one `Dialect` per database (session 750 lines) |
 | 6 | `MainWindow` and `CompareTab` do too much | **Fixed**: sessions moved to a tested `SessionManager`; `CompareTab` split into two tabs |
 | 7 | Global static state | Open |
 | 8 | Saved files can be corrupted | **Mostly fixed**: atomic writes; script bindings relative to `Script/`; a password can be left unsaved. Saved passwords are still plain text |
@@ -119,6 +119,15 @@ app (before) and by this branch (after), is identical on PostgreSQL (with a mate
 trigger), MySQL 8 and SQLite. **Bug found by that comparison and fixed:** `Metadata` was first created in a field
 initializer, before the session had its config, so every type-dependent call failed; no unit test called one.
 `MetadataTest` (SQLite) now does, and was checked to fail with the bug back in.
+
+**Done, second step: `Dialect`.** The catalog queries that differ per database (namespaces, default namespace, view
+definition, DDL, constraints, triggers) are in `PostgresDialect`, `MySqlDialect` and `SqliteDialect` behind a small
+`Dialect` interface, each with its own helpers (PostgreSQL's DDL builder, SQLite's check and trigger parsing).
+`Metadata` (323 lines) keeps what the databases share through JDBC and has no database branch left; a fourth
+database is one more class. Checked by the same comparison: identical on PostgreSQL, MySQL 8 and SQLite.
+**Left in `DatabaseSession`:** 6 small branches about connecting and writing (driver properties for read-only, the
+PostgreSQL `CAST(? AS type)` and the booleans on import); they could become `Dialect` methods when a fourth database
+needs them.
 
 ### 6. Some UI classes have absorbed non-UI work — partly fixed
 
@@ -315,8 +324,9 @@ as the table's qualifier, system schemas, materialized views, and how to stream 
 `SqlLexer`, `SqlInserts`, `SqlCompleter`, `SqlHighlighter`, `Namespace`, `TableTab`, `MainWindow`, `DataCompareTab`
 and five spots in `DatabaseSession` use them instead of their own `if (type == …)`. Outside `DatabaseSession` only
 defaults and the PostgreSQL-only Generate SQL remain; inside it, 25 branches (from 29). 2 tests pin the facts per
-database. **Still open:** those 25 are metadata queries (views, DDL, constraints, triggers, schemas): the
-`Dialect` interface proper, one implementation per database, moved out of `DatabaseSession` (also #5).
+database. **Also done:** the metadata queries (views, DDL, constraints, triggers, schemas) are one `Dialect` per
+database (#5). Generate SQL (`MigrationSql`) still writes PostgreSQL only; giving it a dialect is the next step if
+MySQL migrations are needed.
 
 **New, small (found here):** a null `DbType` means "plain SQL, no database" in the lexer, highlighter, completer and
 `Namespace`, by convention only; the tests caught a crash when the first version of this change forgot it. A
@@ -382,7 +392,7 @@ is fine, but a public API or plugin later would carry it.
 | Now (small) | ~~Script bindings by relative path~~, ~~"Save password" option~~ (both done) | #8, #14 |
 | Before the scan tool | A job connection per tool run, a shared `Job` with progress and cancel, streaming | G1, G2, G3 |
 | Before the next tool after that | `ToolTab` (menu, license gate, opening files by kind); ~~shared compare file, split `DataCompareTab`~~ (done) | G4, #12 |
-| Before a fourth database or MySQL migrations | `Dialect` | G5, #5 |
+| Before a fourth database or MySQL migrations | ~~`Dialect`~~ (done); a dialect for Generate SQL | G5, #5 |
 | Whenever a file format changes next | Format versions with upgrades (compare files done) | G6 |
 | Ongoing | Logic out of screens for new code | G7 |
 | Optional | Drop WebView, resource bundle (single build script: done) | G8, G9, G10 |
@@ -395,6 +405,6 @@ In order, now that other people use the app:
    both forms so existing `scripts.json` files keep working. Small, and it already caused a problem.
 3. **Split `DataCompareTab` (#12)** before the next compare feature, starting with `VerdictActions` (testable) and the
    shared `CompareFile`.
-4. **`Dialect` (#5)** before adding a fourth database (the SQL-text half is done: `DbType`, G5).
+4. ~~**`Dialect` (#5)**~~ done: SQL text on `DbType` (G5), catalog queries in one `Dialect` per database.
 5. As needed: less static state (#7) once the screens get tests. (Paging, #4, and the side effects in
    `hasEdits()` / `show()`, #11, are fixed.)
