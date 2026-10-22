@@ -18,7 +18,6 @@ import com.dbadmin.service.Job;
 import javafx.application.Platform;
 import javafx.beans.property.BooleanProperty;
 import javafx.beans.property.SimpleBooleanProperty;
-import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -28,7 +27,6 @@ import javafx.scene.control.Button;
 import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckBox;
-import javafx.scene.control.ComboBox;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
 import javafx.scene.control.MenuButton;
@@ -103,11 +101,8 @@ class DataCompareTab extends Tab implements UnsavedWork {
     private final Button compareButton = new Button("Compare");
     private final MenuButton verdictForShown = new MenuButton();
     private final Label verdictSummary = new Label();
-    /** Joined tables (for a key, or to compare an id column by the code it points to): the main table's alias, one {@link JoinRow} per join. */
-    private final javafx.scene.control.TextField mainAlias = new javafx.scene.control.TextField();
-    /** The alias last filled in automatically, replaced when the main table changes (unless the user typed one). */
-    private String autoAlias = "";
-    private final VBox joinRows = new VBox(4);
+    /** Joined tables (for a key, or to compare an id column by the code it points to). */
+    private final JoinEditor joins;
     /** Several rows per key: a key's rows are matched by their compared values (see DataCompare). */
     private final CheckBox oneToMany = new CheckBox("One-to-many");
 
@@ -122,6 +117,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
         dataTarget = new CompareSide("Target", true, connections, sessions, dataStatus::setText);
         dataTarget.preferredTable = dataSource::tableName;
         CompareSide.pair(dataSource, dataTarget);
+        joins = new JoinEditor(dataSource, this::loadColumns);
         setContent(dataPage());
         getContent().addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, e -> {
             if (SchemaCompareTab.SAVE_AS_KEY.match(e)) {
@@ -165,7 +161,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
 
     private void maybeAutoCompare() {
         if (autoCompareColumns == null || !dataSource.readyWithTable() || !dataTarget.readyWithTable()) return;
-        if (joinRowList().stream().anyMatch(r -> r.pendingTable != null)) return;
+        if (joins.pending()) return;
         if (!picker.lists(autoCompareColumns)) return;
         autoCompareColumns = null;
         runDataCompare();
@@ -203,9 +199,9 @@ class DataCompareTab extends Tab implements UnsavedWork {
         r.where = where.getText() == null ? "" : where.getText().trim();
         r.rowsPerSide = rowLimit.getValue();
         r.oneToMany = oneToMany.isSelected();
-        if (!activeJoinRows().isEmpty()) {
-            r.mainAlias = mainAlias.getText().strip();
-            r.joins = activeJoinRows().stream().map(JoinRow::join).toList();
+        if (!joins.isEmpty()) {
+            r.mainAlias = joins.mainAlias();
+            r.joins = joins.joins();
         }
         return r;
     }
@@ -295,18 +291,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
         oneToMany.setSelected(r.oneToMany);
         // the ticks: kept by name when the tables' columns arrive (see setColumns)
         picker.restore(r.shownColumns, r.keyColumns, r.comparedColumns);
-        joinRows.getChildren().clear();
-        if (r.joins != null && !r.joins.isEmpty()) {
-            mainAlias.setText(r.mainAlias == null ? "" : r.mainAlias);
-            for (KeyJoins.Join j : r.joins) {
-                JoinRow row = new JoinRow();
-                row.type.setValue(j.left() ? "left join" : "join");
-                row.alias.setText(j.alias());
-                row.on.setText(j.on());
-                row.pendingTable = j.table(); // picked once the source schema's tables are listed
-                joinRows.getChildren().add(row);
-            }
-        }
+        joins.restore(r.mainAlias, r.joins);
         ConnectionConfig source = connectionNamed(r.source.connection());
         ConnectionConfig target = connectionNamed(r.target.connection());
         if (source == null || target == null) {
@@ -339,29 +324,10 @@ class DataCompareTab extends Tab implements UnsavedWork {
         rowLimit.setPrefWidth(95);
         rowLimit.setTooltip(new Tooltip("Rows read from each side, in key order"));
 
-        // joins: listed under the sides while there are some; joined columns appear in the picker as alias.column
-        mainAlias.setPrefColumnCount(5);
-        mainAlias.setPromptText("alias");
-        mainAlias.setTooltip(new Tooltip("The compared table's alias, used in the joins' ON conditions"));
-        dataSource.table.valueProperty().addListener((o, a, t) -> {
-            if (t == null || !mainAlias.getText().equals(autoAlias)) return;
-            autoAlias = SqlCompleter.aliasFor(t.name(), java.util.Set.of());
-            mainAlias.setText(autoAlias);
-        });
         Button addJoin = new Button("+ Join");
         addJoin.setTooltip(new Tooltip("Join another table, e.g. to take the key from a code when the ids differ between the "
                 + "databases;\nits columns appear as alias.column. Only the main table is compared."));
-        addJoin.setOnAction(e -> joinRows.getChildren().add(new JoinRow()));
-        Label joinsLabel = new Label("Joins");
-        joinsLabel.setMinWidth(Region.USE_PREF_SIZE);
-        HBox joinHeader = new HBox(6, joinsLabel, new Label("main alias"), mainAlias);
-        joinHeader.setAlignment(Pos.CENTER_LEFT);
-        VBox joins = new VBox(4, joinHeader, joinRows);
-        javafx.beans.binding.BooleanBinding hasJoins = javafx.beans.binding.Bindings.isNotEmpty(joinRows.getChildren());
-        joins.visibleProperty().bind(hasJoins);
-        joins.managedProperty().bind(hasJoins);
-        joinRows.getChildren().addListener((javafx.collections.ListChangeListener<Node>) c -> loadColumns()); // joined columns come and go
-
+        addJoin.setOnAction(e -> joins.add());
         where.setPromptText("Where, e.g.  is_deleted = false");
         where.setTooltip(new Tooltip("A SQL condition applied to both sides; only matching rows are compared"));
         where.setOnAction(e -> runDataCompare());
@@ -476,112 +442,6 @@ class DataCompareTab extends Tab implements UnsavedWork {
         return page;
     }
 
-    /** One join of the "Joined tables" editor: [left] join table alias on condition. */
-    private final class JoinRow extends HBox {
-        final ComboBox<String> type = new ComboBox<>(FXCollections.observableArrayList("join", "left join"));
-        final SearchBox<TableRef> table = new SearchBox<>(TableRef::name, "join table…");
-        final javafx.scene.control.TextField alias = new javafx.scene.control.TextField();
-        final javafx.scene.control.TextField on = new javafx.scene.control.TextField();
-        /** A table to pick by name once the list is there (a reopened report). */
-        String pendingTable;
-        /** Set while the table is picked by the code: the caller loads the columns. */
-        private boolean quiet;
-
-        JoinRow() {
-            super(6);
-            setAlignment(Pos.CENTER_LEFT);
-            type.setValue("left join"); // keeps main rows whose joined row is missing (a NULL id)
-            table.setItems(dataSource.table.getItems());
-            alias.setPrefColumnCount(5);
-            alias.setPromptText("alias");
-            on.setPromptText("e.g. mpe.id = " + (mainAlias.getText().isBlank() ? "mpi" : mainAlias.getText()) + ".etalase_id");
-            HBox.setHgrow(on, Priority.ALWAYS);
-            Button remove = new Button("✕");
-            remove.setTooltip(new Tooltip("Remove this join"));
-            remove.setOnAction(e -> joinRows.getChildren().remove(this)); // the list's listener lists the columns again
-            table.valueProperty().addListener((o, a, t) -> {
-                if (t == null) return;
-                if (alias.getText().isBlank()) alias.setText(SqlCompleter.aliasFor(t.name(), takenAliases()));
-                suggestOn(this);
-                if (!quiet) loadColumns();
-            });
-            alias.setOnAction(e -> loadColumns());
-            alias.focusedProperty().addListener((o, was, focused) -> {
-                if (!focused) loadColumns();
-            });
-            getChildren().addAll(type, table, alias, new Label("on"), on, remove);
-        }
-
-        /** Picks the pending table if the list has it. */
-        void applyPending() {
-            if (pendingTable == null) return;
-            String name = pendingTable;
-            table.getItems().stream().filter(t -> t.name().equalsIgnoreCase(name)).findFirst().ifPresent(t -> {
-                pendingTable = null;
-                quiet = true;
-                table.setValue(t);
-                quiet = false;
-            });
-        }
-
-        KeyJoins.Join join() {
-            return new KeyJoins.Join("left join".equals(type.getValue()), table.getValue() == null ? null : table.getValue().name(),
-                    alias.getText().strip(), on.getText().strip());
-        }
-
-        /** Picked a table and has a usable alias: its columns can be listed. */
-        boolean ready() {
-            return table.getValue() != null && alias.getText().strip().matches("[A-Za-z_][A-Za-z0-9_]*");
-        }
-    }
-
-    private List<JoinRow> joinRowList() {
-        return joinRows.getChildren().stream().map(n -> (JoinRow) n).toList();
-    }
-
-    /** The joins in use. */
-    private List<JoinRow> activeJoinRows() {
-        return joinRowList();
-    }
-
-    private java.util.Set<String> takenAliases() {
-        java.util.Set<String> taken = new java.util.HashSet<>();
-        taken.add(mainAlias.getText().strip());
-        joinRowList().forEach(r -> taken.add(r.alias.getText().strip()));
-        return taken;
-    }
-
-    /**
-     * Fills an empty ON condition from a foreign key: of the main table or an earlier join to the picked table
-     * (e.g. mpi.etalase_id → m_product_etalase.id gives "mpe.id = mpi.etalase_id"). Only reads metadata.
-     */
-    private void suggestOn(JoinRow row) {
-        DatabaseSession s = dataSource.session;
-        TableRef main = dataSource.table.getValue();
-        if (s == null || main == null || !row.on.getText().isBlank()) return;
-        List<Map.Entry<String, TableRef>> from = new ArrayList<>();
-        from.add(Map.entry(mainAlias.getText().strip(), main));
-        for (JoinRow r : joinRowList()) {
-            if (r == row) break;
-            if (r.table.getValue() != null) from.add(Map.entry(r.alias.getText().strip(), r.table.getValue()));
-        }
-        String wanted = row.table.getValue().name();
-        Async.run(s, () -> {
-            for (Map.Entry<String, TableRef> f : from) {
-                for (List<Object> fk : s.listForeignKeys(f.getValue()).rows()) {
-                    String target = String.valueOf(fk.get(2));
-                    String column = String.valueOf(fk.get(1));
-                    if (target.substring(target.lastIndexOf('.') + 1).equalsIgnoreCase(wanted) && !column.contains(",")) {
-                        return "%s." + fk.get(3) + " = " + f.getKey() + "." + column;
-                    }
-                }
-            }
-            return null;
-        }, on -> {
-            if (on != null && row.on.getText().isBlank()) row.on.setText(on.formatted(row.alias.getText().strip()));
-        }, ex -> { });
-    }
-
     /** Lists the columns of both tables once both are chosen, with the joined tables' columns (see {@link #setColumns}). */
     private void loadColumns() {
         TableRef t1 = dataSource.table.getValue();
@@ -590,13 +450,9 @@ class DataCompareTab extends Tab implements UnsavedWork {
         DatabaseSession s1 = dataSource.session;
         DatabaseSession s2 = dataTarget.session;
         // joined tables: picked from the source schema, found by name in the target schema
-        joinRowList().forEach(r -> {
-            r.table.setItems(dataSource.table.getItems());
-            r.applyPending(); // a reopened report's join tables, now that the list is there
-        });
-        List<JoinRow> rows = activeJoinRows().stream().filter(JoinRow::ready).toList();
-        List<String> aliases = rows.stream().map(r -> r.alias.getText().strip()).toList();
-        List<TableRef> srcJoins = rows.stream().map(r -> r.table.getValue()).toList();
+        List<JoinEditor.Ready> ready = joins.tablesListed();
+        List<String> aliases = ready.stream().map(JoinEditor.Ready::alias).toList();
+        List<TableRef> srcJoins = ready.stream().map(JoinEditor.Ready::table).toList();
         List<TableRef> dstJoins = srcJoins.stream().map(t -> dataTarget.table.getItems().stream()
                 .filter(x -> x.name().equalsIgnoreCase(t.name())).findFirst().orElse(null)).toList();
         Async.run(s1, () -> columnNames(s1, t1, srcJoins, aliases), first -> Async.run(s2, () -> columnNames(s2, t2, dstJoins, aliases), second -> {
@@ -650,16 +506,16 @@ class DataCompareTab extends Tab implements UnsavedWork {
         // joins only matter when a joined column is used (as key, compared or shown)
         List<String> joinedColumns = java.util.stream.Stream.of(keys, compared, shownOnly).flatMap(List::stream)
                 .filter(KeyJoins::isJoinedColumn).distinct().toList();
-        List<KeyJoins.Join> joins = joinedColumns.isEmpty() ? List.of() : activeJoinRows().stream().map(JoinRow::join).toList();
-        String alias = mainAlias.getText().strip();
-        String joinProblem = joins.isEmpty() ? null : KeyJoins.problem(alias, joins);
+        List<KeyJoins.Join> joinList = joinedColumns.isEmpty() ? List.of() : joins.joins();
+        String alias = joins.mainAlias();
+        String joinProblem = joinList.isEmpty() ? null : KeyJoins.problem(alias, joinList);
         if (joinProblem != null) {
             dataStatus.setText(joinProblem);
             return null;
         }
-        List<TableRef> srcJoins = joins.isEmpty() ? List.of() : activeJoinRows().stream().map(r -> r.table.getValue()).toList();
+        List<TableRef> srcJoins = joinList.isEmpty() ? List.of() : joins.tables();
         List<TableRef> dstJoins = new ArrayList<>();
-        for (KeyJoins.Join j : joins) {
+        for (KeyJoins.Join j : joinList) {
             TableRef t = dataTarget.table.getItems().stream().filter(x -> x.name().equalsIgnoreCase(j.table())).findFirst().orElse(null);
             if (t == null) {
                 dataStatus.setText(j.table() + " is not in the target schema " + dataTarget.schemaLabel() + ".");
@@ -667,7 +523,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
             }
             dstJoins.add(t);
         }
-        return new Plan(keys, compared, shownOnly, filter, joinedColumns, joins, alias, srcJoins, dstJoins, rowLimit.getValue(),
+        return new Plan(keys, compared, shownOnly, filter, joinedColumns, joinList, alias, srcJoins, dstJoins, rowLimit.getValue(),
                 oneToMany.isSelected());
     }
 

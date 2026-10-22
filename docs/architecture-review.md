@@ -21,7 +21,7 @@ _First review: 2026-10-21 at commit `70ef05a` (the app was called DBAdmin then).
 | 9 | Errors swallowed silently | **Fixed**: non-editable results say why; errors are logged to `~/.dbadmin/logs` |
 | 10 | Small tidy-ups | **Fixed** |
 | 11 | `DataView` growing; side effects in `hasEdits()` / `show()` | **Partly fixed**: pending edits moved to a tested class; the side effects remain |
-| 12 | `DataCompareTab` is the largest class | **In progress**: verdict rules → `Verdicts`, column picker → `ColumnPicker` (1,152 lines left) |
+| 12 | `DataCompareTab` is the largest class | **Mostly done**: verdict rules → `Verdicts`, column picker → `ColumnPicker`, joins → `JoinEditor` (1,008 lines left) |
 | 13 | `MainWindow` growing again | Open (new): 985 lines |
 | 14 | Shipping to other people | **Partly fixed**: "Save password" option. OS keyring, license check, release build remain |
 
@@ -153,7 +153,9 @@ with shift-click ranges, running the compare, verdicts (cells, menus, keys, past
 code only. Each new compare feature has landed here, so it keeps growing.
 
 **Suggested split**, moving code without changing behaviour:
-- `JoinEditor`: the join rows, alias and ON suggestion (today `JoinRow`, `suggestOn`, `takenAliases`)
+- ~~`JoinEditor`~~ **done**: the join rows, the main alias (filled from the table name), the ON suggestion from foreign
+  keys, and restoring a reopened compare's joins; the tab asks it for the joins, their tables and the ones ready to
+  list columns. Moved without changing behaviour; tried in the app with a reopened two-join compare.
 - ~~`ColumnPicker`~~ **done**: the Key / Compare / Show table, its shift-click cells, and the rule that keeps ticks by
   name when the columns are listed again (`merged`, 2 tests); the tab asks it for keys / compared / shown. Tried in
   the app: a reopened compare with joins gets its ticks back and compares.
