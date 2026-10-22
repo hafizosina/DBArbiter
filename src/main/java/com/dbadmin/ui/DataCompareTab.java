@@ -317,9 +317,9 @@ class DataCompareTab extends Tab implements UnsavedWork {
         // column suggestions: the table's own by name, joined ones as "alias.column" (how the filter sees them)
         ConditionCompletion.install(where, picker::names, name -> {
             if (!KeyJoins.isJoinedColumn(name)) return name;
-            String q = dataSource.connection.getValue() != null
-                    && dataSource.connection.getValue().getType() == com.dbadmin.model.DbType.MYSQL ? "`" : "\"";
-            return q + name + q;
+            com.dbadmin.model.DbType type = dataSource.connection.getValue() == null ? com.dbadmin.model.DbType.POSTGRESQL
+                    : dataSource.connection.getValue().getType();
+            return type.quote(name);
         });
         HBox.setHgrow(where, Priority.ALWAYS);
         oneToMany.setTooltip(new Tooltip("For a key with several rows (e.g. the images of a tier code): each row is matched by the "

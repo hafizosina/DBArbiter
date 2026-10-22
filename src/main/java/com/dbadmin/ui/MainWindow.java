@@ -1,7 +1,6 @@
 package com.dbadmin.ui;
 
 import com.dbadmin.model.ConnectionConfig;
-import com.dbadmin.model.DbType;
 import com.dbadmin.model.Namespace;
 import com.dbadmin.model.TableRef;
 import com.dbadmin.service.ConnectionStore;
@@ -643,8 +642,8 @@ public class MainWindow implements SessionProvider {
                             tables.stream().filter(t -> t.isView() && !t.isMaterializedView()).toList());
                     List<TableRef> materialized = tables.stream().filter(TableRef::isMaterializedView).toList();
                     item.getChildren().setAll(List.of(tablesFolder, viewsFolder));
-                    // only PostgreSQL has materialized views; elsewhere the folder would always be empty
-                    if (c.getType() == DbType.POSTGRESQL || !materialized.isEmpty()) {
+                    // only some databases have materialized views; elsewhere the folder would always be empty
+                    if (c.getType().hasMaterializedViews() || !materialized.isEmpty()) {
                         item.getChildren().add(folder(c, "Materialized Views", materialized));
                     }
                     tablesFolder.setExpanded(true);

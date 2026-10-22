@@ -73,7 +73,7 @@ final class SqlHighlighter {
 
     static StyleSpans<Collection<String>> highlight(String text, DbType type) {
         StyleSpansBuilder<Collection<String>> spans = new StyleSpansBuilder<>();
-        highlight(text, 0, text.length(), type == DbType.MYSQL ? MYSQL_PATTERN : PATTERN, Set.of(), spans);
+        highlight(text, 0, text.length(), type != null && type.hashComments() ? MYSQL_PATTERN : PATTERN, Set.of(), spans);
         return spans.create();
     }
 

@@ -289,7 +289,7 @@ disconnect: keep).
 asking. `ScriptTab.confirmConnectionClose` now asks first, like the table tabs. Tried in the app: run a query, edit
 a cell, disconnect (keep / discard).
 
-### G5. Database differences are spread across the code — medium, before a fourth database
+### G5. Database differences are spread across the code — partly fixed
 
 29 branches on the database type in `DatabaseSession`, 19 more in 10 other classes (`SqlLexer`, `SqlInserts`,
 `SqlCompleter`, `DataCompareTab`, `GenerateSqlDialog`, …), and `MigrationSql` writes PostgreSQL only. SQL Server
@@ -297,6 +297,19 @@ or Oracle would mean finding all of them.
 
 **A `Dialect` per database** (quoting, casts, identity columns, paging, metadata queries, upsert syntax), and
 `MigrationSql` taking one. This is #5 with a deadline: before the fourth database, or before Generate SQL for MySQL.
+
+**Done, first step (the SQL text):** what differs in SQL *text* is now asked of `DbType` in one place: quoting
+(`quote`, `quoteIfNeeded`), string escapes, `$$` quotes, `#` comments, boolean and binary literals, catalog vs schema
+as the table's qualifier, system schemas, materialized views, and how to stream rows (fetch size, transaction).
+`SqlLexer`, `SqlInserts`, `SqlCompleter`, `SqlHighlighter`, `Namespace`, `TableTab`, `MainWindow`, `DataCompareTab`
+and five spots in `DatabaseSession` use them instead of their own `if (type == …)`. Outside `DatabaseSession` only
+defaults and the PostgreSQL-only Generate SQL remain; inside it, 25 branches (from 29). 2 tests pin the facts per
+database. **Still open:** those 25 are metadata queries (views, DDL, constraints, triggers, schemas): the
+`Dialect` interface proper, one implementation per database, moved out of `DatabaseSession` (also #5).
+
+**New, small (found here):** a null `DbType` means "plain SQL, no database" in the lexer, highlighter, completer and
+`Namespace`, by convention only; the tests caught a crash when the first version of this change forgot it. A
+`DbType.GENERIC` (or an explicit `SqlSyntax` value) would make that visible.
 
 ### G6. Saved files have no format versions — partly fixed
 
@@ -371,6 +384,6 @@ In order, now that other people use the app:
    both forms so existing `scripts.json` files keep working. Small, and it already caused a problem.
 3. **Split `DataCompareTab` (#12)** before the next compare feature, starting with `VerdictActions` (testable) and the
    shared `CompareFile`.
-4. **`Dialect` (#5)** before adding a fourth database.
+4. **`Dialect` (#5)** before adding a fourth database (the SQL-text half is done: `DbType`, G5).
 5. As needed: less static state (#7) once the screens get tests. (Paging, #4, and the side effects in
    `hasEdits()` / `show()`, #11, are fixed.)

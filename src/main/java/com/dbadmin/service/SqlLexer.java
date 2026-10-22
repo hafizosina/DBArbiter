@@ -30,8 +30,10 @@ final class SqlLexer {
 
     /** The tokens covering all of {@code sql}, in order; code characters next to each other form one token. */
     static List<Token> tokens(String sql, DbType type) {
-        boolean backslashEscapes = type == DbType.MYSQL;
-        boolean dollarQuotes = type == DbType.POSTGRESQL;
+        // no type (plain SQL): only what every database shares
+        boolean backslashEscapes = type != null && type.backslashEscapes();
+        boolean dollarQuotes = type != null && type.dollarQuotes();
+        boolean hashComments = type != null && type.hashComments();
         List<Token> tokens = new ArrayList<>();
         int n = sql.length();
         int codeStart = 0;
@@ -40,7 +42,7 @@ final class SqlLexer {
             char c = sql.charAt(i);
             char next = i + 1 < n ? sql.charAt(i + 1) : '\0';
             Token token = null;
-            if (c == '-' && next == '-' || c == '#' && type == DbType.MYSQL) {
+            if (c == '-' && next == '-' || c == '#' && hashComments) {
                 int end = sql.indexOf('\n', i);
                 token = new Token(Kind.LINE_COMMENT, i, end < 0 ? n : end, false);
             } else if (c == '/' && next == '*') {

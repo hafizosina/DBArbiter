@@ -705,7 +705,7 @@ public class DatabaseSession implements AutoCloseable {
                         to = new ArrayList<>();
                     }
                     name = rs.getString("FK_NAME");
-                    String targetNs = config.getType() == DbType.MYSQL ? rs.getString("PKTABLE_CAT") : rs.getString("PKTABLE_SCHEM");
+                    String targetNs = config.getType().qualifiesByCatalog() ? rs.getString("PKTABLE_CAT") : rs.getString("PKTABLE_SCHEM");
                     target = (targetNs == null ? "" : targetNs + ".") + rs.getString("PKTABLE_NAME");
                     from.add(rs.getString("FKCOLUMN_NAME"));
                     to.add(rs.getString("PKCOLUMN_NAME"));
@@ -872,11 +872,11 @@ public class DatabaseSession implements AutoCloseable {
         statementSent = true;
         boolean autoCommit = connection.getAutoCommit();
         // PostgreSQL only fetches in chunks (instead of all rows at once) inside a transaction
-        boolean postgres = config.getType() == DbType.POSTGRESQL;
+        boolean postgres = config.getType().streamsInTransactionOnly();
         if (postgres && autoCommit) connection.setAutoCommit(false);
         try (Statement st = connection.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)) {
             running = st;
-            st.setFetchSize(config.getType() == DbType.MYSQL ? Integer.MIN_VALUE : 1000);
+            st.setFetchSize(config.getType().streamingFetchSize(1000));
             try (ResultSet rs = st.executeQuery(sql)) {
                 ResultSetMetaData md = rs.getMetaData();
                 int n = md.getColumnCount();
@@ -1047,9 +1047,9 @@ public class DatabaseSession implements AutoCloseable {
      * so other work on the session would wait or run inside that transaction. Closing the session ends it all.
      */
     public RowCursor openCursor(String sql, List<String> params, int skip) throws SQLException {
-        if (config.getType() == DbType.POSTGRESQL) connection.setAutoCommit(false); // else PostgreSQL reads every row at once
+        if (config.getType().streamsInTransactionOnly()) connection.setAutoCommit(false); // else every row is read at once
         Statement st = params.isEmpty() ? connection.createStatement() : connection.prepareStatement(sql);
-        st.setFetchSize(config.getType() == DbType.MYSQL ? Integer.MIN_VALUE : 500); // MySQL: stream row by row
+        st.setFetchSize(config.getType().streamingFetchSize(500));
         running = st;
         try {
             ResultSet rs;
@@ -1166,7 +1166,7 @@ public class DatabaseSession implements AutoCloseable {
         String q = connection.getMetaData().getIdentifierQuoteString().trim();
         StringBuilder sb = new StringBuilder();
         // MySQL addresses tables as db.table, PostgreSQL as schema.table
-        String prefix = config.getType() == DbType.MYSQL ? t.catalog() : t.schema();
+        String prefix = config.getType().qualifiesByCatalog() ? t.catalog() : t.schema();
         if (prefix != null) sb.append(quote(prefix, q)).append('.');
         return sb.append(quote(t.name(), q)).toString();
     }

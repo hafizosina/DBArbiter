@@ -328,7 +328,7 @@ class TableTab extends Tab implements UnsavedWork {
     /** schema.table (database.table on MySQL), quoting names only where needed. */
     private String qualified() {
         DbType type = session.getConfig().getType();
-        String prefix = type == DbType.MYSQL ? table.catalog() : table.schema();
+        String prefix = type.qualifiesByCatalog() ? table.catalog() : table.schema();
         String name = SqlCompleter.quoteIfNeeded(table.name(), type);
         return prefix == null ? name : SqlCompleter.quoteIfNeeded(prefix, type) + "." + name;
     }

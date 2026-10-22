@@ -17,6 +17,6 @@ public record Namespace(String catalog, String schema, String label) {
      * sys, performance_schema, information_schema). Hidden in the navigator and search, like DBeaver.
      */
     public boolean isSystem(DbType type) {
-        return type != DbType.SQLITE && SYSTEM.contains(label.toLowerCase(Locale.ROOT));
+        return type != null && type.hasSystemSchemas() && SYSTEM.contains(label.toLowerCase(Locale.ROOT));
     }
 }

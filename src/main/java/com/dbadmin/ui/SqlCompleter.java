@@ -365,12 +365,8 @@ final class SqlCompleter {
         for (String t : SqlHighlighter.TYPES) RESERVED.add(t);
     }
 
+    /** A name as written in SQL for this database (see {@link DbType#quoteIfNeeded}); no type: plain SQL rules. */
     static String quoteIfNeeded(String name, DbType type) {
-        if (type == DbType.MYSQL) {
-            return name.matches("[A-Za-z0-9_$]+") ? name : "`" + name.replace("`", "``") + "`";
-        }
-        // PostgreSQL folds unquoted names to lower case; SQLite is case-insensitive
-        String plain = type == DbType.POSTGRESQL ? "[a-z_][a-z0-9_$]*" : "[A-Za-z_][A-Za-z0-9_]*";
-        return name.matches(plain) ? name : "\"" + name.replace("\"", "\"\"") + "\"";
+        return (type == null ? DbType.SQLITE : type).quoteIfNeeded(name);
     }
 }

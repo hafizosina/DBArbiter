@@ -70,7 +70,7 @@ public final class SqlInserts {
     /** A value as an SQL literal of the given database. */
     static String literal(Object v, DbType type) {
         if (v == null) return "NULL";
-        if (v instanceof Boolean b) return type == DbType.SQLITE ? (b ? "1" : "0") : (b ? "TRUE" : "FALSE");
+        if (v instanceof Boolean b) return type.booleanLiteral(b);
         if (v instanceof BigDecimal d) return d.toPlainString();
         if (v instanceof Integer || v instanceof Long || v instanceof Short || v instanceof Byte) return v.toString();
         if (v instanceof Double || v instanceof Float) {
@@ -79,7 +79,7 @@ public final class SqlInserts {
         }
         if (v instanceof byte[] bytes) {
             String hex = HexFormat.of().formatHex(bytes);
-            return type == DbType.POSTGRESQL ? "'\\x" + hex + "'::bytea" : "X'" + hex + "'";
+            return type.binaryLiteral(hex);
         }
         return string(v.toString(), type);
     }
@@ -87,7 +87,7 @@ public final class SqlInserts {
     private static String string(String s, DbType type) {
         String escaped = s.replace("'", "''");
         // MySQL reads a backslash in a string as an escape
-        if (type == DbType.MYSQL) escaped = escaped.replace("\\", "\\\\");
+        if (type.backslashEscapes()) escaped = escaped.replace("\\", "\\\\");
         return "'" + escaped + "'";
     }
 }
