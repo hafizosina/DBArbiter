@@ -13,6 +13,7 @@ import com.dbadmin.service.compare.DataCompareReport;
 import com.dbadmin.service.compare.KeyJoins;
 import com.dbadmin.service.compare.MigrationSql;
 import com.dbadmin.service.compare.Verdict;
+import com.dbadmin.service.compare.Verdicts;
 import javafx.beans.property.BooleanProperty;
 import javafx.beans.property.ReadOnlyStringWrapper;
 import javafx.beans.property.SimpleBooleanProperty;
@@ -1123,28 +1124,11 @@ class DataCompareTab extends Tab {
         return rows;
     }
 
-    /** Sets (null: clears) the verdict of the given grid rows where it fits their status; other rows are left alone. */
-    /** Every row without a verdict gets the usual one for its status; DELETE is never suggested. */
+    /** Every row without a verdict gets the usual one for its status (see {@link Verdicts#suggest}). */
     private void suggestVerdicts() {
         if (report == null) return;
-        int set = 0;
-        for (Map.Entry<DataCompare.RowStatus, List<Object>> e : reportRows) {
-            DataCompareReport.Row r = ((VerdictCell) e.getValue().get(1)).row;
-            if (r.verdict != null) continue;
-            Verdict v = switch (r.status) {
-                case ONLY_SOURCE -> Verdict.INSERT;
-                case CHANGED -> Verdict.UPDATE;
-                case ONLY_TARGET -> Verdict.SKIP;
-                case MATCH, DUPLICATE_KEY -> null;
-            };
-            if (v == null) continue;
-            r.verdict = v;
-            set++;
-        }
-        if (set > 0) unsaved = true;
-        refreshDirty();
-        dataGrid.refresh();
-        updateVerdictSummary();
+        int set = Verdicts.suggest(rowsOf(reportRows.stream().map(Map.Entry::getValue).toList()));
+        verdictsChanged(set);
         dataStatus.setText(set + " verdict(s) suggested; rows already decided were kept" + (unsaved ? " · not saved" : ""));
     }
 
@@ -1172,97 +1156,46 @@ class DataCompareTab extends Tab {
 
     /**
      * Ctrl+V: a copied verdict (e.g. a Verdict cell copied with Ctrl+C) on each selected row it fits; several
-     * copied verdicts onto as many selected rows go one by one.
+     * copied verdicts onto as many selected rows go one by one (see {@link Verdicts#paste}).
      */
     private void pasteVerdicts() {
-        String text = javafx.scene.input.Clipboard.getSystemClipboard().getString();
-        if (text == null) return;
-        List<String> words = text.lines().map(String::strip).filter(w -> !w.isEmpty()).toList();
         List<List<Object>> rows = dataGrid.getSelectionModel().getSelectedCells().stream()
                 .map(c -> c.getRow()).distinct().sorted().map(i -> dataGrid.getItems().get(i)).toList();
-        if (words.isEmpty() || rows.isEmpty()) return;
-        if (words.size() == 1) {
-            Verdict v = parseVerdict(words.get(0));
-            if (v == null && !isClear(words.get(0))) {
-                dataStatus.setText("The clipboard holds no verdict (INSERT, UPDATE, DELETE or SKIP).");
-                return;
-            }
-            applyVerdict(v, rows);
-            return;
-        }
-        if (words.size() != rows.size()) {
-            dataStatus.setText(words.size() + " verdicts copied but " + rows.size() + " rows selected: select as many rows, or copy one verdict.");
-            return;
-        }
-        int set = 0;
-        int skipped = 0;
-        for (int i = 0; i < rows.size(); i++) {
-            Verdict v = parseVerdict(words.get(i));
-            DataCompareReport.Row r = ((VerdictCell) rows.get(i).get(1)).row;
-            if (v == null && !isClear(words.get(i)) || v != null && !Verdict.allowed(r.status).contains(v)) {
-                skipped++;
-                continue;
-            }
-            if (r.verdict != v) {
-                r.verdict = v;
-                set++;
-            }
-        }
-        if (set > 0) unsaved = true;
-        refreshDirty();
-        dataGrid.refresh();
-        updateVerdictSummary();
-        dataStatus.setText(set + " verdict(s) pasted" + (skipped > 0 ? "; " + skipped + " row(s) left alone (not a verdict for their status)" : "")
-                + (unsaved ? " · not saved" : ""));
-    }
-
-    private static Verdict parseVerdict(String word) {
+        Verdicts.Applied done;
         try {
-            return Verdict.valueOf(word.toUpperCase(java.util.Locale.ROOT));
+            done = Verdicts.paste(javafx.scene.input.Clipboard.getSystemClipboard().getString(), rowsOf(rows));
         } catch (IllegalArgumentException e) {
-            return null;
+            dataStatus.setText(e.getMessage());
+            return;
         }
+        verdictsChanged(done.changed());
+        dataStatus.setText(done.changed() + " verdict(s) pasted" + (done.skipped() > 0 ? "; " + done.skipped()
+                + " row(s) left alone (not a verdict for their status)" : "") + (unsaved ? " · not saved" : ""));
     }
 
-    /** An undecided verdict cell copied ("–") or the word CLEAR: pasting it clears the verdict. */
-    private static boolean isClear(String word) {
-        return word.equals("–") || word.equalsIgnoreCase("CLEAR");
-    }
-
+    /** Sets (null: clears) the verdict of the given grid rows where it fits their status; other rows are left alone. */
     private void applyVerdict(Verdict v, Collection<List<Object>> rows) {
-        int changed = 0;
-        int skipped = 0;
-        for (List<Object> row : rows) {
-            DataCompareReport.Row r = ((VerdictCell) row.get(1)).row;
-            if (v != null && !Verdict.allowed(r.status).contains(v)) {
-                skipped++;
-                continue;
-            }
-            if (r.verdict != v) {
-                r.verdict = v;
-                changed++;
-            }
-        }
+        Verdicts.Applied done = Verdicts.apply(v, rowsOf(rows));
+        verdictsChanged(done.changed());
+        dataStatus.setText(done.changed() + " verdict(s) set" + (done.skipped() > 0 ? "; " + done.skipped() + " row(s) left alone ("
+                + (v == null ? "" : v.label()) + " does not fit their status)" : "") + (unsaved ? " · not saved" : ""));
+    }
+
+    /** The report rows behind grid rows (their Verdict cell holds the row). */
+    private static List<DataCompareReport.Row> rowsOf(Collection<List<Object>> gridRows) {
+        return gridRows.stream().map(row -> ((VerdictCell) row.get(1)).row).toList();
+    }
+
+    /** After verdicts were set: the dirty marker, the grid and the summary follow. */
+    private void verdictsChanged(int changed) {
         if (changed > 0) unsaved = true;
         refreshDirty();
         dataGrid.refresh();
         updateVerdictSummary();
-        dataStatus.setText(changed + " verdict(s) set" + (skipped > 0 ? "; " + skipped + " row(s) left alone (" + (v == null ? "" : v.label())
-                + " does not fit their status)" : "") + (unsaved ? " · not saved" : ""));
     }
 
     private void updateVerdictSummary() {
-        if (report == null) return;
-        // only the verdicts in use, then what is left to decide
-        List<String> parts = new ArrayList<>();
-        for (Verdict v : Verdict.values()) {
-            long n = report.count(v);
-            if (n > 0) parts.add(n + " " + v.label().toLowerCase(java.util.Locale.ROOT));
-        }
-        long open = report.undecided();
-        if (open > 0 || parts.isEmpty()) parts.add(open + " to decide");
-        verdictSummary.setText(String.join(" · ", parts));
-
+        if (report != null) verdictSummary.setText(Verdicts.summary(report));
     }
 
     // ---- saving --------------------------------------------------------------

@@ -1,0 +1,121 @@
+package com.dbadmin.service.compare;
+
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.List;
+import java.util.Locale;
+
+/**
+ * Setting the verdicts of a data compare's rows: by hand, suggested, or pasted. A verdict only goes on a row whose
+ * status it fits (see {@link Verdict#allowed}); other rows are left alone and counted. No JavaFX: the Data Compare tab
+ * calls these and says what happened.
+ */
+public final class Verdicts {
+
+    /** What a change did: rows whose verdict changed, rows left alone (the verdict does not fit their status). */
+    public record Applied(int changed, int skipped) {
+    }
+
+    private Verdicts() {
+    }
+
+    /** Sets {@code v} (null: clears it) on each row it fits. */
+    public static Applied apply(Verdict v, Collection<DataCompareReport.Row> rows) {
+        int changed = 0;
+        int skipped = 0;
+        for (DataCompareReport.Row r : rows) {
+            if (v != null && !Verdict.allowed(r.status).contains(v)) {
+                skipped++;
+            } else if (r.verdict != v) {
+                r.verdict = v;
+                changed++;
+            }
+        }
+        return new Applied(changed, skipped);
+    }
+
+    /**
+     * Every row without a verdict gets the usual one for its status: only in source INSERT, changed UPDATE, only in
+     * target SKIP (DELETE is never suggested). Rows already decided are kept. Returns how many were set.
+     */
+    public static int suggest(Collection<DataCompareReport.Row> rows) {
+        int set = 0;
+        for (DataCompareReport.Row r : rows) {
+            if (r.verdict != null) continue;
+            Verdict v = switch (r.status) {
+                case ONLY_SOURCE -> Verdict.INSERT;
+                case CHANGED -> Verdict.UPDATE;
+                case ONLY_TARGET -> Verdict.SKIP;
+                case MATCH, DUPLICATE_KEY -> null;
+            };
+            if (v == null) continue;
+            r.verdict = v;
+            set++;
+        }
+        return set;
+    }
+
+    /**
+     * Pastes copied text (one verdict per line, e.g. Verdict cells copied with Ctrl+C) onto rows: one word goes on
+     * every row it fits; several go one by one and must be as many as the rows. A word that is not a verdict skips its
+     * row; "–" (an undecided cell) or CLEAR clears it.
+     *
+     * @throws IllegalArgumentException with a message for the user when nothing can be pasted
+     */
+    public static Applied paste(String clipboard, List<DataCompareReport.Row> rows) {
+        List<String> words = clipboard == null ? List.of() : clipboard.lines().map(String::strip).filter(w -> !w.isEmpty()).toList();
+        if (words.isEmpty() || rows.isEmpty()) return new Applied(0, 0);
+        if (words.size() == 1) {
+            String word = words.get(0);
+            Verdict v = parse(word);
+            if (v == null && !isClear(word)) {
+                throw new IllegalArgumentException("The clipboard holds no verdict (INSERT, UPDATE, DELETE or SKIP).");
+            }
+            return apply(v, rows);
+        }
+        if (words.size() != rows.size()) {
+            throw new IllegalArgumentException(words.size() + " verdicts copied but " + rows.size()
+                    + " rows selected: select as many rows, or copy one verdict.");
+        }
+        int changed = 0;
+        int skipped = 0;
+        for (int i = 0; i < rows.size(); i++) {
+            String word = words.get(i);
+            Verdict v = parse(word);
+            if (v == null && !isClear(word)) {
+                skipped++;
+                continue;
+            }
+            Applied one = apply(v, List.of(rows.get(i)));
+            changed += one.changed();
+            skipped += one.skipped();
+        }
+        return new Applied(changed, skipped);
+    }
+
+    /** "4 insert · 1 update · 12 to decide": the verdicts in use, then what is left to decide. */
+    public static String summary(DataCompareReport report) {
+        List<String> parts = new ArrayList<>();
+        for (Verdict v : Verdict.values()) {
+            long n = report.count(v);
+            if (n > 0) parts.add(n + " " + v.label().toLowerCase(Locale.ROOT));
+        }
+        long open = report.undecided();
+        if (open > 0 || parts.isEmpty()) parts.add(open + " to decide");
+        return String.join(" · ", parts);
+    }
+
+    /** INSERT / insert / … as a verdict; null for anything else. */
+    static Verdict parse(String word) {
+        try {
+            return Verdict.valueOf(word.toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    /** An undecided verdict cell copied ("–") or the word CLEAR: pasting it clears the verdict. */
+    static boolean isClear(String word) {
+        return word.equals("–") || word.equalsIgnoreCase("CLEAR");
+    }
+}

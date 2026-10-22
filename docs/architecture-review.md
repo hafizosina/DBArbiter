@@ -21,7 +21,7 @@ _First review: 2026-10-21 at commit `70ef05a` (the app was called DBAdmin then).
 | 9 | Errors swallowed silently | **Fixed**: non-editable results say why; errors are logged to `~/.dbadmin/logs` |
 | 10 | Small tidy-ups | **Fixed** |
 | 11 | `DataView` growing; side effects in `hasEdits()` / `show()` | **Partly fixed**: pending edits moved to a tested class; the side effects remain |
-| 12 | `DataCompareTab` is the largest class | Open (new): 1,349 lines, 45 methods |
+| 12 | `DataCompareTab` is the largest class | **In progress**: verdict rules moved to the tested `Verdicts` (1,282 lines left) |
 | 13 | `MainWindow` growing again | Open (new): 985 lines |
 | 14 | Shipping to other people | **Partly fixed**: "Save password" option. OS keyring, license check, release build remain |
 
@@ -155,7 +155,9 @@ code only. Each new compare feature has landed here, so it keeps growing.
 **Suggested split**, moving code without changing behaviour:
 - `JoinEditor`: the join rows, alias and ON suggestion (today `JoinRow`, `suggestOn`, `takenAliases`)
 - `ColumnPicker`: the Key / Compare / Show table and its shift-click cells
-- `VerdictActions`: set, paste, suggest and summarise verdicts; this part could also move out of JavaFX and get tests
+- ~~`VerdictActions`~~ **done** as `service/compare/Verdicts`: set, paste, suggest and summarise verdicts, no JavaFX,
+  4 tests; the tab keeps only the messages and refreshes (and lost an orphaned doc comment on the way). Tried in the
+  app: key U on a changed row, key I refused there with the reason, Suggest, the `*` on the tab.
 - `CompareFile`: save / save as / dirty / confirm close, the same in both compare tabs (`SchemaCompareTab` has a copy)
 
 ### 13. `MainWindow` is growing again — open (new)
