@@ -27,14 +27,25 @@ public final class CompareReportFiles {
         com.dbadmin.service.JsonFiles.write(MAPPER, file, report, false);
     }
 
-    /** Reads a report: a {@link DataCompareReport} or a {@link SchemaCompareReport}. */
+    /**
+     * Reads a report: a {@link DataCompareReport} or a {@link SchemaCompareReport}. A file from a newer version of
+     * the app (a higher format version) is refused rather than misread; an older one would be upgraded here, field
+     * by field, before it is read (none yet: version 1 is the first). A file without a version is version 1.
+     */
     public static Object open(Path file) throws IOException {
         JsonNode json = MAPPER.readTree(Files.readString(file, StandardCharsets.UTF_8));
         String kind = json.path("kind").asText("");
-        return switch (kind) {
-            case DataCompareReport.KIND -> MAPPER.treeToValue(json, DataCompareReport.class);
-            case SchemaCompareReport.KIND -> MAPPER.treeToValue(json, SchemaCompareReport.class);
+        int version = json.path("version").asInt(1);
+        int current = switch (kind) {
+            case DataCompareReport.KIND -> DataCompareReport.VERSION;
+            case SchemaCompareReport.KIND -> SchemaCompareReport.VERSION;
             default -> throw new IOException(file.getFileName() + " is not a DBArbiter compare report.");
         };
+        if (version > current) {
+            throw new IOException(file.getFileName() + " was saved by a newer version of DBArbiter (file format " + version
+                    + "; this version reads up to " + current + "). Update the app to open it.");
+        }
+        return kind.equals(DataCompareReport.KIND) ? MAPPER.treeToValue(json, DataCompareReport.class)
+                : MAPPER.treeToValue(json, SchemaCompareReport.class);
     }
 }

@@ -137,4 +137,19 @@ class CompareReportTest {
         assertTrue(html.contains("1 identical rows are not listed"));
         assertTrue(html.contains("<span class=old>2</span><br><span class=new>3</span>"));
     }
+
+    /** A report from a newer app version is refused with a clear message; one without a version opens as version 1. */
+    @Test
+    void checksTheFileFormatVersion(@TempDir Path dir) throws Exception {
+        Path newer = dir.resolve("newer.dbcompare");
+        java.nio.file.Files.writeString(newer, "{\"kind\": \"data\", \"version\": " + (DataCompareReport.VERSION + 1) + "}");
+        java.io.IOException e = org.junit.jupiter.api.Assertions.assertThrows(java.io.IOException.class, () -> CompareReportFiles.open(newer));
+        assertTrue(e.getMessage().contains("newer version of DBArbiter"), e.getMessage());
+
+        Path unversioned = dir.resolve("old.dbcompare");
+        java.nio.file.Files.writeString(unversioned, "{\"kind\": \"table\", \"sourceLabel\": \"UAT\"}");
+        SchemaCompareReport r = (SchemaCompareReport) CompareReportFiles.open(unversioned);
+        assertEquals("UAT", r.sourceLabel);
+        assertEquals(SchemaCompareReport.VERSION, r.version);
+    }
 }

@@ -233,7 +233,7 @@ or Oracle would mean finding all of them.
 **A `Dialect` per database** (quoting, casts, identity columns, paging, metadata queries, upsert syntax), and
 `MigrationSql` taking one. This is #5 with a deadline: before the fourth database, or before Generate SQL for MySQL.
 
-### G6. Saved files have no format versions — medium
+### G6. Saved files have no format versions — partly fixed
 
 `.dbcompare` files carry `"version": 1`, but nothing reads it; `settings.json`, `connections.json` and
 `scripts.json` have none. Today a change is handled by Jackson ignoring unknown fields and defaulting missing
@@ -242,6 +242,15 @@ the app when it tells them a new version is out, so old files meet new versions.
 
 **Read the version and upgrade old files in one place per format**, and refuse with a clear message a file from a
 newer version, instead of misreading it.
+
+**Done for compare files** (the ones people keep and share): `CompareReportFiles.open` reads `version` (missing
+means 1), refuses a newer one with "saved by a newer version of DBArbiter … Update the app to open it", and is the
+one place where older formats will be upgraded. Each report class has its `VERSION`. 1 test; the 13 saved reports
+in `Reports/` still open.
+
+**Still open:** `settings.json`, `connections.json` (a JSON array, so a version needs a wrapping object, read in both
+forms) and `scripts.json`. Missing fields are filled with defaults, so nothing breaks today; add the version the
+first time one of their fields changes meaning.
 
 ### G7. Screen code holds logic that cannot be tested — medium
 
@@ -279,7 +288,7 @@ is fine, but a public API or plugin later would carry it.
 | Before the scan tool | A job connection per tool run, a shared `Job` with progress and cancel, streaming | G1, G2, G3 |
 | Before the next tool after that | `ToolTab` and a shared compare file; split `DataCompareTab` | G4, #12 |
 | Before a fourth database or MySQL migrations | `Dialect` | G5, #5 |
-| Whenever a file format changes next | Format versions with upgrades | G6 |
+| Whenever a file format changes next | Format versions with upgrades (compare files done) | G6 |
 | Ongoing | Logic out of screens for new code | G7 |
 | Optional | Drop WebView, resource bundle, single build script | G8, G9, G10 |
 

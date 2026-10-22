@@ -10,7 +10,10 @@ public final class SchemaCompareReport {
     public static final String KIND = "table";
 
     public String kind = KIND;
-    public int version = 1;
+    /** The file format this app writes; raise it when a field changes meaning (see CompareReportFiles.open). */
+    public static final int VERSION = 1;
+
+    public int version = VERSION;
     /** Only the settings (no tables): opening it compares again. */
     public boolean settingsOnly;
     public String created;
