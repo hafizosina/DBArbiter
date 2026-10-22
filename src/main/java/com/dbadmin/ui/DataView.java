@@ -114,6 +114,7 @@ class DataView extends BorderPane {
         grid.itemsProperty().addListener((o, a, b) -> {
             // new rows: edits of the old ones are gone (callers ask first, see confirmDiscard)
             edits.clear();
+            inserted.clear();
             editTarget = null;
             notEditable = false;
             editInfo.setText("");
@@ -249,17 +250,43 @@ class DataView extends BorderPane {
     private final Button revertEdits = new Button("Revert all");
     private final HBox editBar = new HBox(8, editInfo, saveEdits, revertEdits);
     private Runnable onSaved = () -> { };
+    /** The caller shows the rows again after a save. */
+    private boolean savedReloads;
+    /** New rows inserted by the last save while the rows were not read again: shown, no longer editable. */
+    private final List<List<Object>> inserted = new ArrayList<>();
+
+    /** By identity: two rows can hold equal values. */
+    private static int indexOfRow(List<List<Object>> rows, List<Object> row) {
+        for (int i = 0; i < rows.size(); i++) {
+            if (rows.get(i) == row) return i;
+        }
+        return -1;
+    }
+
+    private static boolean containsRow(List<List<Object>> rows, List<Object> row) {
+        return indexOfRow(rows, row) >= 0;
+    }
+
+    private void removeRow(List<Object> row) {
+        int i = indexOfRow(grid.getItems(), row);
+        if (i >= 0) grid.getItems().remove(i);
+    }
 
     /**
      * Makes the shown rows editable for {@code target}'s table: the columns that are table columns
-     * (not the primary key, which finds the row). {@code onSaved} runs after a successful save.
+     * (not the primary key, which finds the row); new rows get every table column. Rows can be added,
+     * duplicated and deleted. {@code onSaved} runs after a successful save; {@code reloads}: it shows the rows
+     * again (with the values the database gave new rows), else new rows stay as inserted, no longer editable.
      */
-    void enableEditing(TableEditing.Target target, Runnable onSaved) {
+    void enableEditing(TableEditing.Target target, Runnable onSaved, boolean reloads) {
         editTarget = target;
         notEditable = false;
         this.onSaved = onSaved;
+        this.savedReloads = reloads;
         edits.clear();
+        inserted.clear();
         Set<Integer> columns = new HashSet<>();
+        Set<Integer> newRowColumns = new HashSet<>();
         List<String> names = grid.columnNames();
         Set<String> pk = new HashSet<>();
         target.primaryKey().forEach(k -> pk.add(k.toLowerCase()));
@@ -267,10 +294,60 @@ class DataView extends BorderPane {
         if (!target.readOnlyConnection() && keyShown) {
             for (int i = 0; i < names.size(); i++) {
                 String n = names.get(i).toLowerCase();
-                if (target.columns().contains(n) && !pk.contains(n)) columns.add(i);
+                if (!target.columns().contains(n)) continue;
+                newRowColumns.add(i);
+                if (!pk.contains(n)) columns.add(i);
             }
         }
-        grid.setEditing(columns, new DataGrid.Editor() {
+        // a duplicate copies what the user would retype; the key and generated values are left to the database
+        Set<Integer> copied = new HashSet<>();
+        for (int i : newRowColumns) {
+            String n = names.get(i).toLowerCase();
+            if (!pk.contains(n) && !target.generated().contains(n)) copied.add(i);
+        }
+        grid.setEditing(columns, newRowColumns, new DataGrid.Editor() {
+            @Override
+            public DataGrid.RowState state(List<Object> row) {
+                if (edits.isAdded(row)) return DataGrid.RowState.NEW;
+                if (edits.isDeleted(row)) return DataGrid.RowState.DELETED;
+                return containsRow(inserted, row) ? DataGrid.RowState.SAVED_NEW : DataGrid.RowState.SHOWN;
+            }
+
+            @Override
+            public void addRow(List<Object> after, List<Object> copyOf) {
+                List<Object> row = new ArrayList<>();
+                for (int i = 0; i < names.size(); i++) {
+                    Object v = copyOf == null || !copied.contains(i) ? PendingEdits.Default.VALUE : copyOf.get(i);
+                    // a binary value read only in part cannot be copied
+                    row.add(v instanceof BlobValue b && b.isTruncated() ? PendingEdits.Default.VALUE : v);
+                }
+                edits.add(row);
+                int at = after == null ? -1 : indexOfRow(grid.getItems(), after);
+                int index = at < 0 ? grid.getItems().size() : at + 1;
+                grid.getItems().add(index, row);
+                grid.getSelectionModel().clearAndSelect(index, grid.getVisibleLeafColumns().isEmpty() ? null : grid.getVisibleLeafColumns().get(0));
+                grid.scrollTo(Math.max(0, index - 3));
+                grid.refresh();
+                updateEditBar();
+            }
+
+            @Override
+            public void deleteRows(List<List<Object>> rows) {
+                for (List<Object> row : rows) {
+                    if (containsRow(inserted, row)) continue;
+                    if (edits.delete(row)) removeRow(row);
+                }
+                grid.refresh();
+                updateEditBar();
+            }
+
+            @Override
+            public void restoreRows(List<List<Object>> rows) {
+                rows.forEach(edits::restore);
+                grid.refresh();
+                updateEditBar();
+            }
+
             @Override
             public void edited(List<Object> row, int column, Object value) {
                 editCell(row, column, value);
@@ -320,7 +397,7 @@ class DataView extends BorderPane {
         if (!hasEdits()) return true;
         inspector.applyPending(); // typed text counts as an edit in the question
         Alert ask = new Alert(Alert.AlertType.CONFIRMATION,
-                edits.cellCount() + " edited cell(s) in " + edits.rowCount() + " row(s) are not saved. Discard them?",
+                "Changes to " + edits.summary() + " are not saved. Discard them?",
                 ButtonType.YES, ButtonType.NO);
         ask.setHeaderText("Unsaved changes");
         if (InAppDialogs.showAndWait(ask).orElse(ButtonType.NO) != ButtonType.YES) return false;
@@ -343,7 +420,7 @@ class DataView extends BorderPane {
     }
 
     private void revertAll() {
-        edits.revertAll();
+        edits.revertAll().forEach(this::removeRow);
         grid.refresh();
         updateEditBar();
     }
@@ -358,31 +435,40 @@ class DataView extends BorderPane {
         record.refresh();
         if (!editable) return;
         if (edits.isEmpty()) {
-            editInfo.setText("✎ Editable · double-click a cell · saved only with Save");
+            editInfo.setText("✎ Editable · double-click a cell · right-click to add or delete rows · saved only with Save");
         } else {
-            editInfo.setText(edits.cellCount() + " change(s) in " + edits.rowCount() + " row(s), not saved yet");
+            editInfo.setText(edits.summary() + ", not saved yet");
         }
     }
 
-    /** Shows the UPDATE statements, asks, then applies them in one transaction. */
+    /** Shows the DELETE, UPDATE and INSERT statements, asks, then applies them in one transaction. */
     private void saveEdits() {
         inspector.applyPending(); // text typed in the value panel is saved too
         if (edits.isEmpty() || editTarget == null) return;
         TableEditing.Target target = editTarget;
-        List<DatabaseSession.RowUpdate> updates = edits.updates(grid.columnNames(), target.primaryKey());
+        List<String> names = grid.columnNames();
+        DatabaseSession.RowChanges changes;
+        try {
+            changes = new DatabaseSession.RowChanges(edits.deletes(names, target.primaryKey()),
+                    edits.updates(names, target.primaryKey()), edits.inserts(names));
+        } catch (IllegalStateException ex) {
+            editInfo.setText("Could not prepare the changes: " + ex.getMessage());
+            return;
+        }
+        String summary = edits.summary();
         DatabaseSession session = target.session();
         Async.run(session, () -> {
             List<String> sql = new ArrayList<>();
-            for (var u : updates) sql.add(session.describeUpdate(target.table(), u) + ";");
+            for (String statement : session.describeChanges(target.table(), changes)) sql.add(statement + ";");
             return sql;
         }, sql -> {
-            ButtonType save = new ButtonType("Save " + updates.size() + " row(s)",
+            ButtonType save = new ButtonType("Save " + changes.size() + " row(s)",
                     ButtonBar.ButtonData.OK_DONE);
-            Alert ask = new Alert(Alert.AlertType.CONFIRMATION,
+            Alert ask = new Alert(changes.deletes().isEmpty() ? Alert.AlertType.CONFIRMATION : Alert.AlertType.WARNING,
                     "Write to \"" + session.getConfig().getName() + "\" · " + target.table().displayName()
                             + " in one transaction. If any row was changed meanwhile, nothing is saved.",
                     save, ButtonType.CANCEL);
-            ask.setHeaderText("Save " + updates.size() + " changed row(s)?");
+            ask.setHeaderText("Save " + summary + "?");
             TextArea statements = new TextArea(String.join("\n", sql));
             statements.setEditable(false);
             statements.setWrapText(true); // a long UPDATE wraps instead of needing a sideways scroll
@@ -406,12 +492,17 @@ class DataView extends BorderPane {
             if (InAppDialogs.showAndWait(ask).orElse(ButtonType.CANCEL) != save) return;
             saveEdits.setDisable(true);
             editInfo.setText("Saving…");
-            Async.run(session, () -> session.applyUpdates(target.table(), updates), n -> {
+            List<List<Object>> deletedRows = grid.getItems().stream().filter(edits::isDeleted).toList();
+            List<List<Object>> newRows = grid.getItems().stream().filter(edits::isAdded).toList();
+            Async.run(session, () -> session.applyChanges(target.table(), changes), n -> {
                 saveEdits.setDisable(false);
                 edits.clear();
+                deletedRows.forEach(this::removeRow);
+                if (!savedReloads) inserted.addAll(newRows);
                 grid.refresh();
                 updateEditBar();
-                editInfo.setText("✔ Saved " + n + " row(s).");
+                editInfo.setText("✔ Saved " + n + " row(s)." + (!savedReloads && !newRows.isEmpty()
+                        ? " Run the query again to edit the new rows." : ""));
                 onSaved.run();
             }, ex -> {
                 saveEdits.setDisable(false);

@@ -179,7 +179,7 @@ class RecordView extends BorderPane {
 
         private boolean editable() {
             return !isEmpty() && getTableRow() != null && getTableRow().getItem() != null && row >= 0
-                    && grid.isEditableColumn(column());
+                    && row < grid.getItems().size() && grid.isEditable(grid.getItems().get(row), column());
         }
 
         private void startTyping() {
@@ -189,7 +189,8 @@ class RecordView extends BorderPane {
                 grid.editor().editMultiLine();
                 return;
             }
-            field = new TextField(getItem() == null ? "" : getItem().toString());
+            boolean blank = getItem() == null || getItem() == PendingEdits.Default.VALUE;
+            field = new TextField(blank ? "" : getItem().toString());
             field.setOnAction(e -> commit());
             field.setOnKeyPressed(e -> {
                 if (e.getCode() == KeyCode.ESCAPE) stopTyping();
@@ -206,7 +207,8 @@ class RecordView extends BorderPane {
         /** Sets the typed text, except an untouched empty field on a NULL (that would make it ''). */
         private void commit() {
             String text = field.getText();
-            boolean untouched = getItem() == null && text.isEmpty() || getItem() != null && text.equals(getItem().toString());
+            boolean blank = getItem() == null || getItem() == PendingEdits.Default.VALUE;
+            boolean untouched = blank ? text.isEmpty() : text.equals(getItem().toString());
             stopTyping();
             if (!untouched) edited(text);
         }
@@ -243,7 +245,7 @@ class RecordView extends BorderPane {
                 setGraphic(check);
             } else {
                 setText(DataGrid.oneLine(value));
-                if (value == null || value instanceof BlobValue) getStyleClass().add("null-value");
+                if (value == null || value instanceof BlobValue || value == PendingEdits.Default.VALUE) getStyleClass().add("null-value");
             }
         }
     }

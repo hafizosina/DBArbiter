@@ -153,6 +153,9 @@
 
 /* edited cells, not yet saved */
 .table-row-cell .cell-edited { -fx-background-color: #c8e6c9; -fx-font-weight: bold; }
+.table-row-cell.row-new { -fx-background-color: #e8f5e9; }
+.table-row-cell.row-deleted { -fx-background-color: #ffebee; }
+.table-row-cell.row-deleted .text { -fx-strikethrough: true; -fx-fill: #b71c1c; }
 .edit-bar { -fx-border-color: #d0d0d0 transparent transparent transparent; }
 
 /* SQL diff of view definitions */

@@ -88,6 +88,9 @@
 .cmp-only-target { -fx-text-fill: #ff7b72; }
 .table-row-cell .cmp-cell-changed { -fx-background-color: #4a3518; -fx-text-fill: #ffcc80; }
 .table-row-cell .cell-edited { -fx-background-color: #2e5a33; -fx-text-fill: #e0f2e1; }
+.table-row-cell.row-new { -fx-background-color: #1f3a24; }
+.table-row-cell.row-deleted { -fx-background-color: #4a1f1f; }
+.table-row-cell.row-deleted .text { -fx-strikethrough: true; -fx-fill: #ef9a9a; }
 .compare-settings { -fx-border-color: transparent transparent #43454a transparent; }
 .edit-bar { -fx-border-color: #43454a transparent transparent transparent; }
 .sql-diff .diff-removed { -fx-background-color: #5c2427; }

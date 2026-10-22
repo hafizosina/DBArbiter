@@ -114,4 +114,54 @@ class PendingEditsTest {
         edits.set(r, 0, "b");
         assertThrows(IllegalStateException.class, () -> edits.updates(List.of("name"), List.of("id")));
     }
+
+    @Test
+    void newRowsAreInsertedWithoutTheCellsLeftToTheDatabase() {
+        List<Object> r = row(PendingEdits.Default.VALUE, PendingEdits.Default.VALUE, "copied");
+        edits.add(r);
+        edits.set(r, 1, "typed");
+        assertTrue(edits.isAdded(r));
+        assertEquals(List.of(Map.of("name", "typed", "note", "copied")), edits.inserts(List.of("id", "name", "note")));
+        assertEquals(List.of(), edits.updates(List.of("id", "name", "note"), List.of("id")), "a new row is no update");
+        // back to DEFAULT: left out again; "[DEFAULT]" typed as text is a value, not the default
+        edits.set(r, 1, PendingEdits.Default.VALUE);
+        assertEquals(List.of(Map.of("note", "copied")), edits.inserts(List.of("id", "name", "note")));
+        edits.set(r, 0, "[DEFAULT]");
+        assertTrue(edits.isEdited(r, 0));
+        assertEquals("1 new row(s)", edits.summary());
+    }
+
+    @Test
+    void deletedRowsAreDeletedByTheirOriginalKeyAndNotUpdated() {
+        List<Object> a = row(1, "a");
+        List<Object> b = row(2, "b");
+        edits.set(a, 1, "A");
+        edits.set(b, 1, "B");
+        assertFalse(edits.delete(b), "a shown row stays in the grid, marked");
+        assertTrue(edits.isDeleted(b));
+        assertEquals(List.of(Map.of("id", 2)), edits.deletes(List.of("id", "name"), List.of("id")));
+        assertEquals(1, edits.updates(List.of("id", "name"), List.of("id")).size());
+        assertEquals("1 changed, 1 deleted row(s)", edits.summary());
+        edits.restore(b);
+        assertEquals(2, edits.updates(List.of("id", "name"), List.of("id")).size());
+    }
+
+    @Test
+    void deletingANewRowJustDropsIt() {
+        List<Object> r = row(PendingEdits.Default.VALUE, "x");
+        edits.add(r);
+        assertTrue(edits.delete(r));
+        assertTrue(edits.isEmpty());
+    }
+
+    @Test
+    void revertAllHandsBackTheNewRows() {
+        List<Object> shown = row(1, "a");
+        List<Object> fresh = row(PendingEdits.Default.VALUE, "n");
+        edits.delete(shown);
+        edits.add(fresh);
+        assertEquals(List.of(fresh), edits.revertAll());
+        assertFalse(edits.isDeleted(shown));
+        assertTrue(edits.isEmpty());
+    }
 }

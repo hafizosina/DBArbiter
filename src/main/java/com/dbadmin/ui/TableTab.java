@@ -383,7 +383,7 @@ class TableTab extends Tab implements UnsavedWork {
             if (r.data() != null) {
                 exportableQuery = r.params().isEmpty() && SqlSplitter.isReadOnlyQuery(r.sql()) ? r.sql() : null;
                 dataView.showResult(r, runSession);
-                TableEditing.forQuery(runSession, r.sql(), t -> dataView.enableEditing(t, () -> { }), dataView::showNotEditable);
+                TableEditing.forQuery(runSession, r.sql(), t -> dataView.enableEditing(t, () -> { }, false), dataView::showNotEditable);
                 dataGrid.setPlaceholder(new Label("No rows"));
                 pageInfo.setText(r.data().rows().size() + " row(s)"
                         + (r.truncated() ? " (first " + ScriptRunner.FETCH_SIZE + ")" : "") + " · " + r.millis() + " ms");
@@ -429,7 +429,7 @@ class TableTab extends Tab implements UnsavedWork {
             dataGrid.show(data);
             updatePager(data.rows().size());
             TableEditing.forTable(session, table, t -> {
-                if (!customMode) dataView.enableEditing(t, this::loadPage);
+                if (!customMode) dataView.enableEditing(t, this::loadPage, true);
             }, reason -> {
                 if (!customMode) dataView.showNotEditable(reason);
             });

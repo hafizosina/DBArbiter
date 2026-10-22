@@ -156,4 +156,40 @@ class ScreenPiecesTest {
             assertFalse(saved.get(0).isReadOnly());
         });
     }
+
+    /** Rows added, duplicated and deleted in a table view before saving. */
+    @Test
+    void tableViewAddsDuplicatesAndDeletesRows() throws Exception {
+        Fx.run(() -> {
+            DataView view = new DataView();
+            DataGrid grid = view.grid();
+            List<Object> first = new java.util.ArrayList<>(List.of(1, "a", "x"));
+            List<Object> second = new java.util.ArrayList<>(List.of(2, "b", "y"));
+            grid.show(new com.dbadmin.model.TableData(List.of("id", "name", "total"), List.of(first, second)));
+            // "total" is not a table column (e.g. computed in the query)
+            view.enableEditing(new TableEditing.Target(null, null, List.of("id"), java.util.Set.of("id", "name"),
+                    java.util.Set.of("id"), false), () -> { }, false);
+            DataGrid.Editor editor = grid.editor();
+            Object def = PendingEdits.Default.VALUE;
+
+            editor.addRow(first, second); // a copy of the second row, after the first
+            List<Object> copy = grid.getItems().get(1);
+            assertEquals(List.of(def, "b", def), copy, "the key and generated values are left to the database");
+            assertEquals(DataGrid.RowState.NEW, editor.state(copy));
+            assertTrue(grid.isEditable(copy, 0), "a new row's key can be typed");
+            assertFalse(grid.isEditable(copy, 2));
+            assertFalse(grid.isEditable(first, 0), "a shown row's key finds it");
+
+            editor.addRow(null, null);
+            assertEquals(List.of(def, def, def), grid.getItems().get(3));
+
+            editor.deleteRows(List.of(second, grid.getItems().get(3)));
+            assertEquals(3, grid.getItems().size(), "the new row went; the shown one stays, marked");
+            assertEquals(DataGrid.RowState.DELETED, editor.state(second));
+            assertFalse(grid.isEditable(second, 1));
+            editor.restoreRows(List.of(second));
+            assertEquals(DataGrid.RowState.SHOWN, editor.state(second));
+            assertTrue(view.hasEdits());
+        });
+    }
 }

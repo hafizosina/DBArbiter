@@ -46,16 +46,43 @@ class DataGrid extends TableView<List<Object>> {
 
         /** The focused cell holds several lines, which a one-line cell editor would lose: edit it elsewhere. */
         void editMultiLine();
+
+        /** What a row is now; NEW and DELETED rows are not saved yet, SAVED_NEW rows were inserted but not read back. */
+        RowState state(List<Object> row);
+
+        /** A new row after {@code after} (null: at the end); a copy of {@code copyOf}, or empty when null. */
+        void addRow(List<Object> after, List<Object> copyOf);
+
+        /** Marks the rows to be deleted (new rows simply go). */
+        void deleteRows(List<List<Object>> rows);
+
+        /** Keeps rows marked to be deleted after all. */
+        void restoreRows(List<List<Object>> rows);
     }
+
+    enum RowState { SHOWN, NEW, DELETED, SAVED_NEW }
 
     private final ReadOnlyObjectWrapper<CellValue> selectedCell = new ReadOnlyObjectWrapper<>();
     private TableData data;
     private Set<Integer> editableColumns = Set.of();
+    /** Columns a new row can be given a value in (the primary key too). */
+    private Set<Integer> newRowColumns = Set.of();
     private Editor editor;
 
     DataGrid() {
         setPlaceholder(new Label("No rows"));
         setFixedCellSize(ROW_HEIGHT);
+        setRowFactory(t -> new javafx.scene.control.TableRow<>() {
+            @Override
+            protected void updateItem(List<Object> row, boolean empty) {
+                super.updateItem(row, empty);
+                getStyleClass().removeAll("row-new", "row-deleted");
+                if (empty || row == null || editor == null) return;
+                RowState state = editor.state(row);
+                if (state == RowState.NEW) getStyleClass().add("row-new");
+                else if (state == RowState.DELETED) getStyleClass().add("row-deleted");
+            }
+        });
         getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
         getSelectionModel().setCellSelectionEnabled(true);
         getFocusModel().focusedCellProperty().addListener((o, a, pos) -> publishFocusedCell());
@@ -115,7 +142,7 @@ class DataGrid extends TableView<List<Object>> {
     record EditableCell(List<Object> row, int column) {
     }
 
-    /** The focused cell if it is in an editable column, else null. */
+    /** The focused cell if it can be edited now, else null. */
     EditableCell focusedEditableCell() {
         TablePosition<List<Object>, ?> pos = getFocusModel().getFocusedCell();
         if (editor == null || pos == null || pos.getTableColumn() == null || pos.getRow() < 0
@@ -123,12 +150,21 @@ class DataGrid extends TableView<List<Object>> {
             return null;
         }
         int c = (Integer) pos.getTableColumn().getUserData();
-        return editableColumns.contains(c) ? new EditableCell(getItems().get(pos.getRow()), c) : null;
+        List<Object> row = getItems().get(pos.getRow());
+        return isEditable(row, c) ? new EditableCell(row, c) : null;
     }
 
-    /** True if the column (original index) can be edited now. */
-    boolean isEditableColumn(int column) {
-        return editor != null && editableColumns.contains(column);
+    /**
+     * True if the cell (original column index) can be edited now: of a shown row, in a column that is not the
+     * primary key; of a new row, any table column; never of a row marked to be deleted or one already inserted.
+     */
+    boolean isEditable(List<Object> row, int column) {
+        if (editor == null || row == null) return false;
+        return switch (editor.state(row)) {
+            case SHOWN -> editableColumns.contains(column);
+            case NEW -> newRowColumns.contains(column);
+            case DELETED, SAVED_NEW -> false;
+        };
     }
 
     /** Where edits go; null while the rows are read-only. */
@@ -157,32 +193,72 @@ class DataGrid extends TableView<List<Object>> {
     }
 
     /**
-     * Lets the user edit the given columns (original indexes): double-click a cell, Enter to set,
-     * Esc to cancel; right-click for Set NULL / Revert. No columns: read-only again.
+     * Lets the user edit rows: {@code columns} (original indexes) of the rows shown, {@code newRowColumns} of new
+     * rows. Double-click a cell, Enter to set, Esc to cancel; right-click for Set NULL / Revert and to add,
+     * duplicate or delete rows. No new-row columns: read-only again.
      */
-    void setEditing(Set<Integer> columns, Editor editor) {
-        this.editableColumns = columns;
-        this.editor = editor;
-        setEditable(!columns.isEmpty());
-        for (TableColumn<List<Object>, ?> col : getColumns()) col.setEditable(columns.contains((Integer) col.getUserData()));
-        setContextMenu(columns.isEmpty() ? null : editMenu());
+    void setEditing(Set<Integer> columns, Set<Integer> newRowColumns, Editor editor) {
+        boolean on = !newRowColumns.isEmpty();
+        this.editableColumns = on ? columns : Set.of();
+        this.newRowColumns = on ? newRowColumns : Set.of();
+        this.editor = on ? editor : null;
+        setEditable(on);
+        for (TableColumn<List<Object>, ?> col : getColumns()) col.setEditable(this.newRowColumns.contains((Integer) col.getUserData()));
+        setContextMenu(on ? editMenu() : null);
         refresh();
     }
 
     private ContextMenu editMenu() {
         MenuItem setNull = new MenuItem("Set NULL");
         setNull.setOnAction(e -> forFocusedEditableCell((row, c) -> editor.edited(row, c, null)));
+        MenuItem setDefault = new MenuItem("Set DEFAULT");
+        setDefault.setOnAction(e -> forFocusedEditableCell((row, c) -> editor.edited(row, c, PendingEdits.Default.VALUE)));
         MenuItem revert = new MenuItem("Revert");
         revert.setOnAction(e -> forFocusedEditableCell((row, c) -> editor.revert(row, c)));
-        ContextMenu menu = new ContextMenu(setNull, revert);
+        MenuItem add = new MenuItem("Add Row");
+        add.setOnAction(e -> editor.addRow(focusedRow(), null));
+        MenuItem duplicate = new MenuItem("Duplicate Row");
+        duplicate.setOnAction(e -> {
+            List<List<Object>> rows = selectedRows();
+            for (int i = rows.size() - 1; i >= 0; i--) editor.addRow(rows.get(rows.size() - 1), rows.get(i));
+        });
+        MenuItem delete = new MenuItem("Delete Row");
+        delete.setOnAction(e -> editor.deleteRows(selectedRows()));
+        MenuItem restore = new MenuItem("Keep Row");
+        restore.setOnAction(e -> editor.restoreRows(selectedRows()));
+        ContextMenu menu = new ContextMenu(setNull, setDefault, revert, new javafx.scene.control.SeparatorMenuItem(),
+                add, duplicate, delete, restore);
         menu.setOnShowing(e -> {
-            TablePosition<List<Object>, ?> pos = getFocusModel().getFocusedCell();
-            boolean editable = pos != null && pos.getTableColumn() != null && pos.getRow() >= 0
-                    && editableColumns.contains((Integer) pos.getTableColumn().getUserData());
-            setNull.setDisable(!editable);
-            revert.setDisable(!editable || !editor.isEdited(getItems().get(pos.getRow()), (Integer) pos.getTableColumn().getUserData()));
+            EditableCell cell = focusedEditableCell();
+            setNull.setDisable(cell == null);
+            setDefault.setVisible(cell != null && editor.state(cell.row()) == RowState.NEW);
+            revert.setDisable(cell == null || !editor.isEdited(cell.row(), cell.column()));
+            List<List<Object>> rows = selectedRows();
+            String n = rows.size() > 1 ? " " + rows.size() + " Rows" : " Row";
+            duplicate.setText("Duplicate" + n);
+            delete.setText("Delete" + n);
+            restore.setText("Keep" + n);
+            boolean anyShown = rows.stream().anyMatch(r -> editor.state(r) == RowState.SHOWN || editor.state(r) == RowState.NEW);
+            boolean anyDeleted = rows.stream().anyMatch(r -> editor.state(r) == RowState.DELETED);
+            duplicate.setDisable(rows.isEmpty());
+            delete.setVisible(!anyDeleted || anyShown);
+            delete.setDisable(!anyShown);
+            restore.setVisible(anyDeleted);
         });
         return menu;
+    }
+
+    private List<Object> focusedRow() {
+        int r = getFocusModel().getFocusedIndex();
+        return r >= 0 && r < getItems().size() ? getItems().get(r) : null;
+    }
+
+    /** The rows of the selected cells, top to bottom; the focused row when none is selected. */
+    List<List<Object>> selectedRows() {
+        java.util.TreeSet<Integer> indexes = new java.util.TreeSet<>();
+        for (TablePosition<?, ?> p : getSelectionModel().getSelectedCells()) indexes.add(p.getRow());
+        if (indexes.isEmpty() && focusedRow() != null) indexes.add(getFocusModel().getFocusedIndex());
+        return indexes.stream().filter(i -> i >= 0 && i < getItems().size()).map(getItems()::get).toList();
     }
 
     private void forFocusedEditableCell(java.util.function.BiConsumer<List<Object>, Integer> action) {
@@ -198,6 +274,7 @@ class DataGrid extends TableView<List<Object>> {
         selectedCell.set(null);
         // new data starts read-only; whoever shows it may turn editing on again
         editableColumns = Set.of();
+        newRowColumns = Set.of();
         editor = null;
         setEditable(false);
         setContextMenu(null);
@@ -282,6 +359,7 @@ class DataGrid extends TableView<List<Object>> {
         public void startEdit() {
             // binary values are not edited as text; booleans are toggled with their checkbox
             if (getItem() instanceof BlobValue || getItem() instanceof Boolean) return;
+            if (getTableRow() == null || !DataGrid.this.isEditable(getTableRow().getItem(), (Integer) getTableColumn().getUserData())) return;
             // a TextField drops line breaks, so committing it would join the lines (e.g. of HTML)
             if (getItem() != null && getItem().toString().matches("(?s).*[\r\n].*")) {
                 if (editor != null && isEditable() && getTableColumn().isEditable()) editor.editMultiLine();
@@ -290,7 +368,7 @@ class DataGrid extends TableView<List<Object>> {
             super.startEdit();
             if (!isEditing()) return;
             Object value = getItem();
-            field = new TextField(value == null ? "" : value.toString());
+            field = new TextField(value == null || value == PendingEdits.Default.VALUE ? "" : value.toString());
             field.setOnAction(e -> commit());
             field.setOnKeyPressed(e -> {
                 if (e.getCode() == javafx.scene.input.KeyCode.ESCAPE) cancelEdit();
@@ -307,7 +385,7 @@ class DataGrid extends TableView<List<Object>> {
         /** Commits the typed text, except an untouched empty field on a NULL (that would make it ''). */
         private void commit() {
             String text = field.getText();
-            if (getItem() == null && text.isEmpty()) {
+            if ((getItem() == null || getItem() == PendingEdits.Default.VALUE) && text.isEmpty()) {
                 cancelEdit();
             } else {
                 commitEdit(text);
@@ -343,7 +421,7 @@ class DataGrid extends TableView<List<Object>> {
             } else if (value instanceof Boolean b) {
                 setText(null);
                 check.setSelected(b);
-                check.setMouseTransparent(!(editor != null && getTableView().isEditable() && getTableColumn().isEditable()));
+                check.setMouseTransparent(!DataGrid.this.isEditable(getTableRow() == null ? null : getTableRow().getItem(), (Integer) getTableColumn().getUserData()));
                 setGraphic(check);
             } else if (value instanceof StatusValue sv) {
                 String color = Themes.statusColor(sv.status());
@@ -355,7 +433,7 @@ class DataGrid extends TableView<List<Object>> {
                 if (cv.differs()) getStyleClass().add("cmp-cell-changed");
             } else {
                 setText(oneLine(value));
-                if (value == null || value instanceof BlobValue) getStyleClass().add("null-value");
+                if (value == null || value instanceof BlobValue || value == PendingEdits.Default.VALUE) getStyleClass().add("null-value");
             }
         }
     }

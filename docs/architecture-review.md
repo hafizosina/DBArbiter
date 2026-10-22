@@ -20,7 +20,7 @@ _First review: 2026-10-21 at commit `70ef05a` (the app was called DBAdmin then).
 | 8 | Saved files can be corrupted | **Mostly fixed**: atomic writes; script bindings relative to `Script/`; a password can be left unsaved. Saved passwords are still plain text |
 | 9 | Errors swallowed silently | **Fixed**: non-editable results say why; errors are logged to `~/.dbadmin/logs` |
 | 10 | Small tidy-ups | **Fixed** |
-| 11 | `DataView` growing; side effects in `hasEdits()` / `show()` | **Fixed**: pending edits in a tested class; `hasEdits()` and `show()` change nothing |
+| 11 | `DataView` growing; side effects in `hasEdits()` / `show()` | **Fixed**: pending edits in a tested class; `hasEdits()` and `show()` change nothing. Open again: row add/delete made it 680 lines (see #11) |
 | 12 | `DataCompareTab` is the largest class | **Done**: verdicts → `Verdicts`, columns → `ColumnPicker`, joins → `JoinEditor`, file state → `CompareFile` (956 lines left) |
 | 13 | `MainWindow` growing again | **Partly fixed**: licensing → `LicenseGate`, tabs → `TabStrip` (954 lines) |
 | 14 | Shipping to other people | **Partly fixed**: "Save password" option. OS keyring, license check, release build remain |
@@ -185,6 +185,12 @@ needs them.
   and the three places that need typed text applied do it themselves, in plain sight: moving to another cell
   (`DataView.showCell`, like a grid cell editor), the discard question, and Save. Tried in the app: typed text counts
   as unsaved without being applied, moving to another cell applies it to the cell it was typed for, closing asks.
+- **Open again (new, 2026-10-23):** adding, duplicating and deleting rows (todo #3) brought `DataView` back to about
+  680 lines. The row bookkeeping went into `PendingEdits` (new and deleted rows, the DEFAULT cell) and the saving into
+  `DatabaseSession.applyChanges`, both tested, but `DataView` still holds the `DataGrid.Editor` it builds in
+  `enableEditing`, the edit bar and the save dialog next to paging and the value panel. Next step when it grows
+  again: move the editing part (the Editor, the edit bar, Save / Revert all and the save dialog) into a class of its
+  own, e.g. `RowEditing`, that `DataView` hands the grid to.
 
 ### 12. `DataCompareTab` is the largest class — open (new)
 

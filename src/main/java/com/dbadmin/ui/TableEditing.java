@@ -14,11 +14,12 @@ import java.util.function.Consumer;
 final class TableEditing {
 
     /**
-     * What edits write to. {@code columns}: the table's column names (lower case). With
-     * {@code readOnlyConnection} nothing is editable, but the user is told why.
+     * What edits write to. {@code columns}: the table's column names (lower case); {@code generated}: those the
+     * database fills in (serial, auto increment), lower case. With {@code readOnlyConnection} nothing is
+     * editable, but the user is told why.
      */
     record Target(DatabaseSession session, TableRef table, List<String> primaryKey, Set<String> columns,
-                  boolean readOnlyConnection) {
+                  Set<String> generated, boolean readOnlyConnection) {
     }
 
     private TableEditing() {
@@ -37,8 +38,10 @@ final class TableEditing {
             List<String> pk = session.primaryKey(table);
             Set<String> columns = new HashSet<>();
             session.columnDefs(table).forEach(c -> columns.add(c.name().toLowerCase(Locale.ROOT)));
-            return pk.isEmpty() ? null
-                    : new Target(session, table, pk, columns, session.getConfig().isReadOnly());
+            if (pk.isEmpty()) return null;
+            Set<String> generated = new HashSet<>();
+            session.generatedColumns(table).forEach(c -> generated.add(c.toLowerCase(Locale.ROOT)));
+            return new Target(session, table, pk, columns, generated, session.getConfig().isReadOnly());
         }, target -> {
             if (target != null) then.accept(target);
             else notEditable.accept(table.displayName() + " has no primary key, so a changed row could not be found again");

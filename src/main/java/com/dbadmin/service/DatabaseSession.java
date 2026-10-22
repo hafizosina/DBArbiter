@@ -220,63 +220,94 @@ public class DatabaseSession implements AutoCloseable {
     public record RowUpdate(Map<String, Object> key, Map<String, Object> values) {
     }
 
-    /** The UPDATE for one row, for showing; the real statement binds the values. */
-    public String describeUpdate(TableRef t, RowUpdate u) throws SQLException {
+    /**
+     * Unsaved changes to one table's rows: rows to delete (by primary key), updates, and new rows
+     * (column -> value; columns left out get their default).
+     */
+    public record RowChanges(List<Map<String, Object>> deletes, List<RowUpdate> updates, List<Map<String, Object>> inserts) {
+        public int size() {
+            return deletes.size() + updates.size() + inserts.size();
+        }
+    }
+
+    /** The statements for the changes, in the order they run, for showing; the real statements bind the values. */
+    public List<String> describeChanges(TableRef t, RowChanges changes) throws SQLException {
         String q = connection.getMetaData().getIdentifierQuoteString().trim();
-        StringBuilder sql = new StringBuilder("UPDATE ").append(qualifiedName(t)).append(" SET ");
-        int i = 0;
-        for (Map.Entry<String, Object> v : u.values().entrySet()) {
-            if (i++ > 0) sql.append(", ");
-            sql.append(quote(v.getKey(), q)).append(" = ").append(literal(v.getValue()));
+        List<String> sql = new ArrayList<>();
+        for (Map<String, Object> key : changes.deletes()) {
+            sql.add("DELETE FROM " + qualifiedName(t) + " WHERE " + assignments(key, q, " AND ", true));
         }
-        sql.append(" WHERE ");
-        i = 0;
-        for (Map.Entry<String, Object> k : u.key().entrySet()) {
-            if (i++ > 0) sql.append(" AND ");
-            sql.append(quote(k.getKey(), q)).append(" = ").append(literal(k.getValue()));
+        for (RowUpdate u : changes.updates()) {
+            sql.add("UPDATE " + qualifiedName(t) + " SET " + assignments(u.values(), q, ", ", true)
+                    + " WHERE " + assignments(u.key(), q, " AND ", true));
         }
-        return sql.toString();
+        for (Map<String, Object> row : changes.inserts()) sql.add(insertSql(t, row, q, true));
+        return sql;
+    }
+
+    /** "a = 1, b = 'x'" with the values written out, or "a = ?, b = ?". */
+    private static String assignments(Map<String, Object> values, String q, String separator, boolean literals) {
+        List<String> parts = new ArrayList<>();
+        values.forEach((c, v) -> parts.add(quote(c, q) + " = " + (literals ? literal(v) : "?")));
+        return String.join(separator, parts);
+    }
+
+    private String insertSql(TableRef t, Map<String, Object> row, String q, boolean literals) throws SQLException {
+        if (row.isEmpty()) {
+            // every column left to its default
+            return "INSERT INTO " + qualifiedName(t) + (config.getType() == DbType.MYSQL ? " () VALUES ()" : " DEFAULT VALUES");
+        }
+        return "INSERT INTO " + qualifiedName(t) + " (" + String.join(", ", row.keySet().stream().map(c -> quote(c, q)).toList())
+                + ") VALUES (" + String.join(", ", row.values().stream().map(v -> literals ? literal(v) : "?").toList()) + ")";
     }
 
     private static String literal(Object v) {
         if (v == null) return "NULL";
         if (v instanceof Number || v instanceof Boolean) return v.toString();
+        if (v instanceof BlobValue b) return "<" + b.length() + " bytes>";
         return "'" + v.toString().replace("'", "''") + "'";
     }
 
     /**
-     * Applies row updates in one transaction. Each must change exactly one row (found by its primary
-     * key); otherwise everything is rolled back and an exception says which row. New values are sent
-     * as text (the database converts them), booleans as booleans; key values with their original types.
+     * Applies the changes in one transaction: deletes, updates, then inserts. Each delete and update must hit
+     * exactly one row (found by its primary key); otherwise everything is rolled back and an exception says
+     * which row. Values are sent as text (the database converts them), booleans as booleans, binary values as
+     * bytes; key values with their original types. Returns the number of rows written.
      */
-    public int applyUpdates(TableRef t, List<RowUpdate> updates) throws SQLException {
+    public int applyChanges(TableRef t, RowChanges changes) throws SQLException {
         String q = connection.getMetaData().getIdentifierQuoteString().trim();
         boolean autoCommit = connection.getAutoCommit();
         statementSent = true;
         connection.setAutoCommit(false);
         try {
             int done = 0;
-            for (RowUpdate u : updates) {
-                List<String> sets = new ArrayList<>();
-                u.values().keySet().forEach(c -> sets.add(quote(c, q) + " = ?"));
-                List<String> where = new ArrayList<>();
-                u.key().keySet().forEach(c -> where.add(quote(c, q) + " = ?"));
-                String sql = "UPDATE " + qualifiedName(t) + " SET " + String.join(", ", sets)
-                        + " WHERE " + String.join(" AND ", where);
+            for (Map<String, Object> key : changes.deletes()) {
+                String sql = "DELETE FROM " + qualifiedName(t) + " WHERE " + assignments(key, q, " AND ", false);
                 try (PreparedStatement ps = connection.prepareStatement(sql)) {
                     int i = 1;
-                    for (Object v : u.values().values()) {
-                        if (v == null) ps.setNull(i++, java.sql.Types.VARCHAR);
-                        else if (v instanceof Boolean b) ps.setBoolean(i++, b); // e.g. MySQL reads 'true' as 0
-                        else ps.setString(i++, v.toString());
-                    }
+                    for (Object k : key.values()) ps.setObject(i++, k);
+                    expectOne(ps.executeUpdate(), key);
+                }
+                done++;
+            }
+            for (RowUpdate u : changes.updates()) {
+                String sql = "UPDATE " + qualifiedName(t) + " SET " + assignments(u.values(), q, ", ", false)
+                        + " WHERE " + assignments(u.key(), q, " AND ", false);
+                try (PreparedStatement ps = connection.prepareStatement(sql)) {
+                    int i = 1;
+                    for (Object v : u.values().values()) bindValue(ps, i++, v);
                     for (Object k : u.key().values()) ps.setObject(i++, k);
-                    int count = ps.executeUpdate();
-                    if (count != 1) {
-                        throw new SQLException("The row with " + u.key() + " " + (count == 0
-                                ? "no longer exists (changed or deleted meanwhile)" : "is not unique (" + count + " rows)")
-                                + ". Nothing was saved.");
-                    }
+                    expectOne(ps.executeUpdate(), u.key());
+                }
+                done++;
+            }
+            for (Map<String, Object> row : changes.inserts()) {
+                try (PreparedStatement ps = connection.prepareStatement(insertSql(t, row, q, false))) {
+                    int i = 1;
+                    for (Object v : row.values()) bindValue(ps, i++, v);
+                    ps.executeUpdate();
+                } catch (SQLException e) {
+                    throw new SQLException("New row " + row + ": " + e.getMessage() + " Nothing was saved.", e);
                 }
                 done++;
             }
@@ -288,6 +319,23 @@ public class DatabaseSession implements AutoCloseable {
         } finally {
             connection.setAutoCommit(autoCommit);
         }
+    }
+
+    private static void expectOne(int count, Map<String, Object> key) throws SQLException {
+        if (count != 1) {
+            throw new SQLException("The row with " + key + " " + (count == 0
+                    ? "no longer exists (changed or deleted meanwhile)" : "is not unique (" + count + " rows)")
+                    + ". Nothing was saved.");
+        }
+    }
+
+    private static void bindValue(PreparedStatement ps, int i, Object v) throws SQLException {
+        if (v == null) ps.setNull(i, java.sql.Types.VARCHAR);
+        else if (v instanceof Boolean b) ps.setBoolean(i, b); // e.g. MySQL reads 'true' as 0
+        else if (v instanceof BlobValue b) {
+            if (b.isTruncated()) throw new SQLException("A binary value of " + b.length() + " bytes is too large to copy here.");
+            ps.setBytes(i, b.head());
+        } else ps.setString(i, v.toString());
     }
 
     public String viewDefinition(TableRef t) throws SQLException {
