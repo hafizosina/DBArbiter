@@ -22,7 +22,7 @@ _First review: 2026-10-21 at commit `70ef05a` (the app was called DBAdmin then).
 | 10 | Small tidy-ups | **Fixed** |
 | 11 | `DataView` growing; side effects in `hasEdits()` / `show()` | **Fixed**: pending edits in a tested class; `hasEdits()` and `show()` change nothing |
 | 12 | `DataCompareTab` is the largest class | **Done**: verdicts → `Verdicts`, columns → `ColumnPicker`, joins → `JoinEditor`, file state → `CompareFile` (956 lines left) |
-| 13 | `MainWindow` growing again | **Partly fixed**: licensing → `LicenseGate` (987 lines, with this round's additions) |
+| 13 | `MainWindow` growing again | **Partly fixed**: licensing → `LicenseGate`, tabs → `TabStrip` (954 lines) |
 | 14 | Shipping to other people | **Partly fixed**: "Save password" option. OS keyring, license check, release build remain |
 
 ## How it is organised
@@ -214,6 +214,12 @@ opens (`allows("Compare Table and Compare Data")`), so a new licensed tool calls
 license: Tools → Compare Data shows "… need a license" and opens nothing. `MainWindow` is 987 lines: what left with
 the license came back with this round's fixes (password prompt, asking before disconnect). **Next candidates:** the
 connection create / edit / delete / disconnect code (about 150 lines) and the script open/new code.
+
+**Also done:** `TabStrip` holds the tabs' right-click menu, closing a tab the way its ✕ does, and asking every tab with
+unsaved work before the window closes (it also dropped a stale doc comment left from the `UnsavedWork` change).
+Tried in the app: Close Others, Ctrl+W, and closing the window with an unsaved script (asked, Cancel keeps it open).
+**Left as it is, on purpose:** the connection create / edit / delete code works on the tree, the tabs and the sessions
+together; moving it out would hand most of the window's state to another class without making either clearer.
 
 ### 14. Shipping the app to other people — open (new)
 

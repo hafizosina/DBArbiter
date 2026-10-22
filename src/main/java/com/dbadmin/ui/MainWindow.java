@@ -70,6 +70,8 @@ public class MainWindow implements SessionProvider {
     private final TreeItem<NavNode> treeRoot = new TreeItem<>();
     private final TreeView<NavNode> tree = new TreeView<>(treeRoot);
     private final TabPane tabs = new TabPane();
+    /** Showing and closing tabs, their right-click menu, asking about unsaved work before the window closes. */
+    private final TabStrip tabStrip = new TabStrip(tabs);
     private final AppFooter footer = new AppFooter("Ready");
     private final Label status = footer.status();
     /** The license: footer line, License dialog, and the check before the compares open. */
@@ -118,7 +120,7 @@ public class MainWindow implements SessionProvider {
             }
         });
         stage.setOnCloseRequest(e -> {
-            if (!confirmCloseTabs()) e.consume();
+            if (!tabStrip.confirmCloseAll()) e.consume();
         });
 
         tree.setShowRoot(false);
@@ -142,14 +144,6 @@ public class MainWindow implements SessionProvider {
         tabs.getStyleClass().add("main-tabs");
         tabs.visibleProperty().bind(javafx.beans.binding.Bindings.isNotEmpty(tabs.getTabs()));
         tabs.getSelectionModel().selectedItemProperty().addListener((o, a, b) -> updateScriptItems());
-        // right-click a tab: Close / Close Others / Close Tabs to the Left / to the Right / Close All
-        tabs.getTabs().addListener((javafx.collections.ListChangeListener<Tab>) change -> {
-            while (change.next()) {
-                for (Tab t : change.getAddedSubList()) {
-                    if (t.getContextMenu() == null) t.setContextMenu(tabMenu(t));
-                }
-            }
-        });
 
         navigator = new TableSearch(tree, sessions::all, this::openTable);
         navigator.setMenus((session, t) -> {
@@ -179,7 +173,7 @@ public class MainWindow implements SessionProvider {
         root.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
             if (closeTab.match(e)) {
                 e.consume();
-                closeTab(tabs.getSelectionModel().getSelectedItem());
+                tabStrip.close(tabs.getSelectionModel().getSelectedItem());
             }
         });
         root.setCenter(split);
@@ -258,8 +252,7 @@ public class MainWindow implements SessionProvider {
     }
 
     private void showTab(Tab tab) {
-        tabs.getTabs().add(tab);
-        tabs.getSelectionModel().select(tab);
+        tabStrip.show(tab);
     }
 
     private void openSettings() {
@@ -320,7 +313,7 @@ public class MainWindow implements SessionProvider {
         refreshItem.setOnAction(e -> refreshSelected());
         MenuItem exitItem = new MenuItem("Exit");
         exitItem.setOnAction(e -> {
-            if (confirmCloseTabs()) stage.close();
+            if (tabStrip.confirmCloseAll()) stage.close();
         });
 
         Menu connection = new Menu("Connection", null, newItem, editItem, deleteItem,
@@ -497,50 +490,6 @@ public class MainWindow implements SessionProvider {
             saveConnections();
             tree.getSelectionModel().select(replacement);
         }));
-    }
-
-    private ContextMenu tabMenu(Tab tab) {
-        MenuItem close = new MenuItem("Close");
-        close.setOnAction(e -> closeTab(tab));
-        MenuItem others = new MenuItem("Close Others");
-        others.setOnAction(e -> closeTabs(tabs.getTabs().stream().filter(t -> t != tab).toList()));
-        MenuItem left = new MenuItem("Close Tabs to the Left");
-        left.setOnAction(e -> closeTabs(List.copyOf(tabs.getTabs().subList(0, tabs.getTabs().indexOf(tab)))));
-        MenuItem right = new MenuItem("Close Tabs to the Right");
-        right.setOnAction(e -> {
-            int i = tabs.getTabs().indexOf(tab);
-            closeTabs(List.copyOf(tabs.getTabs().subList(i + 1, tabs.getTabs().size())));
-        });
-        MenuItem all = new MenuItem("Close All");
-        all.setOnAction(e -> closeTabs(List.copyOf(tabs.getTabs())));
-        ContextMenu menu = new ContextMenu(close, others, left, right, new SeparatorMenuItem(), all);
-        menu.setOnShowing(e -> {
-            int i = tabs.getTabs().indexOf(tab);
-            others.setDisable(tabs.getTabs().size() < 2);
-            left.setDisable(i <= 0);
-            right.setDisable(i < 0 || i == tabs.getTabs().size() - 1);
-        });
-        return menu;
-    }
-
-    /** Closes the tabs one by one, each as its ✕ would; stops at the first one the user keeps open (Cancel). */
-    private void closeTabs(List<Tab> list) {
-        for (Tab t : list) {
-            closeTab(t);
-            if (tabs.getTabs().contains(t) && t.isClosable()) return;
-        }
-    }
-
-    /** Closes a tab the way its ✕ button does, so unsaved scripts still ask first. */
-    private void closeTab(Tab tab) {
-        if (tab == null || !tab.isClosable()) return;
-        if (tab.getOnCloseRequest() != null) {
-            javafx.event.Event request = new javafx.event.Event(Tab.TAB_CLOSE_REQUEST_EVENT);
-            tab.getOnCloseRequest().handle(request);
-            if (request.isConsumed()) return;
-        }
-        tabs.getTabs().remove(tab);
-        if (tab.getOnClosed() != null) tab.getOnClosed().handle(new javafx.event.Event(Tab.CLOSED_EVENT));
     }
 
     private void sortConnections() {
@@ -908,15 +857,6 @@ public class MainWindow implements SessionProvider {
 
     private Optional<ScriptTab> currentScript() {
         return tabs.getSelectionModel().getSelectedItem() instanceof ScriptTab st ? Optional.of(st) : Optional.empty();
-    }
-
-    /** Asks about every unsaved script and compare. Returns false if the user cancelled. */
-    /** Asks every tab with unsaved work (scripts, cell edits, compares); false if one was cancelled. */
-    private boolean confirmCloseTabs() {
-        for (Tab t : List.copyOf(tabs.getTabs())) {
-            if (t instanceof UnsavedWork w && !w.confirmClose()) return false;
-        }
-        return true;
     }
 
     // ---- helpers ---------------------------------------------------------
