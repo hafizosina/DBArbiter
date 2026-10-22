@@ -145,9 +145,10 @@ needs them.
   **Save password**: off, the password is never written to `connections.json`; it is asked when connecting (an in-app
   prompt), kept in memory for the run, and asked again if it was wrong. Older files mean "on". 2 store tests; the
   prompt was tried in the app against PostgreSQL (wrong password, right one, reuse).
-- **New, small:** two tools opening the same unsaved-password connection at the same moment (e.g. a reopened data
-  compare whose sides share one connection) can each show the prompt. `SessionManager` already shares one opening
-  session between callers; the prompt could be moved inside that wait.
+- **Fixed (was new, small):** two tools opening the same unsaved-password connection at the same moment (e.g. a
+  reopened data compare whose sides share one connection) each showed the prompt. Now a second caller waits for the
+  prompt that is open and goes on with its answer (or its Cancel). Tried in the app: two callers at once, one prompt,
+  both connected, one shared session.
 - **Fixed (was open):** `ScriptBindings` keyed scripts by absolute path. Since `Script/` lives next to the jar, moving the app folder orphans every binding. This happened with the move from `~/App/DBAdmin` to `~/App/DBArbiter`: `deploy-linux.sh` had to rewrite the paths in `scripts.json` with `sed`. A user who moved or re-extracted a download hit it with no such help.
   Now a script in `Script/` is recorded as `Script/<path>` (others keep their absolute path); old files are read as
   before, and an absolute key into a moved app folder's `Script/` is matched to the same file in today's. 2 tests.

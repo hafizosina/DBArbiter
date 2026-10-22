@@ -656,6 +656,8 @@ public class MainWindow implements SessionProvider {
 
     /** Connections whose password was typed in the prompt (not saved): a failed connect asks again next time. */
     private final java.util.Set<String> promptedPasswords = new java.util.HashSet<>();
+    /** Callers that asked for a connection while its password prompt was open: they go on once it is answered. */
+    private final Map<String, List<Runnable>> waitingForPrompt = new java.util.HashMap<>();
 
     /**
      * Opens (or reuses) the connection's session. A connection with "Save password" off is asked for its password
@@ -665,13 +667,29 @@ public class MainWindow implements SessionProvider {
     public void withSession(ConnectionConfig c, Consumer<DatabaseSession> onReady, Consumer<Throwable> onError) {
         boolean ask = !c.getType().isFileBased() && !c.isSavePassword() && c.getPassword() == null && sessions.get(c.getId()).isEmpty();
         if (ask) {
+            // the prompt is already open for another caller (e.g. both sides of a compare): wait for its answer
+            List<Runnable> waiting = waitingForPrompt.get(c.getId());
+            if (waiting != null) {
+                waiting.add(() -> {
+                    if (c.getPassword() == null) {
+                        onError.accept(new java.util.concurrent.CancellationException("No password given for " + c.getName()));
+                    } else {
+                        withSession(c, onReady, onError);
+                    }
+                });
+                return;
+            }
+            waitingForPrompt.put(c.getId(), new ArrayList<>());
             String typed = InAppDialogs.showAndWait(new PasswordPrompt(stage, c)).orElse(null);
+            List<Runnable> next = waitingForPrompt.remove(c.getId());
             if (typed == null) {
                 onError.accept(new java.util.concurrent.CancellationException("No password given for " + c.getName()));
+                next.forEach(Runnable::run);
                 return;
             }
             c.setPassword(typed);
             promptedPasswords.add(c.getId());
+            next.forEach(Runnable::run); // they share the session that opens now (SessionManager)
         }
         sessions.withSession(c, s -> {
             promptedPasswords.remove(c.getId()); // it worked: kept in memory for this run
