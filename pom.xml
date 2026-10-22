@@ -197,6 +197,17 @@
             <properties>
                 <shade.finalName>dbarbiter-win</shade.finalName>
             </properties>
+            <!--
+                The Windows JavaFX jars, named directly: some Maven versions (e.g. on GitHub's runners) cannot
+                read JavaFX's own pom when it is asked for another platform, and would then leave JavaFX out.
+            -->
+            <dependencies>
+                <dependency><groupId>org.openjfx</groupId><artifactId>javafx-base</artifactId><version>${javafx.version}</version><classifier>win</classifier></dependency>
+                <dependency><groupId>org.openjfx</groupId><artifactId>javafx-graphics</artifactId><version>${javafx.version}</version><classifier>win</classifier></dependency>
+                <dependency><groupId>org.openjfx</groupId><artifactId>javafx-controls</artifactId><version>${javafx.version}</version><classifier>win</classifier></dependency>
+                <dependency><groupId>org.openjfx</groupId><artifactId>javafx-media</artifactId><version>${javafx.version}</version><classifier>win</classifier></dependency>
+                <dependency><groupId>org.openjfx</groupId><artifactId>javafx-web</artifactId><version>${javafx.version}</version><classifier>win</classifier></dependency>
+            </dependencies>
             <build>
                 <plugins>
                     <!-- no license generator for Windows: it only runs on the signer's machine -->
