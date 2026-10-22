@@ -59,6 +59,10 @@ class TableSearch extends VBox {
     private final Map<DatabaseSession, List<TableRef>> index = new WeakHashMap<>();
     private final Set<DatabaseSession> loading = new HashSet<>();
     private final PauseTransition debounce = new PauseTransition(Duration.millis(150));
+    /** Right-click items for a table and for a connection of the results (set by the window). */
+    private java.util.function.BiFunction<DatabaseSession, TableRef, List<javafx.scene.control.MenuItem>> tableMenu = (s, t) -> List.of();
+    private java.util.function.Function<DatabaseSession, List<javafx.scene.control.MenuItem>> connectionMenu = s -> List.of();
+    private final javafx.scene.control.ContextMenu menu = new javafx.scene.control.ContextMenu();
 
     TableSearch(Node tree, Supplier<Collection<DatabaseSession>> openSessions, BiConsumer<DatabaseSession, TableRef> open) {
         this.openSessions = openSessions;
@@ -105,6 +109,18 @@ class TableSearch extends VBox {
             if (e.getCode() == KeyCode.ENTER) openSelected();
             else if (e.getCode() == KeyCode.ESCAPE) field.requestFocus();
         });
+        // right-click: the same actions as in the connection tree (the row is selected by the click)
+        results.setOnContextMenuRequested(e -> {
+            TreeItem<ResultNode> item = results.getSelectionModel().getSelectedItem();
+            ResultNode node = item == null ? null : item.getValue();
+            List<javafx.scene.control.MenuItem> items = node == null ? List.of()
+                    : node.kind() == ResultNode.Kind.TABLE ? tableMenu.apply(node.session(), node.table())
+                    : node.kind() == ResultNode.Kind.CONNECTION ? connectionMenu.apply(node.session()) : List.of();
+            e.consume();
+            if (items.isEmpty()) return;
+            menu.getItems().setAll(items);
+            menu.show(results, e.getScreenX(), e.getScreenY());
+        });
         placeholder.setWrapText(true);
         placeholder.getStyleClass().add("hint-small");
         placeholder.setPadding(new Insets(8));
@@ -118,6 +134,13 @@ class TableSearch extends VBox {
         VBox.setVgrow(body, Priority.ALWAYS);
         VBox.setMargin(searchBox, new Insets(4));
         getChildren().addAll(searchBox, body);
+    }
+
+    /** The right-click items of a table and of a connection in the results. */
+    void setMenus(java.util.function.BiFunction<DatabaseSession, TableRef, List<javafx.scene.control.MenuItem>> forTable,
+                  java.util.function.Function<DatabaseSession, List<javafx.scene.control.MenuItem>> forConnection) {
+        this.tableMenu = forTable;
+        this.connectionMenu = forConnection;
     }
 
     /** Forgets a session's tables (after DDL, refresh or disconnect); reloaded on the next search. */

@@ -87,6 +87,8 @@ class DataCompareTab extends Tab {
     /** The report shown now (a compare just run, or one opened from a file); null before the first. */
     private DataCompareReport report;
     private Path reportFile;
+    /** The file holds only the settings (Save keeps it that way); else settings and results. */
+    private boolean fileSettingsOnly;
     /** Verdicts changed since the report was last saved. */
     private boolean unsaved;
     private final MenuButton verdictForShown = new MenuButton("Verdict for shown rows");
@@ -111,7 +113,10 @@ class DataCompareTab extends Tab {
         CompareSide.pair(dataSource, dataTarget);
         setContent(dataPage());
         getContent().addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, e -> {
-            if (SchemaCompareTab.SAVE_KEY.match(e)) {
+            if (SchemaCompareTab.SAVE_AS_KEY.match(e)) {
+                e.consume();
+                saveAs();
+            } else if (SchemaCompareTab.SAVE_KEY.match(e)) {
                 e.consume();
                 save();
             }
@@ -125,6 +130,7 @@ class DataCompareTab extends Tab {
     /** Shows a report opened from a file; a new compare can still be run from the form above. */
     void showSaved(DataCompareReport saved, Path file) {
         reportFile = file;
+        fileSettingsOnly = saved.settingsOnly;
         unsaved = false;
         setText("Data Compare: " + file.getFileName());
         restoreSettings(saved);
@@ -189,10 +195,22 @@ class DataCompareTab extends Tab {
     }
 
     /**
-     * Save…: the in-app dialog asks where, and what: the settings and results (the default) or the settings only.
-     * Returns true if the results (and verdicts) were saved.
+     * Save (Ctrl+S): to the compare's file, the same kind as it is (results, or settings only); without a file
+     * yet, as {@link #saveAs}. Returns true if the results (and verdicts) were saved.
      */
     private boolean save() {
+        if (reportFile == null) return saveAs();
+        if (!fileSettingsOnly && report != null && !report.settingsOnly) return writeResults(reportFile);
+        DataCompareReport settings = formSettings(false);
+        if (settings == null) return false; // formSettings said what is missing
+        return writeSettings(reportFile, settings);
+    }
+
+    /**
+     * Save As… (Ctrl+Shift+S): the in-app dialog asks where, and what: the settings and results (the default) or
+     * the settings only. Returns true if the results (and verdicts) were saved.
+     */
+    private boolean saveAs() {
         boolean hasResults = report != null && !report.settingsOnly;
         DataCompareReport settings = formSettings(hasResults);
         if (!hasResults && settings == null) return false; // formSettings said what is missing
@@ -201,8 +219,12 @@ class DataCompareTab extends Tab {
                 CompareReportChooser.defaultName("DataCompare-" + named.source.table(), named.source.label(), named.target.label()),
                 hasResults, settings != null);
         if (choice == null) return false;
-        if (choice.withResults()) return writeResults(choice.file());
-        long verdicts = hasResults ? report.rows.stream().filter(x -> x.verdict != null).count() : 0;
+        return choice.withResults() ? writeResults(choice.file()) : writeSettings(choice.file(), settings);
+    }
+
+    /** Writes the settings only; with verdicts set, offers to save them too (the results). */
+    private boolean writeSettings(Path file, DataCompareReport settings) {
+        long verdicts = report != null && !report.settingsOnly ? report.rows.stream().filter(x -> x.verdict != null).count() : 0;
         if (verdicts > 0) {
             // settings only would leave the verdicts out
             ButtonType withVerdicts = new ButtonType("Save with verdicts", ButtonBar.ButtonData.YES);
@@ -213,15 +235,19 @@ class DataCompareTab extends Tab {
             ask.setHeaderText("Save the verdicts too?");
             ask.getDialogPane().setPrefWidth(560);
             ButtonType answer = InAppDialogs.showAndWait(ask).orElse(ButtonType.CANCEL);
-            if (answer == withVerdicts) return writeResults(choice.file());
+            if (answer == withVerdicts) return writeResults(file);
             if (answer != settingsOnly) return false;
         }
         try {
-            CompareReportFiles.save(choice.file(), settings);
-            dataStatus.setText("Settings saved as " + choice.file() + " · opening it compares again");
+            CompareReportFiles.save(file, settings);
         } catch (IOException e) {
             error("Could not save the settings", e);
+            return false;
         }
+        reportFile = file;
+        fileSettingsOnly = true;
+        setText("Data Compare: " + file.getFileName());
+        dataStatus.setText("Settings saved to " + file + " · opening it compares again");
         return false;
     }
 
@@ -233,9 +259,10 @@ class DataCompareTab extends Tab {
             return false;
         }
         reportFile = file;
+        fileSettingsOnly = false;
         unsaved = false;
         setText("Data Compare: " + file.getFileName());
-        fileStatus.setText("Saved as " + file);
+        fileStatus.setText("Saved to " + file);
         return true;
     }
 
@@ -355,15 +382,25 @@ class DataCompareTab extends Tab {
         where.setPromptText("optional, e.g.  is_deleted = false and type = 'EMAS'");
         where.setTooltip(new Tooltip("A SQL condition applied to both sides; only matching rows are compared"));
         where.setOnAction(e -> runDataCompare());
+        // column suggestions: the table's own by name, joined ones as "alias.column" (how the filter sees them)
+        ConditionCompletion.install(where, () -> columnChoices.stream().map(c -> c.name).toList(), name -> {
+            if (!KeyJoins.isJoinedColumn(name)) return name;
+            String q = dataSource.connection.getValue() != null
+                    && dataSource.connection.getValue().getType() == com.dbadmin.model.DbType.MYSQL ? "`" : "\"";
+            return q + name + q;
+        });
         HBox.setHgrow(where, Priority.ALWAYS);
         // Save: the settings (opening the file compares again); the arrow: with the results and verdicts too
-        Button save = new Button("Save…");
-        save.setTooltip(new Tooltip("Save this compare (Ctrl+S): with its results (rows and verdicts) or its settings only"));
+        Button save = new Button("Save");
+        save.setTooltip(new Tooltip("Save this compare to its file (Ctrl+S); the first time, asks where and what"));
         save.setOnAction(e -> save());
+        Button saveAs = new Button("Save As…");
+        saveAs.setTooltip(new Tooltip("Save to another file, with the results (rows and verdicts) or the settings only (Ctrl+Shift+S)"));
+        saveAs.setOnAction(e -> saveAs());
         Button sql = new Button("SQL…");
         sql.setTooltip(new Tooltip("The queries Compare data runs on each side, to copy and run yourself"));
         sql.setOnAction(e -> showQueries());
-        HBox options = new HBox(8, new Label("Where:"), where, new Label("Rows per side:"), rowLimit, compare, sql, save,
+        HBox options = new HBox(8, new Label("Where:"), where, new Label("Rows per side:"), rowLimit, compare, sql, save, saveAs,
                 columnsToggle, advanced);
         options.setAlignment(Pos.CENTER_LEFT);
         dataStatus.setWrapText(true);
@@ -790,8 +827,7 @@ class DataCompareTab extends Tab {
                         r.oneToMany = p.oneToMany();
                         r.mainAlias = p.joins().isEmpty() ? null : p.alias();
                         r.joins = p.joins();
-                        reportFile = null;
-                        unsaved = false;
+                        unsaved = false; // Save writes the new results to the compare's file, if it has one
                         showReport(r);
                     }, failed);
         };
@@ -887,7 +923,7 @@ class DataCompareTab extends Tab {
         }
         statusFilters.forEach((status, box) -> box.setText(statusLabel(status, src, dst) + " (" + counts.getOrDefault(status, 0) + ")"));
         verdictForShown.getItems().setAll(verdictItems(v -> applyVerdict(v, List.copyOf(dataGrid.getItems()))));
-        fileStatus.setText(reportFile == null ? "" : "Saved as " + reportFile.getFileName());
+        fileStatus.setText(reportFile == null ? "" : "File: " + reportFile.getFileName());
         statusBar.setVisible(true);
         statusBar.setManaged(true);
         updateVerdictSummary();

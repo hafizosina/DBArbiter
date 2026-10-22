@@ -153,6 +153,21 @@ public class MainWindow implements SessionProvider {
         });
 
         navigator = new TableSearch(tree, sessions::all, this::openTable);
+        navigator.setMenus((session, t) -> {
+            MenuItem open = new MenuItem("Open");
+            open.setOnAction(e -> openTable(session, t));
+            MenuItem exportData = new MenuItem("Export Data…");
+            exportData.setOnAction(e -> TableTransfer.export(stage, session, t, null, transferHost));
+            if (t.isView()) return List.of(open, exportData);
+            MenuItem importData = new MenuItem("Import Data…");
+            importData.setOnAction(e -> TableTransfer.importData(stage, session, t, transferHost));
+            importData.setDisable(session.getConfig().isReadOnly());
+            return List.of(open, exportData, importData);
+        }, session -> {
+            MenuItem script = new MenuItem("New Script");
+            script.setOnAction(e -> newScript(session.getConfig()));
+            return List.of(script);
+        });
         completer.setOnInvalidate(navigator::invalidate); // DDL and refresh also reload the search
         mainSplit = new SplitPane(navigator, center);
         mainSplit.setDividerPositions(0.25);
