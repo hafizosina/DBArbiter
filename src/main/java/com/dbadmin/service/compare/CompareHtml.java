@@ -83,10 +83,7 @@ public final class CompareHtml {
         if (r.duplicateKeys > 0) card(h, r.duplicateKeys, "duplicate keys");
         h.append("</div>");
         h.append("<div class=cards>");
-        card(h, r.count(Verdict.INSERT), Verdict.INSERT.label(r.target.label()));
-        card(h, r.count(Verdict.UPDATE), Verdict.UPDATE.label(r.target.label()));
-        card(h, r.count(Verdict.DELETE), Verdict.DELETE.label(r.target.label()));
-        card(h, r.count(Verdict.SKIP), "skip");
+        for (Verdict v : Verdict.values()) card(h, r.count(v), v.name());
         card(h, r.undecided(), "not decided yet");
         h.append("</div>");
 
@@ -103,7 +100,7 @@ public final class CompareHtml {
                         .append(statusText(row.status, r.source.label(), r.target.label())).append("</span></td>");
                 h.append("<td class=verdict>").append(row.verdict == null
                         ? (Verdict.allowed(row.status).isEmpty() ? "" : "<span class=none>–</span>")
-                        : esc(row.verdict.label(r.target.label()))).append("</td>");
+                        : "<span class=st style=\"background:" + row.verdict.color() + "\">" + row.verdict.name() + "</span>").append("</td>");
                 for (int c = 0; c < r.shownColumns.size(); c++) {
                     String a = row.source == null ? null : row.source.get(c);
                     String b = row.target == null ? null : row.target.get(c);

@@ -179,6 +179,23 @@ class DataCompareTab extends Tab {
     private void saveSettings() {
         DataCompareReport r = formSettings();
         if (r == null) return;
+        long verdicts = report == null || report.settingsOnly ? 0 : report.rows.stream().filter(x -> x.verdict != null).count();
+        if (verdicts > 0) {
+            // settings only would leave the verdicts out: offer the results too
+            ButtonType withResults = new ButtonType("Save with verdicts", ButtonBar.ButtonData.YES);
+            ButtonType settingsOnly = new ButtonType("Settings only", ButtonBar.ButtonData.NO);
+            Alert ask = new Alert(Alert.AlertType.WARNING, verdicts + " verdict(s) are set. Saving the settings only leaves them out: "
+                    + "the file compares again when opened, without verdicts.", withResults, settingsOnly, ButtonType.CANCEL);
+            ask.initOwner(getTabPane().getScene().getWindow());
+            ask.setHeaderText("Save the verdicts too?");
+            ask.getDialogPane().setPrefWidth(560);
+            ButtonType answer = InAppDialogs.showAndWait(ask).orElse(ButtonType.CANCEL);
+            if (answer == withResults) {
+                saveReport();
+                return;
+            }
+            if (answer != settingsOnly) return;
+        }
         Path file = CompareReportChooser.saveReport(getTabPane().getScene().getWindow(), reportFile, CompareReportChooser.defaultName(
                 "DataCompare-" + r.source.table(), r.source.label(), r.target.label()));
         if (file == null) return;
@@ -826,6 +843,56 @@ class DataCompareTab extends Tab {
         // show() starts without a menu: right-click sets the verdict of the selected rows
         dataGrid.setContextMenu(report == null ? null : new ContextMenu(verdictItems(v -> applyVerdict(v, selectedRows()))
                 .toArray(MenuItem[]::new)));
+        @SuppressWarnings("unchecked")
+        TableColumn<List<Object>, Object> verdictColumn = (TableColumn<List<Object>, Object>) dataGrid.column(1);
+        if (verdictColumn != null) verdictColumn.setCellFactory(c -> new VerdictDropdownCell());
+    }
+
+    /** The Verdict cell: its text and a ▾; a click opens the verdicts that fit the row's status. */
+    private final class VerdictDropdownCell extends javafx.scene.control.TableCell<List<Object>, Object> {
+        private final Label text = new Label();
+        private final Label arrow = new Label("▾");
+        private final HBox box;
+
+        VerdictDropdownCell() {
+            arrow.getStyleClass().add("hint-small");
+            javafx.scene.layout.Region gap = new javafx.scene.layout.Region();
+            HBox.setHgrow(gap, Priority.ALWAYS);
+            box = new HBox(4, text, gap, arrow);
+            box.setAlignment(Pos.CENTER_LEFT);
+            setOnMouseClicked(e -> {
+                if (e.getButton() != javafx.scene.input.MouseButton.PRIMARY || !(getItem() instanceof VerdictCell v)) return;
+                List<Verdict> allowed = Verdict.allowed(v.row.status);
+                if (allowed.isEmpty()) return;
+                ContextMenu menu = new ContextMenu();
+                for (Verdict choice : allowed) {
+                    MenuItem item = verdictItem(choice);
+                    item.setOnAction(a -> applyVerdict(choice, List.of(getTableRow().getItem())));
+                    menu.getItems().add(item);
+                }
+                MenuItem clear = new MenuItem("CLEAR");
+                clear.setOnAction(a -> applyVerdict(null, List.of(getTableRow().getItem())));
+                menu.getItems().addAll(new SeparatorMenuItem(), clear);
+                menu.show(this, javafx.geometry.Side.BOTTOM, 0, 0);
+                e.consume();
+            });
+        }
+
+        @Override
+        protected void updateItem(Object item, boolean empty) {
+            super.updateItem(item, empty);
+            setText(null);
+            boolean choosable = !empty && item instanceof VerdictCell v && !Verdict.allowed(v.row.status).isEmpty();
+            text.setText(empty || item == null ? "" : item.toString());
+            Verdict chosen = !empty && item instanceof VerdictCell v ? v.row.verdict : null;
+            // a colored word, like the status cells
+            text.setStyle(chosen == null ? null : "-fx-background-color: " + chosen.color() + "; -fx-text-fill: "
+                    + StatusValue.textColorOn(chosen.color()) + "; -fx-font-weight: bold; -fx-padding: 0 6 0 6; -fx-background-radius: 3;");
+            setTooltip(chosen == null ? null : new Tooltip(chosen.label(report.target.label())));
+            arrow.setVisible(choosable);
+            setGraphic(empty ? null : box);
+            setCursor(choosable ? javafx.scene.Cursor.HAND : null);
+        }
     }
 
     // ---- verdicts ----------------------------------------------------------
@@ -840,20 +907,28 @@ class DataCompareTab extends Tab {
 
         @Override
         public String toString() {
-            if (row.verdict != null) return row.verdict.label(report.target.label());
+            if (row.verdict != null) return row.verdict.name();
             return Verdict.allowed(row.status).isEmpty() ? "" : "–";
         }
     }
 
-    /** Insert / Update / Delete / Skip / Clear, each applying to the rows given when it is clicked. */
+    /** "INSERT" with a swatch of its color; what it does ("Insert into Prod") in the hover text of the cell. */
+    private MenuItem verdictItem(Verdict v) {
+        javafx.scene.shape.Rectangle swatch = new javafx.scene.shape.Rectangle(10, 10, javafx.scene.paint.Color.web(v.color()));
+        swatch.setArcWidth(3);
+        swatch.setArcHeight(3);
+        return new MenuItem(v.name(), swatch);
+    }
+
+    /** INSERT / UPDATE / DELETE / SKIP / CLEAR, each applying to the rows given when it is clicked. */
     private List<MenuItem> verdictItems(Consumer<Verdict> apply) {
         List<MenuItem> items = new ArrayList<>();
         for (Verdict v : Verdict.values()) {
-            MenuItem item = new MenuItem(v.label(report.target.label()));
+            MenuItem item = verdictItem(v);
             item.setOnAction(e -> apply.accept(v));
             items.add(item);
         }
-        MenuItem clear = new MenuItem("Clear verdict");
+        MenuItem clear = new MenuItem("CLEAR");
         clear.setOnAction(e -> apply.accept(null));
         items.add(new SeparatorMenuItem());
         items.add(clear);

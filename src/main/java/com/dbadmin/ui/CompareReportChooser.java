@@ -2,16 +2,17 @@ package com.dbadmin.ui;
 
 import com.dbadmin.service.ScriptFolder;
 import com.dbadmin.service.compare.CompareReportFiles;
-import javafx.stage.FileChooser;
 import javafx.stage.Window;
 
-import java.io.File;
 import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 
-/** File choosers for compare reports (.dbcompare) and their HTML exports; "Reports" next to the app by default. */
+/**
+ * In-app file dialogs (see {@link FileDialog}) for compare reports (.dbcompare) and their HTML exports;
+ * "Reports" next to the app by default.
+ */
 final class CompareReportChooser {
 
     private static final DateTimeFormatter STAMP = DateTimeFormatter.ofPattern("yyyyMMdd-HHmm");
@@ -26,43 +27,34 @@ final class CompareReportChooser {
 
     /** Asks where to save a report; null if cancelled. */
     static Path saveReport(Window owner, Path current, String name) {
-        return save(owner, current, name, CompareReportFiles.EXTENSION, "DBAdmin compare report");
+        return save(owner, current, name, CompareReportFiles.EXTENSION, "Save Compare", "compare files");
     }
 
     /** Asks where to save the HTML version; null if cancelled. */
     static Path saveHtml(Window owner, Path report, String name) {
         String base = report != null ? report.getFileName().toString().replaceFirst("\\.dbcompare$", "") : name;
-        return save(owner, report, base, ".html", "HTML page");
+        return save(owner, report, base, ".html", "Export HTML", "HTML pages");
     }
 
     /** Asks for a report to open; null if cancelled. */
     static Path open(Window owner) {
-        FileChooser chooser = new FileChooser();
-        chooser.setTitle("Open Compare Report");
-        chooser.setInitialDirectory(reportDir());
-        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("DBAdmin compare report", "*" + CompareReportFiles.EXTENSION));
-        File file = chooser.showOpenDialog(owner);
-        return file == null ? null : file.toPath();
+        Path home = reportDir();
+        return InAppDialogs.showAndWait(new FileDialog(owner, FileDialog.Mode.OPEN, "Open Compare", home, "Reports", home,
+                CompareReportFiles.EXTENSION, "compare files", null)).orElse(null);
     }
 
-    private static Path save(Window owner, Path near, String name, String extension, String description) {
-        FileChooser chooser = new FileChooser();
-        chooser.setTitle("Save " + description);
-        File dir = near != null && near.getParent() != null ? near.getParent().toFile() : reportDir();
-        chooser.setInitialDirectory(dir.isDirectory() ? dir : reportDir());
-        chooser.setInitialFileName(name + extension);
-        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter(description, "*" + extension));
-        File file = chooser.showSaveDialog(owner);
-        if (file == null) return null;
-        String path = file.getPath();
-        return Path.of(path.toLowerCase().endsWith(extension) ? path : path + extension);
+    private static Path save(Window owner, Path near, String name, String extension, String title, String kind) {
+        Path home = reportDir();
+        Path start = near != null && near.getParent() != null ? near.getParent() : home;
+        return InAppDialogs.showAndWait(new FileDialog(owner, FileDialog.Mode.SAVE, title, home, "Reports", start,
+                extension, kind, name + extension)).orElse(null);
     }
 
-    private static File reportDir() {
+    private static Path reportDir() {
         try {
-            return ScriptFolder.reportDir().toFile();
+            return ScriptFolder.reportDir();
         } catch (UncheckedIOException e) {
-            return new File(System.getProperty("user.home"));
+            return Path.of(System.getProperty("user.home"));
         }
     }
 }

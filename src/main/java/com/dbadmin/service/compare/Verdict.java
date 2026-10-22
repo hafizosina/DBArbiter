@@ -32,6 +32,16 @@ public enum Verdict {
         return label;
     }
 
+    /** Its color wherever a verdict is shown (green insert, amber update, red delete, grey skip). */
+    public String color() {
+        return switch (this) {
+            case INSERT -> "#66bb6a";
+            case UPDATE -> "#ffb74d";
+            case DELETE -> "#ef5350";
+            case SKIP -> "#b0bec5";
+        };
+    }
+
     /** The verdicts a row with this status can get; none for matching rows and duplicate keys. */
     public static List<Verdict> allowed(RowStatus status) {
         return switch (status) {

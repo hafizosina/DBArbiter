@@ -132,7 +132,7 @@ class CompareReportTest {
         String html = CompareHtml.data(r);
         assertTrue(html.contains("&lt;c&gt;"));
         assertFalse(html.contains("<c>"));
-        assertTrue(html.contains("Insert into PreProd"));
+        assertTrue(html.contains(">INSERT</span>"));
         assertTrue(html.contains("Differences (3)"));
         assertTrue(html.contains("1 identical rows are not listed"));
         assertTrue(html.contains("<span class=old>2</span><br><span class=new>3</span>"));
