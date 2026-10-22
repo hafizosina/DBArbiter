@@ -13,7 +13,7 @@ _First review: 2026-10-21 at commit `70ef05a` (the app was called DBAdmin then).
 | 1 | Edits mapped to table columns by result label | **Fixed**: only `*` or plain column lists are editable |
 | 2 | No tests | **Mostly done**: 125 JUnit tests cover every class without a screen; the screens themselves are untested |
 | 3 | SQL scanner written three times | **Fixed**: one `SqlLexer`; splitting and autocomplete share statement boundaries |
-| 4 | Fetching more rows re-runs the query | **Partly fixed**: a warning when the query has no ORDER BY; it is still re-run for each chunk |
+| 4 | Fetching more rows re-runs the query | **Fixed**: the rest is read from one kept-open cursor on a connection of its own |
 | 5 | `DatabaseSession` does too much | Open, and grown: 1,108 lines, 43 public methods, 29 per-database branches |
 | 6 | `MainWindow` and `CompareTab` do too much | **Fixed**: sessions moved to a tested `SessionManager`; `CompareTab` split into two tabs |
 | 7 | Global static state | Open |
@@ -94,6 +94,16 @@ Where: `DataView.fetchMore`, `DatabaseSession.execute(..., skip)`.
 - MySQL's streaming mode blocks the connection for every other statement until the rows are read to the end.
 
 A second connection just for paging would avoid both. That is worth doing only if fetching tens of thousands of rows turns out to be common.
+
+**Fixed (2026-10-23), with that second connection:** at the first "more", the query runs once more on a connection of
+its own (`DatabaseSession.openCursor`: autocommit off on PostgreSQL, row streaming on MySQL), passes over the rows
+already shown and is kept open; every later chunk is read from it (`RowCursor.next`, reading one row ahead to know
+whether more are left), with no re-run. The connection closes when the rows run out, another result is shown, or the
+view leaves the screen. 1 test on SQLite; tried in the app on PostgreSQL: 2,500 rows in 13 chunks, in order without
+repeats, the paging connection open while reading and gone after. **What is left:** without ORDER BY, the second run
+may order rows differently from the first chunk's run, so the boundary between them can still overlap or skip; the
+bar says so ("the rest may not line up"). Running the very first chunk on the cursor too would remove that, at the
+cost of a connection per result.
 
 ### 5. `DatabaseSession` (now 1,108 lines) does too much — open
 
@@ -220,7 +230,8 @@ job connection can keep a cursor open.
 **Done for both compares** (with G2): a compare opens its own session per side, reads both sides at the same time and
 closes them at the end. Tried in the app: during a data compare PostgreSQL shows the 2 interactive connections plus
 the job's 2; after it, or after Cancel, only the 2 interactive ones. **Still on the shared connection:** export and
-import (`TableTransfer`) and fetching more rows (#4); move them to a `Job` when they are next touched.
+import (`TableTransfer`); move them to a `Job` when they are next touched. (Fetching more rows has its own connection
+now, #4.)
 
 ### G2. No shared idea of a long job — partly fixed
 
@@ -354,5 +365,5 @@ In order, now that other people use the app:
 3. **Split `DataCompareTab` (#12)** before the next compare feature, starting with `VerdictActions` (testable) and the
    shared `CompareFile`.
 4. **`Dialect` (#5)** before adding a fourth database.
-5. As needed: a second connection for paging (#4) and less static state (#7) once the screens get tests. (The side
-   effects in `hasEdits()` / `show()`, #11, are fixed.)
+5. As needed: less static state (#7) once the screens get tests. (Paging, #4, and the side effects in
+   `hasEdits()` / `show()`, #11, are fixed.)

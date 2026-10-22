@@ -1040,6 +1040,100 @@ public class DatabaseSession implements AutoCloseable {
         }
     }
 
+    /**
+     * Runs a query once and keeps it open, to read its rows in chunks ({@link RowCursor#next}); the first
+     * {@code skip} rows are passed over. Use a session of its own: PostgreSQL only streams rows inside a
+     * transaction (autocommit off here), and MySQL's streaming blocks the connection until the rows are read,
+     * so other work on the session would wait or run inside that transaction. Closing the session ends it all.
+     */
+    public RowCursor openCursor(String sql, List<String> params, int skip) throws SQLException {
+        if (config.getType() == DbType.POSTGRESQL) connection.setAutoCommit(false); // else PostgreSQL reads every row at once
+        Statement st = params.isEmpty() ? connection.createStatement() : connection.prepareStatement(sql);
+        st.setFetchSize(config.getType() == DbType.MYSQL ? Integer.MIN_VALUE : 500); // MySQL: stream row by row
+        running = st;
+        try {
+            ResultSet rs;
+            if (st instanceof PreparedStatement ps) {
+                for (int i = 0; i < params.size(); i++) {
+                    if (params.get(i) == null) ps.setNull(i + 1, java.sql.Types.VARCHAR);
+                    else ps.setString(i + 1, params.get(i));
+                }
+                rs = ps.executeQuery();
+            } else {
+                rs = st.executeQuery(sql);
+            }
+            RowCursor cursor = new RowCursor(st, rs);
+            for (int i = 0; i < skip && cursor.advance(); i++) {
+                // rows already shown
+            }
+            return cursor;
+        } catch (SQLException | RuntimeException e) {
+            st.close();
+            throw e;
+        } finally {
+            running = null;
+        }
+    }
+
+    /** An open query's rows, read in chunks; see {@link #openCursor}. Use on its session's worker thread. */
+    public final class RowCursor {
+        private final Statement statement;
+        private final ResultSet rs;
+        private final List<String> columns = new ArrayList<>();
+        private final List<ColumnType> types = new ArrayList<>();
+        /** The row read ahead (to know whether more are left), or null. */
+        private List<Object> ahead;
+        private boolean done;
+
+        private RowCursor(Statement statement, ResultSet rs) throws SQLException {
+            this.statement = statement;
+            this.rs = rs;
+            ResultSetMetaData rsmd = rs.getMetaData();
+            for (int i = 1; i <= rsmd.getColumnCount(); i++) {
+                columns.add(rsmd.getColumnLabel(i));
+                types.add(new ColumnType(rsmd.getColumnTypeName(i), rsmd.getColumnType(i), rsmd.getColumnDisplaySize(i)));
+            }
+            ahead = readRow();
+        }
+
+        /** Moves past one row; false at the end. */
+        private boolean advance() throws SQLException {
+            if (ahead == null) return false;
+            ahead = readRow();
+            return true;
+        }
+
+        private List<Object> readRow() throws SQLException {
+            if (done || !rs.next()) {
+                done = true;
+                return null;
+            }
+            List<Object> row = new ArrayList<>(columns.size());
+            for (int i = 1; i <= columns.size(); i++) row.add(displayValue(rs.getObject(i)));
+            return row;
+        }
+
+        /** The next rows, at most {@code maxRows}. */
+        public TableData next(int maxRows) throws SQLException {
+            running = statement;
+            try {
+                List<List<Object>> rows = new ArrayList<>();
+                while (rows.size() < maxRows && ahead != null) {
+                    rows.add(ahead);
+                    ahead = readRow();
+                }
+                return new TableData(columns, types, rows);
+            } finally {
+                running = null;
+            }
+        }
+
+        /** Rows are left to read. */
+        public boolean hasMore() {
+            return ahead != null;
+        }
+    }
+
     private static TableData readRows(ResultSet rs, int maxRows) throws SQLException {
         ResultSetMetaData rsmd = rs.getMetaData();
         int n = rsmd.getColumnCount();

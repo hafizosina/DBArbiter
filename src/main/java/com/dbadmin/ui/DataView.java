@@ -2,6 +2,7 @@ package com.dbadmin.ui;
 
 import com.dbadmin.model.BlobValue;
 import com.dbadmin.model.StatementResult;
+import com.dbadmin.model.TableData;
 import com.dbadmin.service.DatabaseSession;
 import com.dbadmin.service.SqlSplitter;
 import javafx.application.Platform;
@@ -119,8 +120,13 @@ class DataView extends BorderPane {
             updateEditBar();
             if (!showingChunk) {
                 chunked = null;
+                closePaging();
                 updateMoreBar();
             }
+        });
+        // off the screen (its tab closed): the paging connection is not needed any more
+        sceneProperty().addListener((o, a, scene) -> {
+            if (scene == null) closePaging();
         });
         updateMoreBar();
         watchScrolling();
@@ -427,8 +433,14 @@ class DataView extends BorderPane {
     private DatabaseSession chunkSession;
     private int fetched;
     private boolean canFetchMore;
-    /** Re-run without ORDER BY: the next chunk may repeat or miss rows. */
+    /** No ORDER BY: the rest, read by a second run of the query, may not line up with the first chunk. */
     private boolean unordered;
+    /**
+     * The rest of the result after the first chunk: the query, run once more on a connection of its own, kept open
+     * and read chunk by chunk (instead of re-running it for every chunk). Opened at the first "more"; closed with it.
+     */
+    private DatabaseSession pagingSession;
+    private DatabaseSession.RowCursor cursor;
     private boolean fetching;
     private boolean showingChunk;
 
@@ -438,6 +450,7 @@ class DataView extends BorderPane {
      * never re-run, so they stay at their first chunk.
      */
     void showResult(StatementResult result, DatabaseSession session) {
+        closePaging();
         showingChunk = true;
         grid.show(result.data());
         showingChunk = false;
@@ -459,42 +472,82 @@ class DataView extends BorderPane {
         if (fetching) {
             moreInfo.setText(rows(fetched) + " · fetching more…");
         } else if (canFetchMore) {
-            moreInfo.setText(rows(fetched) + " · more available" + (unordered ? " · no ORDER BY: rows may repeat" : ""));
+            moreInfo.setText(rows(fetched) + " · more available" + (unordered ? " · no ORDER BY: the rest may not line up" : ""));
         } else if (chunked != null && chunked.truncated() && fetched == chunked.data().rows().size()) {
             moreInfo.setText("First " + rows(fetched) + " (this statement is not re-run for more)");
         } else {
             moreInfo.setText(rows(fetched));
         }
-        moreInfo.setTooltip(unordered && canFetchMore ? new Tooltip("Without ORDER BY the query is re-run for each chunk, "
-                + "so rows may repeat or be missed") : null);
+        moreInfo.setTooltip(unordered && canFetchMore ? new Tooltip("The rest is read by running the query once more; without "
+                + "ORDER BY its rows may come in another order,\nso a row of the first chunk may show again or one may be missed") : null);
     }
 
     private static String rows(int n) {
         return String.format("%,d", n) + (n == 1 ? " row" : " rows");
     }
 
+    /**
+     * The next chunk. The first time, the query runs once more on a connection of its own, kept open: it passes over
+     * the rows shown and reads on; after that each chunk is read from it, with no re-run.
+     */
     private void fetchMore() {
         if (!canFetchMore || fetching || chunked == null) return;
         StatementResult query = chunked;
-        DatabaseSession session = chunkSession;
-        int skip = fetched;
         fetching = true;
         updateMoreBar();
-        Async.run(session, () -> session.execute(query.sql(), query.params(), ScriptRunner.FETCH_SIZE, skip), more -> {
-            if (chunked != query) return; // another result is shown now
-            fetching = false;
-            if (more.data() != null) {
-                grid.getItems().addAll(more.data().rows());
-                fetched += more.data().rows().size();
-            }
-            canFetchMore = more.truncated();
-            updateMoreBar();
-        }, ex -> {
+        java.util.function.Consumer<Throwable> failed = ex -> {
             if (chunked != query) return;
             fetching = false;
+            closePaging();
             updateMoreBar();
             moreInfo.setText("Could not fetch more rows: " + ex.getMessage());
-        });
+        };
+        if (cursor != null) {
+            DatabaseSession s = pagingSession;
+            DatabaseSession.RowCursor c = cursor;
+            Async.run(s, () -> c.next(ScriptRunner.FETCH_SIZE), more -> showMore(query, more, c.hasMore()), failed);
+            return;
+        }
+        com.dbadmin.model.ConnectionConfig config = chunkSession.getConfig();
+        int skip = fetched;
+        Async.run(() -> {
+            DatabaseSession s = DatabaseSession.open(config);
+            try {
+                DatabaseSession.RowCursor c = s.submit(() -> s.openCursor(query.sql(), query.params(), skip)).get();
+                TableData more = s.submit(() -> c.next(ScriptRunner.FETCH_SIZE)).get();
+                return new Object[]{s, c, more};
+            } catch (Exception e) {
+                s.close();
+                throw e instanceof java.util.concurrent.ExecutionException && e.getCause() instanceof Exception cause ? cause : e;
+            }
+        }, opened -> {
+            DatabaseSession s = (DatabaseSession) opened[0];
+            DatabaseSession.RowCursor c = (DatabaseSession.RowCursor) opened[1];
+            if (chunked != query) {
+                s.close(); // another result is shown now
+                return;
+            }
+            pagingSession = s;
+            cursor = c;
+            showMore(query, (TableData) opened[2], c.hasMore());
+        }, failed);
+    }
+
+    private void showMore(StatementResult query, TableData more, boolean hasMore) {
+        if (chunked != query) return; // another result is shown now
+        fetching = false;
+        grid.getItems().addAll(more.rows());
+        fetched += more.rows().size();
+        canFetchMore = hasMore;
+        if (!hasMore) closePaging(); // all read
+        updateMoreBar();
+    }
+
+    /** Closes the paging connection, if one is open (its cursor and transaction end with it). */
+    private void closePaging() {
+        if (pagingSession != null) pagingSession.close();
+        pagingSession = null;
+        cursor = null;
     }
 
     /** Fetches the next chunk when the grid is scrolled to its last row. */
