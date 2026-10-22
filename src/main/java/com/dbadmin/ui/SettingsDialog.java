@@ -44,6 +44,7 @@ class SettingsDialog extends Dialog<AppSettings> {
 
         Map<String, Node> pages = new LinkedHashMap<>();
         pages.put("Theme", themePage());
+        pages.put("Updates", updatesPage());
 
         BorderPane content = new BorderPane();
         ListView<String> categories = new ListView<>();
@@ -130,6 +131,21 @@ class SettingsDialog extends Dialog<AppSettings> {
 
         VBox page = new VBox(10, title, hint, choices, new javafx.scene.control.Separator(), colorsTitle, colorsHint,
                 colors, reset);
+        page.setPadding(new Insets(12, 16, 12, 16));
+        return page;
+    }
+
+    private Node updatesPage() {
+        Label title = new Label("Updates");
+        title.getStyleClass().add("form-title");
+        javafx.scene.control.CheckBox check = new javafx.scene.control.CheckBox("Check for a new version when the app starts");
+        check.setSelected(edited.isCheckForUpdates());
+        check.selectedProperty().addListener((o, a, on) -> edited.setCheckForUpdates(on));
+        Label hint = new Label("Asks GitHub for the newest release (nothing else is sent). When there is one, the bar at the "
+                + "bottom shows a link to download it. Turn this off where the app must not go online.");
+        hint.getStyleClass().add("hint-small");
+        hint.setWrapText(true);
+        VBox page = new VBox(10, title, check, hint);
         page.setPadding(new Insets(12, 16, 12, 16));
         return page;
     }

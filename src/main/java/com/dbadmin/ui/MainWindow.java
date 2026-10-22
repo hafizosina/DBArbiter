@@ -326,6 +326,18 @@ public class MainWindow implements SessionProvider {
         return false;
     }
 
+    /**
+     * Asks GitHub in the background whether a newer release is out; if so the footer links to it. Skipped when
+     * turned off in Settings and for builds run from the IDE (version "dev"). Failures are silent.
+     */
+    public void checkForUpdates(javafx.application.HostServices browser) {
+        String current = AppFooter.version();
+        if (!Themes.settings().isCheckForUpdates() || current.equals("dev")) return;
+        Async.run(() -> com.dbadmin.service.UpdateCheck.newerThan(current),
+                newer -> newer.ifPresent(r -> footer.showUpdate(r.version(), () -> browser.showDocument(r.page()))),
+                ex -> { });
+    }
+
     /** Styles the main window's scene with the current theme (and follows later changes). */
     public static void applyTheme(javafx.scene.Scene scene) {
         Themes.install(scene);

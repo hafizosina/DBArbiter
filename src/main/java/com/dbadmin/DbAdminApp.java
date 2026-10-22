@@ -30,6 +30,7 @@ public class DbAdminApp extends Application {
         // 1200x760 is the size used when the user un-maximizes the window
         stage.setMaximized(true);
         stage.show();
+        mainWindow.checkForUpdates(getHostServices());
     }
 
     @Override

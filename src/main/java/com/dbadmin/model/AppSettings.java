@@ -37,6 +37,11 @@ public class AppSettings {
     /** Status cell colors per theme (status name -> #rrggbb); missing entries use the defaults. */
     private Map<Theme, Map<String, String>> statusColors = new EnumMap<>(Theme.class);
 
+    /** At startup, ask GitHub whether a newer release is out (and say so in the footer). */
+    private boolean checkForUpdates = true;
+
+    public boolean isCheckForUpdates() { return checkForUpdates; }
+    public void setCheckForUpdates(boolean checkForUpdates) { this.checkForUpdates = checkForUpdates; }
     public Theme getTheme() { return theme; }
     public void setTheme(Theme theme) { this.theme = theme; }
     public Map<Theme, Map<String, String>> getStatusColors() { return statusColors; }
@@ -64,6 +69,7 @@ public class AppSettings {
     public AppSettings copy() {
         AppSettings c = new AppSettings();
         c.theme = theme;
+        c.checkForUpdates = checkForUpdates;
         statusColors.forEach((t, m) -> c.statusColors.put(t, new LinkedHashMap<>(m)));
         return c;
     }

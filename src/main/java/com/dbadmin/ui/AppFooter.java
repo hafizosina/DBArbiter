@@ -35,6 +35,8 @@ class AppFooter extends HBox {
 
     private final Label status;
     private final Label license = new Label();
+    /** "Update available: v0.1.20", shown when a newer release is out; opens its download page. */
+    private final javafx.scene.control.Hyperlink update = new javafx.scene.control.Hyperlink();
 
     AppFooter(String statusText) {
         status = new Label(statusText);
@@ -44,7 +46,9 @@ class AppFooter extends HBox {
         version.getStyleClass().add("hint-small");
         version.setTooltip(new Tooltip("Commit " + build("commit")));
         for (Label l : new Label[]{status, license, version}) l.setPadding(new Insets(3, 8, 3, 8));
-        getChildren().addAll(status, license, version);
+        update.setVisible(false);
+        update.setManaged(false);
+        getChildren().addAll(status, update, license, version);
         setAlignment(Pos.CENTER_LEFT);
     }
 
@@ -72,6 +76,15 @@ class AppFooter extends HBox {
         }
         license.setText(text);
         license.getStyleClass().setAll("label", warn ? "binding-warning" : "hint-small");
+    }
+
+    /** Shows that a newer release is out; clicking it runs {@code open} (the download page in the browser). */
+    void showUpdate(String newVersion, Runnable open) {
+        update.setText("Update available: v" + newVersion);
+        update.setTooltip(new Tooltip("Open the download page of v" + newVersion));
+        update.setOnAction(e -> open.run());
+        update.setVisible(true);
+        update.setManaged(true);
     }
 
     /** The status text on the left. */
