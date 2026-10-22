@@ -34,17 +34,24 @@ jobs:
             VERSION=$(sed -n 's:.*<revision>\(.*\)</revision>.*:\1:p' pom.xml | head -1)
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "args=-Drevision=$VERSION -Dbuild.commit=${GITHUB_SHA::7} -Dbuild.date=$(date -u '+%F %H:%M UTC')" >> "$GITHUB_OUTPUT"
+          echo "date=$(date -u '+%F %H:%M UTC')" >> "$GITHUB_OUTPUT"
 
       - name: Tests
         # the UI tests need a display
         run: xvfb-run -a mvn -B test
 
+      # each value its own quoted argument: the date has spaces
       - name: Linux download
-        run: packaging/build-linux.sh -DskipTests ${{ steps.version.outputs.args }}
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD_DATE: ${{ steps.version.outputs.date }}
+        run: packaging/build-linux.sh -DskipTests "-Drevision=$VERSION" "-Dbuild.commit=${GITHUB_SHA::7}" "-Dbuild.date=$BUILD_DATE"
 
       - name: Windows download
-        run: packaging/build-windows.sh ${{ steps.version.outputs.args }}
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          BUILD_DATE: ${{ steps.version.outputs.date }}
+        run: packaging/build-windows.sh "-Drevision=$VERSION" "-Dbuild.commit=${GITHUB_SHA::7}" "-Dbuild.date=$BUILD_DATE"
 
       - uses: actions/upload-artifact@v4
         with:
