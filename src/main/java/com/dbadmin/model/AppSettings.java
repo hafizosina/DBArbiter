@@ -41,7 +41,9 @@ public class AppSettings {
     public void setTheme(Theme theme) { this.theme = theme; }
     public Map<Theme, Map<String, String>> getStatusColors() { return statusColors; }
     public void setStatusColors(Map<Theme, Map<String, String>> statusColors) {
-        this.statusColors = statusColors == null ? new EnumMap<>(Theme.class) : new EnumMap<>(statusColors);
+        // not new EnumMap<>(map): that throws for an empty map that is not an EnumMap (as read from JSON)
+        this.statusColors = new EnumMap<>(Theme.class);
+        if (statusColors != null) this.statusColors.putAll(statusColors);
     }
 
     /** The color of a status cell in a theme: the user's choice, else the default. */

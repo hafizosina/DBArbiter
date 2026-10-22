@@ -6,7 +6,8 @@
 [ "$1" = committed ] || exit 0
 moved=
 while read -r old new ref; do
-    if [ "$ref" = refs/heads/main ] && [ "$new" != 0000000000000000000000000000000000000000 ]; then
+    # main moved to another commit (not deleted; git stash / reset to the same commit report old = new)
+    if [ "$ref" = refs/heads/main ] && [ "$new" != 0000000000000000000000000000000000000000 ] && [ "$new" != "$old" ]; then
         moved=$new
     fi
 done
