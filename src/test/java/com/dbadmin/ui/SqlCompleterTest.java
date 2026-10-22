@@ -46,6 +46,18 @@ class SqlCompleterTest {
     }
 
     @Test
+    void tablesOfOtherSchemasAreInsertedWithTheirSchema() {
+        Suggestion other = new Suggestion("m_product_variant", Kind.TABLE, "table · brankas_mobile", "brankas_mobile");
+        Suggestion here = new Suggestion("m_product_variant", Kind.TABLE, "table");
+        assertEquals("brankas_mobile.m_product_variant", SqlCompleter.insertText(other, "mpv", com.dbadmin.model.DbType.POSTGRESQL));
+        assertEquals("m_product_variant", SqlCompleter.insertText(here, "mpv", com.dbadmin.model.DbType.POSTGRESQL));
+        assertEquals("\"Brankas\".m_product_variant", SqlCompleter.insertText(
+                new Suggestion("m_product_variant", Kind.TABLE, null, "Brankas"), "", com.dbadmin.model.DbType.POSTGRESQL));
+        // the same name in the current schema and another one: both offered, the current one first
+        assertEquals(List.of(here, other), SqlCompleter.filter(List.of(here, other), "mpv"));
+    }
+
+    @Test
     void initialsAreThoseOfTheAlias() {
         assertEquals("mpv", SqlCompleter.initials("m_product_variant"));
         assertEquals("to", SqlCompleter.initials("TransactionOrder"));

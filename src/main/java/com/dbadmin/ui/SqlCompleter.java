@@ -30,7 +30,11 @@ final class SqlCompleter {
 
     enum Kind { COLUMN, TABLE, VIEW, SCHEMA, KEYWORD, TYPE, FUNCTION }
 
-    record Suggestion(String text, Kind kind, String detail) {
+    /** {@code schema}: set for a table outside the connection's current schema; it is inserted qualified. */
+    record Suggestion(String text, Kind kind, String detail, String schema) {
+        Suggestion(String text, Kind kind, String detail) {
+            this(text, kind, detail, null);
+        }
     }
 
     private static final String[] FUNCTIONS = {
@@ -67,7 +71,7 @@ final class SqlCompleter {
             callback.accept(build(ctx, null));
             return;
         }
-        Cache cache = caches.computeIfAbsent(session, s -> new Cache());
+        Cache cache = caches.computeIfAbsent(session, s -> new Cache(s.getConfig().getType()));
         Load load = missing(ctx, cache);
         if (load.isEmpty()) {
             callback.accept(build(ctx, cache));
@@ -83,10 +87,21 @@ final class SqlCompleter {
     // ---- metadata --------------------------------------------------------
 
     private static final class Cache {
+        final DbType type;
         List<Namespace> namespaces;
         String defaultNamespace;
         final Map<String, List<TableRef>> tables = new HashMap<>();      // by lower-case namespace label
         final Map<TableRef, List<ColumnInfo>> columns = new HashMap<>();
+
+        Cache(DbType type) {
+            this.type = type;
+        }
+
+        /** The schemas other than the current one whose tables are offered too (system schemas left out). */
+        List<Namespace> otherSchemas() {
+            if (namespaces == null) return List.of();
+            return namespaces.stream().filter(ns -> !ns.isSystem(type) && !ns.label().equalsIgnoreCase(String.valueOf(defaultNamespace))).toList();
+        }
     }
 
     /** Metadata to fetch in one round trip; also carries the results back. */
@@ -155,6 +170,8 @@ final class SqlCompleter {
         List<Namespace> needed = new ArrayList<>();
         addNamespace(needed, cache, cache.defaultNamespace);
         addNamespace(needed, cache, ctx.qualifier());
+        // after FROM / JOIN: tables of every schema, e.g. when the current one is "public" but the tables are elsewhere
+        if (ctx.qualifier() == null && ctx.tablePosition()) cache.otherSchemas().forEach(ns -> addNamespace(needed, cache, ns.label()));
         for (TableMention m : ctx.mentions()) addNamespace(needed, cache, m.namespace());
         for (Namespace ns : needed) {
             if (!cache.tables.containsKey(key(ns.label()))) load.tablesOf.add(ns);
@@ -237,6 +254,7 @@ final class SqlCompleter {
 
         if (cache != null && ctx.tablePosition()) {
             addTables(all, cache, cache.defaultNamespace);
+            for (Namespace ns : cache.otherSchemas()) addTables(all, cache, ns.label(), true);
             addSchemas(all, cache);
         }
         if (cache != null && !ctx.tablePosition()) {
@@ -259,9 +277,16 @@ final class SqlCompleter {
     }
 
     private static void addTables(List<Suggestion> out, Cache cache, String namespace) {
+        addTables(out, cache, namespace, false);
+    }
+
+    /** With {@code qualified}, the schema is shown and inserted with the name (a table outside the current schema). */
+    private static void addTables(List<Suggestion> out, Cache cache, String namespace, boolean qualified) {
         if (namespace == null) return;
         for (TableRef t : cache.tables.getOrDefault(key(namespace), List.of())) {
-            out.add(new Suggestion(t.name(), t.isView() ? Kind.VIEW : Kind.TABLE, t.type().toLowerCase(Locale.ROOT)));
+            String kind = t.type().toLowerCase(Locale.ROOT);
+            out.add(new Suggestion(t.name(), t.isView() ? Kind.VIEW : Kind.TABLE, qualified ? kind + " · " + namespace : kind,
+                    qualified ? namespace : null));
         }
     }
 
@@ -280,7 +305,7 @@ final class SqlCompleter {
         Map<String, Suggestion> contains = new LinkedHashMap<>();
         for (Suggestion s : all) {
             String text = s.text().toLowerCase(Locale.ROOT);
-            String id = s.kind() + ":" + text;
+            String id = s.kind() + ":" + s.schema() + ":" + text; // the same name in two schemas: both offered
             boolean table = s.kind() == Kind.TABLE || s.kind() == Kind.VIEW;
             if (text.startsWith(p)) starts.putIfAbsent(id, s);
             else if (p.length() >= 2 && table && initials(s.text()).startsWith(p)) initials.putIfAbsent(id, s);
@@ -298,7 +323,7 @@ final class SqlCompleter {
             case KEYWORD, TYPE, FUNCTION -> !typed.isEmpty() && typed.equals(typed.toLowerCase(Locale.ROOT))
                     ? s.text().toLowerCase(Locale.ROOT)
                     : s.kind() == Kind.FUNCTION ? s.text() : s.text().toUpperCase(Locale.ROOT);
-            default -> quoteIfNeeded(s.text(), type);
+            default -> (s.schema() == null ? "" : quoteIfNeeded(s.schema(), type) + ".") + quoteIfNeeded(s.text(), type);
         };
     }
 

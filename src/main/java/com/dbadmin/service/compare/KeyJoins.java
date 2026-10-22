@@ -12,7 +12,8 @@ import java.util.regex.Pattern;
  * Joins that give a data compare its key from other tables: the compared table stays one main table
  * (e.g. m_product_image mpi), and a key column may come from a joined table (mpt.code via
  * mpi.etalase_id → mpe.id, mpe.tier_3 → mpt.id) when the main table's own ids differ between
- * databases. Joined columns appear as "alias.column" and can be a key or shown, never compared.
+ * databases. Joined columns appear as "alias.column" and can be a key, compared or shown: an id column that
+ * differs between databases is compared by the code it points to (category_id as mpc.category_code).
  * The same joins later tell generated INSERT / UPDATE statements how to find the row in the target.
  */
 public final class KeyJoins {

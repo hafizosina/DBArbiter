@@ -39,6 +39,8 @@ public final class DataCompareReport {
 
     public String kind = KIND;
     public int version = 1;
+    /** Only the settings (no rows): opening it compares again. */
+    public boolean settingsOnly;
     public String created;
     public String appVersion;
     public Side source;

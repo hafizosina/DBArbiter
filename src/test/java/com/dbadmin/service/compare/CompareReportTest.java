@@ -95,6 +95,30 @@ class CompareReportTest {
     }
 
     @Test
+    void settingsOnlyFilesKeepTheirSettingsAndNoRows(@TempDir Path dir) throws Exception {
+        DataCompareReport r = new DataCompareReport();
+        r.settingsOnly = true;
+        r.source = new DataCompareReport.Side("UAT", "brankas_mobile", "m_product_variant", "UAT");
+        r.target = new DataCompareReport.Side("PreProd", "brankas_mobile", "m_product_variant", "PreProd");
+        r.keyColumns = List.of("product_code");
+        r.joins = List.of(new KeyJoins.Join(true, "m_product_category", "mpc", "mpc.id = mpv.category_id"));
+        Path file = dir.resolve("s.dbcompare");
+        CompareReportFiles.save(file, r);
+        DataCompareReport back = assertInstanceOf(DataCompareReport.class, CompareReportFiles.open(file));
+        assertTrue(back.settingsOnly);
+        assertTrue(back.rows.isEmpty());
+        assertEquals(r.joins, back.joins);
+        // files saved before: results, not settings only
+        assertFalse(assertInstanceOf(DataCompareReport.class, CompareReportFiles.open(save(dir, report()))).settingsOnly);
+    }
+
+    private static Path save(Path dir, Object report) throws Exception {
+        Path file = dir.resolve("r.dbcompare");
+        CompareReportFiles.save(file, report);
+        return file;
+    }
+
+    @Test
     void otherFilesAreNotReports(@TempDir Path dir) throws Exception {
         Path file = dir.resolve("x.dbcompare");
         java.nio.file.Files.writeString(file, "{\"hello\": 1}");

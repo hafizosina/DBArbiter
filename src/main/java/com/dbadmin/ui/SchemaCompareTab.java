@@ -72,7 +72,8 @@ class SchemaCompareTab extends Tab {
     private final Button tablesButton = new Button("All tables");
     private String sourceName = "Source";
     private String targetName = "Target";
-    private final Button saveButton = new Button("Save report…");
+    /** Save: the settings (opening the file compares again); the arrow: with the results too. */
+    private final javafx.scene.control.SplitMenuButton saveButton = new javafx.scene.control.SplitMenuButton();
     private final Button htmlButton = new Button("Export HTML…");
     private Path reportFile;
 
@@ -125,10 +126,15 @@ class SchemaCompareTab extends Tab {
         // a different schema means a different list of tables
         schemaSource.schema.valueProperty().addListener((o, a, b) -> resetPickedTables());
         schemaTarget.schema.valueProperty().addListener((o, a, b) -> resetPickedTables());
-        saveButton.setOnAction(e -> saveReport());
+        saveButton.setText("Save settings…");
+        saveButton.setTooltip(new Tooltip("Save this compare's settings: opening the file compares again with them"));
+        saveButton.setOnAction(e -> saveSettings());
+        javafx.scene.control.MenuItem withResults = new javafx.scene.control.MenuItem("Save settings and results…");
+        withResults.setOnAction(e -> saveReport());
+        withResults.disableProperty().bind(javafx.beans.binding.Bindings.isEmpty(diffs));
+        saveButton.getItems().add(withResults);
         htmlButton.setOnAction(e -> exportHtml());
         htmlButton.setTooltip(new Tooltip("A page with the summary and the differences, to share with people who do not use DBAdmin"));
-        saveButton.disableProperty().bind(javafx.beans.binding.Bindings.isEmpty(diffs));
         htmlButton.disableProperty().bind(javafx.beans.binding.Bindings.isEmpty(diffs));
         FlowPane form = new FlowPane(10, 6, schemaSource, swap, schemaTarget, tablesButton, compare, showIdentical,
                 saveButton, htmlButton);
@@ -140,9 +146,48 @@ class SchemaCompareTab extends Tab {
         return page;
     }
 
+    /** A reopened report's picked tables, until both schemas are chosen. */
+    private Set<String> pendingPicked;
+
+    /** A reopened settings file: compare once both schemas are chosen. */
+    private boolean pendingAutoCompare;
+
     private void resetPickedTables() {
-        pickedTables = Set.of();
-        tablesButton.setText("All tables");
+        boolean bothChosen = schemaSource.schema.getValue() != null && schemaTarget.schema.getValue() != null;
+        if (pendingPicked != null && bothChosen) {
+            applyPicked(pendingPicked);
+            pendingPicked = null;
+        } else {
+            pickedTables = Set.of();
+            tablesButton.setText("All tables");
+        }
+        if (pendingAutoCompare && bothChosen) {
+            pendingAutoCompare = false;
+            javafx.application.Platform.runLater(this::runSchemaCompare);
+        }
+    }
+
+    private void saveSettings() {
+        if (!schemaSource.ready() || !schemaTarget.ready()) {
+            schemaStatus.setText("Pick a connection and schema on both sides first.");
+            return;
+        }
+        SchemaCompareReport r = SchemaCompareReport.of(List.of(), schemaSource.label(), schemaTarget.label(), "v" + AppFooter.version());
+        r.settingsOnly = true;
+        r.sourceConnection = schemaSource.connection.getValue().getName();
+        r.sourceSchema = schemaSource.schemaLabel();
+        r.targetConnection = schemaTarget.connection.getValue().getName();
+        r.targetSchema = schemaTarget.schemaLabel();
+        r.pickedTables = List.copyOf(pickedTables);
+        Path file = CompareReportChooser.saveReport(getTabPane().getScene().getWindow(), reportFile,
+                CompareReportChooser.defaultName("TableCompare", schemaSource.label(), schemaTarget.label()));
+        if (file == null) return;
+        try {
+            CompareReportFiles.save(file, r);
+            schemaStatus.setText("Settings saved as " + file + " · opening it compares again");
+        } catch (IOException e) {
+            schemaStatus.setText("Could not save the settings: " + e.getMessage());
+        }
     }
 
     /** Lets the user pick tables from both sides' lists; none picked means all. */
@@ -215,17 +260,44 @@ class SchemaCompareTab extends Tab {
 
     /** Shows a report opened from a file; a new compare can still be run from the form above. */
     void showSaved(SchemaCompareReport saved, Path file) {
-        reportFile = file;
-        sourceName = saved.sourceLabel;
-        targetName = saved.targetLabel;
         setText("Table Compare: " + file.getFileName());
-        diffs.setAll(saved.tables);
-        schemaStatus.setText(summary() + " · opened " + file.getFileName());
-        diffList.getSelectionModel().selectFirst();
+        if (saved.settingsOnly) {
+            pendingAutoCompare = true;
+            schemaStatus.setText("Settings from " + file.getFileName() + ": comparing as soon as both sides are ready…");
+        } else {
+            reportFile = file;
+            sourceName = saved.sourceLabel;
+            targetName = saved.targetLabel;
+            diffs.setAll(saved.tables);
+            schemaStatus.setText(summary() + " · opened " + file.getFileName());
+            diffList.getSelectionModel().selectFirst();
+        }
+        // the form as it was, to compare again (connects to both sides, as picking them does)
+        ConnectionConfig source = connectionNamed(saved.sourceConnection);
+        ConnectionConfig target = connectionNamed(saved.targetConnection);
+        if (source != null) schemaSource.select(source, saved.sourceSchema, null);
+        if (target != null) schemaTarget.select(target, saved.targetSchema, null);
+        // applied once both schemas are chosen (choosing a schema resets the picked tables)
+        pendingPicked = saved.pickedTables == null || saved.pickedTables.isEmpty() ? null : Set.copyOf(saved.pickedTables);
+    }
+
+    private ConnectionConfig connectionNamed(String name) {
+        return name == null ? null : connections.stream().filter(c -> c.getName().equals(name)).findFirst().orElse(null);
+    }
+
+    private void applyPicked(Set<String> picked) {
+        pickedTables = picked;
+        tablesButton.setText(picked.size() == 1 ? "1 table: " + picked.iterator().next() : picked.size() + " tables");
     }
 
     private SchemaCompareReport report() {
-        return SchemaCompareReport.of(diffs, sourceName, targetName, "v" + AppFooter.version());
+        SchemaCompareReport r = SchemaCompareReport.of(diffs, sourceName, targetName, "v" + AppFooter.version());
+        r.sourceConnection = schemaSource.connection.getValue() == null ? null : schemaSource.connection.getValue().getName();
+        r.sourceSchema = schemaSource.schemaLabel();
+        r.targetConnection = schemaTarget.connection.getValue() == null ? null : schemaTarget.connection.getValue().getName();
+        r.targetSchema = schemaTarget.schemaLabel();
+        r.pickedTables = List.copyOf(pickedTables);
+        return r;
     }
 
     private void saveReport() {

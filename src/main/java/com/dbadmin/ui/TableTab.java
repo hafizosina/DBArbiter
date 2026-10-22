@@ -6,6 +6,7 @@ import com.dbadmin.model.StatementResult;
 import com.dbadmin.model.TableData;
 import com.dbadmin.model.TableRef;
 import com.dbadmin.service.DatabaseSession;
+import com.dbadmin.service.SqlSplitter;
 import javafx.geometry.Insets;
 import javafx.geometry.Orientation;
 import javafx.geometry.Pos;
@@ -64,11 +65,15 @@ class TableTab extends Tab {
     private long offset;
     private long totalRows = -1;
     private boolean dataLoaded;
+    /** The query whose rows the grid shows (custom mode), when it can be exported: one plain SELECT without parameters. */
+    private String exportableQuery;
+    private final TableTransfer.Host transferHost;
 
-    TableTab(DatabaseSession session, TableRef table, SessionProvider sessions, SqlCompleter completer) {
+    TableTab(DatabaseSession session, TableRef table, SessionProvider sessions, SqlCompleter completer, TableTransfer.Host transferHost) {
         super(table.name());
         this.session = session;
         this.table = table;
+        this.transferHost = transferHost;
         this.queryEditor = new SqlEditor(completer, sessions, session::getConfig, this::runStatement);
         this.runner = new ScriptRunner(sessions, completer);
         setOnSelectionChanged(e -> queryEditor.hidePopup());
@@ -213,6 +218,13 @@ class TableTab extends Tab {
         return key(session, table);
     }
 
+    /** Rows were imported elsewhere: shows the table's rows again (a custom query result stays as it is). */
+    void reload() {
+        if (!dataLoaded || customMode) return;
+        loadCount();
+        loadPage();
+    }
+
     static String key(DatabaseSession session, TableRef t) {
         return session.getConfig().getId() + "|" + t.catalog() + "|" + t.schema() + "|" + t.name();
     }
@@ -265,8 +277,18 @@ class TableTab extends Tab {
         queryMessage.getStyleClass().add("hint-small");
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
+        Button export = new Button("Export…");
+        export.setTooltip(new Tooltip("Save the rows to a file: CSV, Excel, SQL INSERT or JSON"));
+        export.setOnAction(e -> TableTransfer.export(getTabPane().getScene().getWindow(), session, table,
+                customMode ? exportableQuery : null, transferHost));
+        Button importButton = new Button("Import…");
+        importButton.setTooltip(new Tooltip(session.getConfig().isReadOnly() ? "Read-only connection"
+                : "Insert rows from a CSV file (with a preview first), or open an SQL file in a script tab"));
+        importButton.setDisable(table.isView() || session.getConfig().isReadOnly());
+        importButton.setOnAction(e -> TableTransfer.importData(getTabPane().getScene().getWindow(), session, table, transferHost));
         HBox bar = new HBox(8, run, runAll, stop, reset, new Separator(Orientation.VERTICAL), refresh,
-                DataView.recordToggle(), DataView.valuePanelToggle(), queryMessage, spacer, pageInfo, prev, next);
+                DataView.recordToggle(), DataView.valuePanelToggle(), new Separator(Orientation.VERTICAL), export, importButton,
+                queryMessage, spacer, pageInfo, prev, next);
         bar.setAlignment(Pos.CENTER_LEFT);
         bar.setPadding(new Insets(6));
 
@@ -359,6 +381,7 @@ class TableTab extends Tab {
         @Override
         public void result(int number, StatementResult r, DatabaseSession runSession) {
             if (r.data() != null) {
+                exportableQuery = r.params().isEmpty() && SqlSplitter.isReadOnlyQuery(r.sql()) ? r.sql() : null;
                 dataView.showResult(r, runSession);
                 TableEditing.forQuery(runSession, r.sql(), t -> dataView.enableEditing(t, () -> { }), dataView::showNotEditable);
                 dataGrid.setPlaceholder(new Label("No rows"));

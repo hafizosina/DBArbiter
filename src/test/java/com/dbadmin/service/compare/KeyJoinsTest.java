@@ -79,6 +79,41 @@ class KeyJoinsTest {
         }
     }
 
+    /** category_id differs between the databases (other ids), so it is compared by the category's code. */
+    @Test
+    void comparesAnIdColumnByTheCodeItPointsTo(@TempDir Path dir) throws Exception {
+        Path uat = dir.resolve("uat.db");
+        Path pre = dir.resolve("pre.db");
+        String tables = "create table m_product_category (id integer primary key, category_code text);"
+                + "create table m_product_variant (id integer primary key, product_code text, category_id integer, price numeric)";
+        exec(uat, tables, "insert into m_product_category values (1, 'BT'), (2, 'GJ')",
+                "insert into m_product_variant values (10, 'AA00647', 1, 100), (11, 'AA00648', 1, 200), (12, 'AA00649', 2, 300)");
+        exec(pre, tables, "insert into m_product_category values (7, 'BT'), (8, 'GJ')",
+                "insert into m_product_variant values (50, 'AA00647', 7, 100), (51, 'AA00648', 8, 200), (52, 'AA00649', 8, 300)");
+        List<Join> joins = List.of(new Join(true, "m_product_category", "mpc", "mpc.id = mpv.category_id"));
+        List<String> keys = List.of("product_code");
+        try (DatabaseSession s1 = DatabaseSession.open(sqlite(uat)); DatabaseSession s2 = DatabaseSession.open(sqlite(pre))) {
+            DataCompare.Result r = DataCompare.compare(readVariants(s1, joins, keys), readVariants(s2, joins, keys), keys,
+                    List.of("mpc.category_code", "price"), List.of(), 100);
+            Map<String, RowStatus> status = r.rows().stream().collect(Collectors.toMap(DataCompare.RowDiff::key, DataCompare.RowDiff::status));
+            // AA00647: category ids 1 vs 7 but both BT -> the same; AA00648: BT vs GJ -> changed
+            assertEquals(Map.of("AA00647", RowStatus.MATCH, "AA00648", RowStatus.CHANGED, "AA00649", RowStatus.MATCH), status);
+            assertTrue(r.rows().stream().filter(d -> d.key().equals("AA00648")).findFirst().get().details().contains("mpc.category_code: BT → GJ"));
+        }
+    }
+
+    private static com.dbadmin.model.TableData readVariants(DatabaseSession s, List<Join> joins, List<String> keys) throws Exception {
+        String sql = KeyJoins.select(s.qualifiedName(table("m_product_variant")), "mpv", joins,
+                List.of(s.qualifiedName(table("m_product_category"))), List.of("mpc.category_code"), "", keys, s.identifierQuote());
+        return s.execute(sql, 1000).data();
+    }
+
+    private static void exec(Path file, String... statements) throws Exception {
+        try (Connection c = DriverManager.getConnection("jdbc:sqlite:" + file); Statement st = c.createStatement()) {
+            for (String block : statements) for (String sql : block.split(";")) if (!sql.isBlank()) st.executeUpdate(sql);
+        }
+    }
+
     private static com.dbadmin.model.TableData read(DatabaseSession s, List<String> keys) throws Exception {
         String sql = KeyJoins.select(s.qualifiedName(table("m_product_image")), "mpi", JOINS,
                 List.of(s.qualifiedName(table("m_product_etalase")), s.qualifiedName(table("m_product_tier"))),

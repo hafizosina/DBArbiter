@@ -23,6 +23,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.Set;
@@ -840,6 +841,172 @@ public class DatabaseSession implements AutoCloseable {
         } finally {
             running = null;
         }
+    }
+
+    /**
+     * Runs a query and hands every row to {@code sink} as it is read, without keeping the rows (for exports of
+     * any size). Values are whole (binary data as byte[], long text in full). Returns the number of rows.
+     */
+    public long streamRows(String sql, com.dbadmin.service.transfer.RowSink sink, java.util.function.LongConsumer progress)
+            throws SQLException, java.io.IOException {
+        statementSent = true;
+        boolean autoCommit = connection.getAutoCommit();
+        // PostgreSQL only fetches in chunks (instead of all rows at once) inside a transaction
+        boolean postgres = config.getType() == DbType.POSTGRESQL;
+        if (postgres && autoCommit) connection.setAutoCommit(false);
+        try (Statement st = connection.createStatement(ResultSet.TYPE_FORWARD_ONLY, ResultSet.CONCUR_READ_ONLY)) {
+            running = st;
+            st.setFetchSize(config.getType() == DbType.MYSQL ? Integer.MIN_VALUE : 1000);
+            try (ResultSet rs = st.executeQuery(sql)) {
+                ResultSetMetaData md = rs.getMetaData();
+                int n = md.getColumnCount();
+                List<String> columns = new ArrayList<>(n);
+                List<String> types = new ArrayList<>(n);
+                for (int i = 1; i <= n; i++) {
+                    columns.add(md.getColumnLabel(i));
+                    types.add(md.getColumnTypeName(i));
+                }
+                sink.begin(columns, types);
+                long rows = 0;
+                while (rs.next()) {
+                    List<Object> row = new ArrayList<>(n);
+                    for (int i = 1; i <= n; i++) row.add(wholeValue(rs.getObject(i)));
+                    sink.row(row);
+                    if (++rows % 1000 == 0) progress.accept(rows);
+                }
+                sink.end();
+                progress.accept(rows);
+                return rows;
+            }
+        } finally {
+            running = null;
+            if (postgres && autoCommit) {
+                connection.rollback(); // only read
+                connection.setAutoCommit(true);
+            }
+        }
+    }
+
+    /** A value as exported: binary and long text in full (not cut like {@link #displayValue}). */
+    private static Object wholeValue(Object v) throws SQLException {
+        if (v instanceof java.sql.SQLXML xml) return xml.getString();
+        if (v instanceof java.sql.Clob clob) return clob.getSubString(1, (int) clob.length());
+        if (v instanceof java.sql.Blob blob) return blob.getBytes(1, (int) blob.length());
+        return v;
+    }
+
+    /** The values of {@code columns} in every row, each row's values joined (see {@link #keyText}). */
+    public java.util.Set<String> keyValues(TableRef t, List<String> columns) throws SQLException, java.io.IOException {
+        String q = identifierQuote();
+        String sql = "SELECT " + String.join(", ", columns.stream().map(c -> quote(c, q)).toList()) + " FROM " + qualifiedName(t);
+        java.util.Set<String> keys = new java.util.HashSet<>();
+        streamRows(sql, new com.dbadmin.service.transfer.RowSink() {
+            @Override
+            public void begin(List<String> c, List<String> types) {
+            }
+
+            @Override
+            public void row(List<Object> values) {
+                keys.add(keyText(values));
+            }
+
+            @Override
+            public void end() {
+            }
+        }, n -> { });
+        return keys;
+    }
+
+    /** A key as text, comparable between database values and imported text: 1.50 = 1.5, NULL apart from ''. */
+    public static String keyText(List<?> values) {
+        StringBuilder sb = new StringBuilder();
+        for (Object v : values) {
+            if (v == null) {
+                sb.append("\u0000NULL");
+            } else {
+                String s = v.toString();
+                try {
+                    s = new java.math.BigDecimal(s.strip()).stripTrailingZeros().toPlainString();
+                } catch (NumberFormatException ignored) {
+                    // not a number: compared as written
+                }
+                sb.append(s);
+            }
+            sb.append('\u0001');
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Inserts rows of text values (null for NULL) into {@code columns}, in one transaction: all rows or none.
+     * Each value is converted to its column's type by the database. Returns the number of rows inserted.
+     */
+    public int insertRows(TableRef t, List<String> columns, List<List<String>> rows, java.util.function.IntConsumer progress)
+            throws SQLException {
+        String q = identifierQuote();
+        Map<String, String> types = new HashMap<>();
+        for (ColumnDef c : columnDefs(t)) types.put(c.name(), c.type() == null ? "" : c.type().toLowerCase(Locale.ROOT));
+        List<String> placeholders = new ArrayList<>();
+        for (String c : columns) placeholders.add(config.getType() == DbType.POSTGRESQL ? "CAST(? AS " + postgresCastType(types.get(c)) + ")" : "?");
+        String sql = "INSERT INTO " + qualifiedName(t) + " (" + String.join(", ", columns.stream().map(c -> quote(c, q)).toList())
+                + ") VALUES (" + String.join(", ", placeholders) + ")";
+        boolean autoCommit = connection.getAutoCommit();
+        statementSent = true;
+        connection.setAutoCommit(false);
+        int done = 0;
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            running = ps;
+            int batchStart = 0;
+            for (List<String> row : rows) {
+                for (int i = 0; i < columns.size(); i++) {
+                    String v = row.get(i);
+                    String type = types.getOrDefault(columns.get(i), "");
+                    // "true"/"false" into a MySQL tinyint(1) / bit or a SQLite boolean would not become 1 / 0
+                    if (v != null && config.getType() != DbType.POSTGRESQL && (v.equalsIgnoreCase("true") || v.equalsIgnoreCase("false"))
+                            && (type.contains("bool") || type.contains("bit") || type.contains("tinyint"))) {
+                        v = v.equalsIgnoreCase("true") ? "1" : "0";
+                    }
+                    if (v == null) ps.setNull(i + 1, java.sql.Types.VARCHAR);
+                    else ps.setString(i + 1, v);
+                }
+                ps.addBatch();
+                done++;
+                if (done % 500 == 0 || done == rows.size()) {
+                    try {
+                        ps.executeBatch();
+                    } catch (SQLException e) {
+                        SQLException cause = e.getNextException() != null ? e.getNextException() : e;
+                        throw new SQLException("Rows " + (batchStart + 1) + "–" + done + ": " + cause.getMessage()
+                                + "\nNothing was imported.", cause);
+                    }
+                    batchStart = done;
+                    progress.accept(done);
+                }
+            }
+            connection.commit();
+            return done;
+        } catch (SQLException | RuntimeException e) {
+            connection.rollback();
+            throw e;
+        } finally {
+            running = null;
+            connection.setAutoCommit(autoCommit);
+        }
+    }
+
+    /** A PostgreSQL column type as written in CAST: serial types are their integers, "_int4" is int4[]. */
+    static String postgresCastType(String type) {
+        if (type == null || type.isEmpty()) return "text";
+        String t = switch (type) {
+            case "serial", "serial4" -> "int4";
+            case "bigserial", "serial8" -> "int8";
+            case "smallserial", "serial2" -> "int2";
+            default -> type;
+        };
+        boolean array = t.startsWith("_");
+        if (array) t = t.substring(1);
+        if (!t.matches("[a-z_][a-z0-9_]*")) t = "\"" + t.replace("\"", "\"\"") + "\"";
+        return array ? t + "[]" : t;
     }
 
     /** Asks the database to abort the statement currently executing, if any. Safe from any thread. */

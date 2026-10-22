@@ -11,11 +11,20 @@ public final class SchemaCompareReport {
 
     public String kind = KIND;
     public int version = 1;
+    /** Only the settings (no tables): opening it compares again. */
+    public boolean settingsOnly;
     public String created;
     public String appVersion;
     /** E.g. "UAT" or "UAT/brankas_mobile". */
     public String sourceLabel;
     public String targetLabel;
+    /** The form's settings, to compare again after reopening (null in reports saved before they were kept). */
+    public String sourceConnection;
+    public String sourceSchema;
+    public String targetConnection;
+    public String targetSchema;
+    /** The tables picked to compare (lower case); empty = all. */
+    public List<String> pickedTables = List.of();
     public List<SchemaCompare.TableDiff> tables = new ArrayList<>();
 
     public SchemaCompareReport() {

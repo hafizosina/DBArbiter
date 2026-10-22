@@ -92,14 +92,17 @@ class DataCompareTab extends Tab {
     private final MenuButton verdictForShown = new MenuButton("Verdict for shown rows");
     private final Label verdictSummary = new Label();
     private final Label fileStatus = new Label();
-    /** Key from other tables: the main table's alias, and one {@link JoinRow} per join. */
+    /** Joined tables (for a key, or to compare an id column by the code it points to): the main table's alias, one {@link JoinRow} per join. */
     private final javafx.scene.control.TextField mainAlias = new javafx.scene.control.TextField();
     /** The alias last filled in automatically, replaced when the main table changes (unless the user typed one). */
     private String autoAlias = "";
     private final VBox joinRows = new VBox(4);
 
+    private final ObservableList<ConnectionConfig> connections;
+
     DataCompareTab(ObservableList<ConnectionConfig> connections, SessionProvider sessions, ConnectionConfig initial) {
         super("Data Compare");
+        this.connections = connections;
         dataSource = new CompareSide("Source", true, connections, sessions, dataStatus::setText);
         dataTarget = new CompareSide("Target", true, connections, sessions, dataStatus::setText);
         dataTarget.preferredTable = dataSource::tableName;
@@ -116,7 +119,119 @@ class DataCompareTab extends Tab {
         reportFile = file;
         unsaved = false;
         setText("Data Compare: " + file.getFileName());
+        restoreSettings(saved);
+        if (saved.settingsOnly) {
+            autoCompareColumns = saved.shownColumns;
+            dataStatus.setText("Settings from " + file.getFileName() + ": comparing as soon as both sides are ready…");
+            return;
+        }
         showReport(saved);
+    }
+
+    /** A reopened settings file: compare once these columns are listed (both sides connected, tables and joins picked). */
+    private List<String> autoCompareColumns;
+
+    private void maybeAutoCompare() {
+        if (autoCompareColumns == null || !dataSource.readyWithTable() || !dataTarget.readyWithTable()) return;
+        if (joinRowList().stream().anyMatch(r -> r.pendingTable != null)) return;
+        java.util.Set<String> listed = new java.util.HashSet<>();
+        columnChoices.forEach(c -> listed.add(c.name.toLowerCase()));
+        if (!autoCompareColumns.stream().allMatch(c -> listed.contains(c.toLowerCase()))) return;
+        autoCompareColumns = null;
+        runDataCompare();
+    }
+
+    /** The form's settings as a file that compares again when opened; null (with a message) when incomplete. */
+    private DataCompareReport formSettings() {
+        if (!dataSource.readyWithTable() || !dataTarget.readyWithTable()) {
+            dataStatus.setText("Pick a connection, schema and table on both sides first.");
+            return null;
+        }
+        List<String> keys = columnChoices.stream().filter(c -> c.key.get()).map(c -> c.name).toList();
+        if (keys.isEmpty()) {
+            dataStatus.setText("Tick Key for the column(s) that identify a row first.");
+            return null;
+        }
+        List<String> compared = columnChoices.stream().filter(c -> c.compare.get() && !c.key.get()).map(c -> c.name).toList();
+        List<String> shown = new ArrayList<>(keys);
+        shown.addAll(compared);
+        columnChoices.stream().filter(c -> c.show.get() && !c.key.get() && !c.compare.get()).forEach(c -> shown.add(c.name));
+        DataCompareReport r = new DataCompareReport();
+        r.settingsOnly = true;
+        r.created = java.time.LocalDateTime.now().withNano(0).toString();
+        r.appVersion = "v" + AppFooter.version();
+        r.source = new DataCompareReport.Side(dataSource.connection.getValue().getName(), dataSource.schemaLabel(),
+                dataSource.tableName(), dataSource.label());
+        r.target = new DataCompareReport.Side(dataTarget.connection.getValue().getName(), dataTarget.schemaLabel(),
+                dataTarget.tableName(), dataTarget.label());
+        r.keyColumns = keys;
+        r.comparedColumns = compared;
+        r.shownColumns = shown;
+        r.where = where.getText() == null ? "" : where.getText().trim();
+        r.rowsPerSide = rowLimit.getValue();
+        if (!activeJoinRows().isEmpty()) {
+            r.mainAlias = mainAlias.getText().strip();
+            r.joins = activeJoinRows().stream().map(JoinRow::join).toList();
+        }
+        return r;
+    }
+
+    private void saveSettings() {
+        DataCompareReport r = formSettings();
+        if (r == null) return;
+        Path file = CompareReportChooser.saveReport(getTabPane().getScene().getWindow(), reportFile, CompareReportChooser.defaultName(
+                "DataCompare-" + r.source.table(), r.source.label(), r.target.label()));
+        if (file == null) return;
+        try {
+            CompareReportFiles.save(file, r);
+            dataStatus.setText("Settings saved as " + file + " · opening it compares again");
+        } catch (IOException e) {
+            error("Could not save the settings", e);
+        }
+    }
+
+    /**
+     * Puts a saved report's settings back in the form (connections by name, schemas, tables, joins, ticked
+     * columns, Where, rows per side), so it can be compared again. Connects to both sides, as picking them does.
+     */
+    private void restoreSettings(DataCompareReport r) {
+        where.setText(r.where == null ? "" : r.where);
+        if (r.rowsPerSide > 0) rowLimit.getValueFactory().setValue(r.rowsPerSide);
+        // the ticks: kept by name when the tables' columns arrive (see setColumns)
+        List<ColumnChoice> ticks = new ArrayList<>();
+        for (String c : r.shownColumns) {
+            ColumnChoice choice = new ColumnChoice(c, true, true);
+            choice.key.set(r.keyColumns.contains(c));
+            choice.compare.set(!choice.key.get() && r.comparedColumns.contains(c));
+            choice.show.set(!choice.key.get() && !choice.compare.get());
+            ticks.add(choice);
+        }
+        columnChoices.setAll(ticks);
+        joinRows.getChildren().clear();
+        if (r.joins != null && !r.joins.isEmpty()) {
+            mainAlias.setText(r.mainAlias == null ? "" : r.mainAlias);
+            for (KeyJoins.Join j : r.joins) {
+                JoinRow row = new JoinRow();
+                row.type.setValue(j.left() ? "left join" : "join");
+                row.alias.setText(j.alias());
+                row.on.setText(j.on());
+                row.pendingTable = j.table(); // picked once the source schema's tables are listed
+                joinRows.getChildren().add(row);
+            }
+            advanced.setSelected(true);
+        }
+        ConnectionConfig source = connectionNamed(r.source.connection());
+        ConnectionConfig target = connectionNamed(r.target.connection());
+        if (source == null || target == null) {
+            dataStatus.setText("The connection " + (source == null ? r.source.connection() : r.target.connection())
+                    + " no longer exists; pick the sides again to compare.");
+        }
+        if (source != null) dataSource.select(source, r.source.schema(), r.source.table());
+        if (target != null) dataTarget.select(target, r.target.schema(), r.target.table());
+    }
+
+    private ConnectionConfig connectionNamed(String name) {
+        return connections.stream().filter(c -> c.getName().equals(name)).findFirst().orElse(null);
     }
 
     /** Chooses both sides' connection, schema and the table; each list loads first. */
@@ -126,7 +241,8 @@ class DataCompareTab extends Tab {
     }
 
     /**
-     * One column of the compared table, or of a joined table ("mpt.code": a key or shown, never compared).
+     * One column of the compared table, or of a joined table ("mpc.category_code": e.g. to compare category_id
+     * by the code it points to, when the ids differ between the databases).
      * Columns missing on one side can be neither key nor compared.
      */
     static final class ColumnChoice {
@@ -176,9 +292,10 @@ class DataCompareTab extends Tab {
         addJoin.setTooltip(new Tooltip("Join another table to take the key from it, e.g. a product code when the ids differ"
                 + "\nbetween the databases. Only the main table is compared."));
         addJoin.setOnAction(e -> joinRows.getChildren().add(new JoinRow()));
-        Label joinHint = new Label("Joined columns appear as alias.column: tick them as Key (or Show).");
+        Label joinHint = new Label("Joined columns appear as alias.column: tick them as Key, Compare or Show "
+                + "(e.g. compare mpc.category_code instead of category_id).");
         joinHint.getStyleClass().add("hint-small");
-        HBox joinHeader = new HBox(8, new Label("Key from other tables:"), new Label("main table alias"), mainAlias, addJoin, joinHint);
+        HBox joinHeader = new HBox(8, new Label("Joined tables:"), new Label("main table alias"), mainAlias, addJoin, joinHint);
         joinHeader.setAlignment(Pos.CENTER_LEFT);
         VBox joins = new VBox(4, joinHeader, joinRows);
         joins.visibleProperty().bind(advanced.selectedProperty());
@@ -189,7 +306,16 @@ class DataCompareTab extends Tab {
         where.setTooltip(new Tooltip("A SQL condition applied to both sides; only matching rows are compared"));
         where.setOnAction(e -> runDataCompare());
         HBox.setHgrow(where, Priority.ALWAYS);
-        HBox options = new HBox(8, new Label("Where:"), where, new Label("Rows per side:"), rowLimit, compare,
+        // Save: the settings (opening the file compares again); the arrow: with the results and verdicts too
+        javafx.scene.control.SplitMenuButton save = new javafx.scene.control.SplitMenuButton();
+        save.setText("Save settings…");
+        save.setTooltip(new Tooltip("Save this compare's settings: opening the file compares again with them"));
+        save.setOnAction(e -> saveSettings());
+        MenuItem withResults = new MenuItem("Save settings and results…");
+        withResults.setOnAction(e -> saveReport());
+        save.getItems().add(withResults);
+        save.setOnShowing(e -> withResults.setDisable(report == null || report.settingsOnly));
+        HBox options = new HBox(8, new Label("Where:"), where, new Label("Rows per side:"), rowLimit, compare, save,
                 columnsToggle, advanced);
         options.setAlignment(Pos.CENTER_LEFT);
         dataStatus.setWrapText(true);
@@ -218,15 +344,13 @@ class DataCompareTab extends Tab {
         }
         verdictForShown.setTooltip(new Tooltip("Sets the verdict of every row shown now (use the status boxes to narrow them down)."
                 + "\nRight-click selected rows to set theirs."));
-        Button save = new Button("Save report…");
-        save.setOnAction(e -> saveReport());
         Button html = new Button("Export HTML…");
         html.setTooltip(new Tooltip("A page with the summary and the differences, to share with people who do not use DBAdmin"));
         html.setOnAction(e -> exportHtml());
         verdictSummary.getStyleClass().add("hint-small");
         fileStatus.getStyleClass().add("hint-small");
         statusBar.getChildren().addAll(new javafx.scene.control.Separator(javafx.geometry.Orientation.VERTICAL),
-                verdictForShown, save, html, verdictSummary, fileStatus);
+                verdictForShown, html, verdictSummary, fileStatus);
         statusBar.setAlignment(Pos.CENTER_LEFT);
         statusBar.setPadding(new Insets(4, 6, 4, 6));
         statusBar.setVisible(false);
@@ -263,15 +387,15 @@ class DataCompareTab extends Tab {
         name.setPrefWidth(125);
         TableColumn<ColumnChoice, Boolean> key = new TableColumn<>("Key");
         key.setCellValueFactory(c -> c.getValue().key);
-        key.setCellFactory(col -> new ChoiceCheckCell(false));
+        key.setCellFactory(col -> new ChoiceCheckCell());
         key.setPrefWidth(40);
         TableColumn<ColumnChoice, Boolean> compare = new TableColumn<>("Compare");
         compare.setCellValueFactory(c -> c.getValue().compare);
-        compare.setCellFactory(col -> new ChoiceCheckCell(true));
+        compare.setCellFactory(col -> new ChoiceCheckCell());
         compare.setPrefWidth(72);
         TableColumn<ColumnChoice, Boolean> show = new TableColumn<>("Show");
         show.setCellValueFactory(c -> c.getValue().show);
-        show.setCellFactory(col -> new ChoiceCheckCell(false));
+        show.setCellFactory(col -> new ChoiceCheckCell());
         show.setPrefWidth(52);
         columnChooser.getColumns().addAll(List.of(name, key, compare, show));
         columnChooser.setEditable(true);
@@ -298,38 +422,82 @@ class DataCompareTab extends Tab {
         return pane;
     }
 
-    /** A checkbox, disabled for a column that is not on both sides, and in the Compare column for joined columns. */
-    private static class ChoiceCheckCell extends javafx.scene.control.cell.CheckBoxTableCell<ColumnChoice, Boolean> {
-        private final boolean compareColumn;
+    /** A checkbox, disabled for a column that is not on both sides. */
+    /** The last checkbox clicked in the column picker: a shift-click sets every row between it and the clicked one. */
+    private int anchorRow = -1;
+    private TableColumn<ColumnChoice, ?> anchorColumn;
 
-        ChoiceCheckCell(boolean compareColumn) {
-            this.compareColumn = compareColumn;
-            // the whole cell is the click target, not just the small box
+    /**
+     * A checkbox; the whole cell is the click target, and shift-click ticks (or unticks) the rows from the last
+     * clicked one in the same column. Disabled for a column that is not on both sides.
+     */
+    private class ChoiceCheckCell extends javafx.scene.control.cell.CheckBoxTableCell<ColumnChoice, Boolean> {
+        /** The press of a shift-click was a range: its release and click do nothing more. */
+        private boolean range;
+
+        ChoiceCheckCell() {
+            // before the box sees it: a shift-click is a range, not a toggle of this one box
+            addEventFilter(javafx.scene.input.MouseEvent.MOUSE_PRESSED, e -> {
+                range = e.isShiftDown() && e.getButton() == javafx.scene.input.MouseButton.PRIMARY && !isEmpty() && !isDisabled()
+                        && anchorRow >= 0 && anchorColumn == getTableColumn();
+                if (range) {
+                    setRange(!value(getIndex()).get());
+                    e.consume();
+                }
+            });
+            addEventFilter(javafx.scene.input.MouseEvent.MOUSE_RELEASED, e -> {
+                if (range) e.consume();
+            });
             setOnMouseClicked(e -> {
                 if (e.getButton() != javafx.scene.input.MouseButton.PRIMARY || isEmpty() || isDisabled()) return;
+                if (range) {
+                    range = false;
+                    return;
+                }
+                anchorRow = getIndex();
+                anchorColumn = getTableColumn();
                 for (Node n = e.getPickResult().getIntersectedNode(); n != null && n != this; n = n.getParent()) {
                     if (n == getGraphic()) return; // on the box itself: it toggles on its own
                 }
-                if (getTableColumn().getCellObservableValue(getIndex()) instanceof BooleanProperty p) p.set(!p.get());
+                BooleanProperty p = value(getIndex());
+                p.set(!p.get());
             });
+        }
+
+        private BooleanProperty value(int row) {
+            return (BooleanProperty) getTableColumn().getCellObservableValue(row);
+        }
+
+        /** Sets this column for every row from the anchor to this one (rows not on both sides are left alone). */
+        private void setRange(boolean on) {
+            int from = Math.min(anchorRow, getIndex());
+            int to = Math.max(anchorRow, getIndex());
+            for (int i = from; i <= to && i < getTableView().getItems().size(); i++) {
+                if (getTableView().getItems().get(i).onBothSides()) value(i).set(on);
+            }
+            anchorRow = getIndex();
         }
 
         @Override
         public void updateItem(Boolean value, boolean empty) {
             super.updateItem(value, empty);
             ColumnChoice c = empty || getTableRow() == null ? null : getTableRow().getItem();
-            boolean usable = c != null && c.onBothSides() && !(compareColumn && c.joined);
+            boolean usable = c != null && c.onBothSides();
             setDisable(!usable);
             setEditable(usable);
         }
     }
 
-    /** One join of the "Key from other tables" editor: [left] join table alias on condition. */
+    /** One join of the "Joined tables" editor: [left] join table alias on condition. */
     private final class JoinRow extends HBox {
         final ComboBox<String> type = new ComboBox<>(FXCollections.observableArrayList("join", "left join"));
         final SearchBox<TableRef> table = new SearchBox<>(TableRef::name, "join table…");
         final javafx.scene.control.TextField alias = new javafx.scene.control.TextField();
         final javafx.scene.control.TextField on = new javafx.scene.control.TextField();
+        /** A table to pick by name once the list is there (a reopened report). */
+        String pendingTable;
+        /** Set while the table is picked by the code: the caller loads the columns. */
+        private boolean quiet;
 
         JoinRow() {
             super(6);
@@ -350,13 +518,25 @@ class DataCompareTab extends Tab {
                 if (t == null) return;
                 if (alias.getText().isBlank()) alias.setText(SqlCompleter.aliasFor(t.name(), takenAliases()));
                 suggestOn(this);
-                loadColumns();
+                if (!quiet) loadColumns();
             });
             alias.setOnAction(e -> loadColumns());
             alias.focusedProperty().addListener((o, was, focused) -> {
                 if (!focused) loadColumns();
             });
             getChildren().addAll(type, table, alias, new Label("on"), on, remove);
+        }
+
+        /** Picks the pending table if the list has it. */
+        void applyPending() {
+            if (pendingTable == null) return;
+            String name = pendingTable;
+            table.getItems().stream().filter(t -> t.name().equalsIgnoreCase(name)).findFirst().ifPresent(t -> {
+                pendingTable = null;
+                quiet = true;
+                table.setValue(t);
+                quiet = false;
+            });
         }
 
         KeyJoins.Join join() {
@@ -425,8 +605,11 @@ class DataCompareTab extends Tab {
         DatabaseSession s1 = dataSource.session;
         DatabaseSession s2 = dataTarget.session;
         // joined tables: picked from the source schema, found by name in the target schema
+        joinRowList().forEach(r -> {
+            r.table.setItems(dataSource.table.getItems());
+            r.applyPending(); // a reopened report's join tables, now that the list is there
+        });
         List<JoinRow> rows = activeJoinRows().stream().filter(JoinRow::ready).toList();
-        joinRowList().forEach(r -> r.table.setItems(dataSource.table.getItems()));
         List<String> aliases = rows.stream().map(r -> r.alias.getText().strip()).toList();
         List<TableRef> srcJoins = rows.stream().map(r -> r.table.getValue()).toList();
         List<TableRef> dstJoins = srcJoins.stream().map(t -> dataTarget.table.getItems().stream()
@@ -476,6 +659,7 @@ class DataCompareTab extends Tab {
             }
         }
         columnChoices.setAll(choices);
+        maybeAutoCompare();
     }
 
     private void runDataCompare() {
@@ -484,7 +668,7 @@ class DataCompareTab extends Tab {
             return;
         }
         List<String> keys = columnChoices.stream().filter(c -> c.key.get()).map(c -> c.name).toList();
-        List<String> compared = columnChoices.stream().filter(c -> c.compare.get() && !c.key.get() && !c.joined).map(c -> c.name).toList();
+        List<String> compared = columnChoices.stream().filter(c -> c.compare.get() && !c.key.get()).map(c -> c.name).toList();
         List<String> shownOnly = columnChoices.stream().filter(c -> c.show.get() && !c.key.get() && !c.compare.get())
                 .map(c -> c.name).toList();
         if (keys.isEmpty()) {
@@ -496,8 +680,8 @@ class DataCompareTab extends Tab {
             dataStatus.setText("The Where filter must be one read-only condition (no ';', INSERT, UPDATE, DELETE, ...).");
             return;
         }
-        // joins only matter when a joined column is used (as key or shown)
-        List<String> joinedColumns = java.util.stream.Stream.concat(keys.stream(), shownOnly.stream())
+        // joins only matter when a joined column is used (as key, compared or shown)
+        List<String> joinedColumns = java.util.stream.Stream.of(keys, compared, shownOnly).flatMap(List::stream)
                 .filter(KeyJoins::isJoinedColumn).distinct().toList();
         List<KeyJoins.Join> joins = joinedColumns.isEmpty() ? List.of() : activeJoinRows().stream().map(JoinRow::join).toList();
         String alias = mainAlias.getText().strip();

@@ -103,8 +103,10 @@ public class MainWindow implements SessionProvider {
 
             @Override
             public void opened(ConnectionConfig c, DatabaseSession s) {
-                s.setOnReconnect(name -> Platform.runLater(
-                        () -> status.setText("Connection to " + name + " was lost; reconnected")));
+                s.setOnReconnect(name -> Platform.runLater(() -> {
+                    status.setText("Connection to " + name + " was lost; reconnected");
+                    completer.invalidate(s); // like Reconnect: tables may have changed meanwhile
+                }));
                 status.setText("Connected to " + c.getName() + (c.isReadOnly() ? " (read-only)" : " (read-write)"));
                 navigator.refresh(); // a search in progress now includes this connection
                 tree.refresh();
@@ -368,6 +370,10 @@ public class MainWindow implements SessionProvider {
     private ContextMenu buildContextMenu() {
         MenuItem open = new MenuItem("Open");
         open.setOnAction(e -> openSelectedTable());
+        MenuItem exportData = new MenuItem("Export Data…");
+        exportData.setOnAction(e -> withSelectedTable((session, t) -> TableTransfer.export(stage, session, t, null, transferHost)));
+        MenuItem importData = new MenuItem("Import Data…");
+        importData.setOnAction(e -> withSelectedTable((session, t) -> TableTransfer.importData(stage, session, t, transferHost)));
         MenuItem edit = new MenuItem("Edit Connection");
         edit.setOnAction(e -> editConnection());
         MenuItem delete = new MenuItem("Delete Connection");
@@ -385,8 +391,9 @@ public class MainWindow implements SessionProvider {
         openScript.setOnAction(e -> openScript());
         MenuItem openLastScript = new MenuItem("Open Last Script");
         SeparatorMenuItem scriptSeparator = new SeparatorMenuItem();
-        ContextMenu menu = new ContextMenu(open, newScript, openScript, openLastScript, scriptSeparator, edit, delete, disconnect, reconnect,
-                new SeparatorMenuItem(), refresh);
+        SeparatorMenuItem dataSeparator = new SeparatorMenuItem();
+        ContextMenu menu = new ContextMenu(open, exportData, importData, dataSeparator, newScript, openScript, openLastScript,
+                scriptSeparator, edit, delete, disconnect, reconnect, new SeparatorMenuItem(), refresh);
         menu.setOnShowing(e -> {
             NavNode n = selectedNode();
             boolean hasConnection = n != null && n.connection() != null;
@@ -398,7 +405,12 @@ public class MainWindow implements SessionProvider {
             openLastScript.setDisable(last.isEmpty());
             openLastScript.setOnAction(ev -> last.ifPresent(p -> openScripts(List.of(p))));
             scriptSeparator.setVisible(hasConnection);
-            open.setVisible(n != null && n.kind() == NavNode.Kind.TABLE);
+            boolean onTable = n != null && n.kind() == NavNode.Kind.TABLE;
+            open.setVisible(onTable);
+            exportData.setVisible(onTable);
+            importData.setVisible(onTable && !n.table().isView());
+            importData.setDisable(onTable && n.connection().isReadOnly());
+            dataSeparator.setVisible(onTable);
             boolean onConnection = n != null && n.kind() == NavNode.Kind.CONNECTION;
             edit.setVisible(onConnection);
             delete.setVisible(onConnection);
@@ -672,6 +684,39 @@ public class MainWindow implements SessionProvider {
 
     // ---- tables ----------------------------------------------------------
 
+    /** Runs with the table selected in the tree and its open session. */
+    private void withSelectedTable(java.util.function.BiConsumer<DatabaseSession, TableRef> action) {
+        NavNode node = selectedNode();
+        if (node == null || node.kind() != NavNode.Kind.TABLE) return;
+        sessions.get(node.connection().getId()).ifPresent(session -> action.accept(session, node.table()));
+    }
+
+    /** What export / import need from the window: the status line, script tabs, open table tabs. */
+    private final TableTransfer.Host transferHost = new TableTransfer.Host() {
+        @Override
+        public void status(String text) {
+            status.setText(text);
+        }
+
+        @Override
+        public void openScript(Path file, ConnectionConfig connection) {
+            try {
+                openScriptTab(new ScriptTab(file.getFileName().toString(), file, ScriptTab.read(file), connections, connection,
+                        MainWindow.this, completer, scriptBindings));
+            } catch (IOException e) {
+                error("Could not open " + file, e);
+            }
+        }
+
+        @Override
+        public void imported(DatabaseSession session, TableRef table) {
+            String key = TableTab.key(session, table);
+            for (Tab t : tabs.getTabs()) {
+                if (t instanceof TableTab tt && tt.key().equals(key)) tt.reload();
+            }
+        }
+    };
+
     private void openSelectedTable() {
         NavNode node = selectedNode();
         if (node == null || node.kind() != NavNode.Kind.TABLE) return;
@@ -687,7 +732,7 @@ public class MainWindow implements SessionProvider {
                 return;
             }
         }
-        TableTab tab = new TableTab(session, table, this, completer);
+        TableTab tab = new TableTab(session, table, this, completer, transferHost);
         tabs.getTabs().add(tab);
         tabs.getSelectionModel().select(tab);
     }
