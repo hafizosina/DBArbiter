@@ -17,7 +17,6 @@ import com.dbadmin.service.compare.Verdicts;
 import com.dbadmin.service.Job;
 import javafx.application.Platform;
 import javafx.beans.property.BooleanProperty;
-import javafx.beans.property.ReadOnlyStringWrapper;
 import javafx.beans.property.SimpleBooleanProperty;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
@@ -39,7 +38,6 @@ import javafx.scene.control.Spinner;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TableColumn;
-import javafx.scene.control.TableView;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
@@ -74,8 +72,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
     private final CompareSide dataSource;
     private final CompareSide dataTarget;
     /** Columns of the compared table: which identify a row (Key) and which are compared. */
-    private final ObservableList<ColumnChoice> columnChoices = FXCollections.observableArrayList();
-    private final TableView<ColumnChoice> columnChooser = new TableView<>(columnChoices);
+    private final ColumnPicker picker = new ColumnPicker();
     private final javafx.scene.control.TextField where = new javafx.scene.control.TextField();
     private final javafx.scene.control.ToggleButton columnsToggle = new javafx.scene.control.ToggleButton();
     /** A report is shown: the results bar and Export HTML are there. */
@@ -169,9 +166,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
     private void maybeAutoCompare() {
         if (autoCompareColumns == null || !dataSource.readyWithTable() || !dataTarget.readyWithTable()) return;
         if (joinRowList().stream().anyMatch(r -> r.pendingTable != null)) return;
-        java.util.Set<String> listed = new java.util.HashSet<>();
-        columnChoices.forEach(c -> listed.add(c.name.toLowerCase()));
-        if (!autoCompareColumns.stream().allMatch(c -> listed.contains(c.toLowerCase()))) return;
+        if (!picker.lists(autoCompareColumns)) return;
         autoCompareColumns = null;
         runDataCompare();
     }
@@ -185,15 +180,15 @@ class DataCompareTab extends Tab implements UnsavedWork {
             if (!quiet) dataStatus.setText("Pick a connection, schema and table on both sides first.");
             return null;
         }
-        List<String> keys = columnChoices.stream().filter(c -> c.key.get()).map(c -> c.name).toList();
+        List<String> keys = picker.keys();
         if (keys.isEmpty()) {
             if (!quiet) dataStatus.setText("Tick Key for the column(s) that identify a row first.");
             return null;
         }
-        List<String> compared = columnChoices.stream().filter(c -> c.compare.get() && !c.key.get()).map(c -> c.name).toList();
+        List<String> compared = picker.compared();
         List<String> shown = new ArrayList<>(keys);
         shown.addAll(compared);
-        columnChoices.stream().filter(c -> c.show.get() && !c.key.get() && !c.compare.get()).forEach(c -> shown.add(c.name));
+        shown.addAll(picker.shownOnly());
         DataCompareReport r = new DataCompareReport();
         r.settingsOnly = true;
         r.created = java.time.LocalDateTime.now().withNano(0).toString();
@@ -299,15 +294,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
         if (r.rowsPerSide > 0) rowLimit.getValueFactory().setValue(r.rowsPerSide);
         oneToMany.setSelected(r.oneToMany);
         // the ticks: kept by name when the tables' columns arrive (see setColumns)
-        List<ColumnChoice> ticks = new ArrayList<>();
-        for (String c : r.shownColumns) {
-            ColumnChoice choice = new ColumnChoice(c, true, true);
-            choice.key.set(r.keyColumns.contains(c));
-            choice.compare.set(!choice.key.get() && r.comparedColumns.contains(c));
-            choice.show.set(!choice.key.get() && !choice.compare.get());
-            ticks.add(choice);
-        }
-        columnChoices.setAll(ticks);
+        picker.restore(r.shownColumns, r.keyColumns, r.comparedColumns);
         joinRows.getChildren().clear();
         if (r.joins != null && !r.joins.isEmpty()) {
             mainAlias.setText(r.mainAlias == null ? "" : r.mainAlias);
@@ -338,33 +325,6 @@ class DataCompareTab extends Tab implements UnsavedWork {
     void select(ConnectionConfig source, String sourceSchema, ConnectionConfig target, String targetSchema, String table) {
         dataSource.select(source, sourceSchema, table);
         dataTarget.select(target, targetSchema, table);
-    }
-
-    /**
-     * One column of the compared table, or of a joined table ("mpc.category_code": e.g. to compare category_id
-     * by the code it points to, when the ids differ between the databases).
-     * Columns missing on one side can be neither key nor compared.
-     */
-    static final class ColumnChoice {
-        final String name;
-        final boolean inSource;
-        final boolean inTarget;
-        final boolean joined;
-        final BooleanProperty key = new SimpleBooleanProperty();
-        final BooleanProperty compare = new SimpleBooleanProperty();
-        /** Shown in the report only: its differences do not change a row's status. */
-        final BooleanProperty show = new SimpleBooleanProperty();
-
-        ColumnChoice(String name, boolean inSource, boolean inTarget) {
-            this.name = name;
-            this.inSource = inSource;
-            this.inTarget = inTarget;
-            this.joined = KeyJoins.isJoinedColumn(name);
-        }
-
-        boolean onBothSides() {
-            return inSource && inTarget;
-        }
     }
 
     private Node dataPage() {
@@ -406,7 +366,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
         where.setTooltip(new Tooltip("A SQL condition applied to both sides; only matching rows are compared"));
         where.setOnAction(e -> runDataCompare());
         // column suggestions: the table's own by name, joined ones as "alias.column" (how the filter sees them)
-        ConditionCompletion.install(where, () -> columnChoices.stream().map(c -> c.name).toList(), name -> {
+        ConditionCompletion.install(where, picker::names, name -> {
             if (!KeyJoins.isJoinedColumn(name)) return name;
             String q = dataSource.connection.getValue() != null
                     && dataSource.connection.getValue().getType() == com.dbadmin.model.DbType.MYSQL ? "`" : "\"";
@@ -496,7 +456,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
         Themes.shownSettings().addListener((o, a, b) -> dataGrid.refresh());
         BorderPane report = new BorderPane(dataView);
         report.setTop(statusBar);
-        Node columns = columnPane();
+        Node columns = picker;
         SplitPane split = new SplitPane(columns, report);
         CompareSide.fixedFirstPane(split, 300); // a wider window widens the report, not the picker
         // hide the column picker to give the report the whole width; showing it again restores its size
@@ -514,118 +474,6 @@ class DataCompareTab extends Tab implements UnsavedWork {
         BorderPane page = new BorderPane(split);
         page.setTop(top);
         return page;
-    }
-
-    private Node columnPane() {
-        TableColumn<ColumnChoice, String> name = new TableColumn<>("Column");
-        name.setCellValueFactory(c -> new ReadOnlyStringWrapper(c.getValue().name
-                + (c.getValue().onBothSides() ? "" : c.getValue().inSource ? "  (only in source)" : "  (only in target)")));
-        name.setPrefWidth(125);
-        TableColumn<ColumnChoice, Boolean> key = new TableColumn<>("Key");
-        key.setCellValueFactory(c -> c.getValue().key);
-        key.setCellFactory(col -> new ChoiceCheckCell());
-        key.setPrefWidth(40);
-        TableColumn<ColumnChoice, Boolean> compare = new TableColumn<>("Compare");
-        compare.setCellValueFactory(c -> c.getValue().compare);
-        compare.setCellFactory(col -> new ChoiceCheckCell());
-        compare.setPrefWidth(68);
-        TableColumn<ColumnChoice, Boolean> show = new TableColumn<>("Show");
-        show.setCellValueFactory(c -> c.getValue().show);
-        show.setCellFactory(col -> new ChoiceCheckCell());
-        show.setPrefWidth(52);
-        columnChooser.getColumns().addAll(List.of(name, key, compare, show));
-        // the check box columns keep their width, the names take the rest (no sideways scrolling)
-        for (TableColumn<ColumnChoice, ?> c : List.of(key, compare, show)) {
-            c.setMinWidth(c.getPrefWidth());
-            c.setMaxWidth(c.getPrefWidth());
-            c.setResizable(false);
-        }
-        columnChooser.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_ALL_COLUMNS);
-        columnChooser.setEditable(true);
-        columnChooser.setPlaceholder(new Label("The table's columns appear here."));
-
-        Button all = new Button("Compare all");
-        all.setOnAction(e -> columnChoices.forEach(c -> c.compare.set(c.onBothSides() && !c.key.get() && !c.joined)));
-        Button showAll = new Button("Show all");
-        showAll.setOnAction(e -> columnChoices.forEach(c -> c.show.set(c.onBothSides())));
-        Button none = new Button("Clear");
-        none.setOnAction(e -> columnChoices.forEach(c -> {
-            c.key.set(false);
-            c.compare.set(false);
-            c.show.set(false);
-        }));
-        HBox buttons = new HBox(6, all, showAll, none);
-        CompareSide.keepWidth(all, showAll, none);
-        VBox pane = new VBox(6, columnChooser, buttons);
-        pane.setPadding(new Insets(6));
-        VBox.setVgrow(columnChooser, Priority.ALWAYS);
-        return pane;
-    }
-
-    /** A checkbox, disabled for a column that is not on both sides. */
-    /** The last checkbox clicked in the column picker: a shift-click sets every row between it and the clicked one. */
-    private int anchorRow = -1;
-    private TableColumn<ColumnChoice, ?> anchorColumn;
-
-    /**
-     * A checkbox; the whole cell is the click target, and shift-click ticks (or unticks) the rows from the last
-     * clicked one in the same column. Disabled for a column that is not on both sides.
-     */
-    private class ChoiceCheckCell extends javafx.scene.control.cell.CheckBoxTableCell<ColumnChoice, Boolean> {
-        /** The press of a shift-click was a range: its release and click do nothing more. */
-        private boolean range;
-
-        ChoiceCheckCell() {
-            // before the box sees it: a shift-click is a range, not a toggle of this one box
-            addEventFilter(javafx.scene.input.MouseEvent.MOUSE_PRESSED, e -> {
-                range = e.isShiftDown() && e.getButton() == javafx.scene.input.MouseButton.PRIMARY && !isEmpty() && !isDisabled()
-                        && anchorRow >= 0 && anchorColumn == getTableColumn();
-                if (range) {
-                    setRange(!value(getIndex()).get());
-                    e.consume();
-                }
-            });
-            addEventFilter(javafx.scene.input.MouseEvent.MOUSE_RELEASED, e -> {
-                if (range) e.consume();
-            });
-            setOnMouseClicked(e -> {
-                if (e.getButton() != javafx.scene.input.MouseButton.PRIMARY || isEmpty() || isDisabled()) return;
-                if (range) {
-                    range = false;
-                    return;
-                }
-                anchorRow = getIndex();
-                anchorColumn = getTableColumn();
-                for (Node n = e.getPickResult().getIntersectedNode(); n != null && n != this; n = n.getParent()) {
-                    if (n == getGraphic()) return; // on the box itself: it toggles on its own
-                }
-                BooleanProperty p = value(getIndex());
-                p.set(!p.get());
-            });
-        }
-
-        private BooleanProperty value(int row) {
-            return (BooleanProperty) getTableColumn().getCellObservableValue(row);
-        }
-
-        /** Sets this column for every row from the anchor to this one (rows not on both sides are left alone). */
-        private void setRange(boolean on) {
-            int from = Math.min(anchorRow, getIndex());
-            int to = Math.max(anchorRow, getIndex());
-            for (int i = from; i <= to && i < getTableView().getItems().size(); i++) {
-                if (getTableView().getItems().get(i).onBothSides()) value(i).set(on);
-            }
-            anchorRow = getIndex();
-        }
-
-        @Override
-        public void updateItem(Boolean value, boolean empty) {
-            super.updateItem(value, empty);
-            ColumnChoice c = empty || getTableRow() == null ? null : getTableRow().getItem();
-            boolean usable = c != null && c.onBothSides();
-            setDisable(!usable);
-            setEditable(usable);
-        }
     }
 
     /** One join of the "Joined tables" editor: [left] join table alias on condition. */
@@ -769,33 +617,9 @@ class DataCompareTab extends Tab implements UnsavedWork {
         return names;
     }
 
-    /** Fills the column picker; choices already made for a column name are kept. */
+    /** Fills the column picker (ticks made for the same names are kept), then maybe compares a reopened file. */
     private void setColumns(List<String> srcCols, List<String> dstCols) {
-        Map<String, Boolean[]> previous = new java.util.HashMap<>();
-        columnChoices.forEach(c -> previous.put(c.name.toLowerCase(), new Boolean[]{c.key.get(), c.compare.get(), c.show.get()}));
-        java.util.Set<String> tgtNames = new java.util.HashSet<>();
-        dstCols.forEach(c -> tgtNames.add(c.toLowerCase()));
-        java.util.Set<String> srcNames = new java.util.HashSet<>();
-        List<ColumnChoice> choices = new ArrayList<>();
-        for (String c : srcCols) {
-            srcNames.add(c.toLowerCase());
-            choices.add(new ColumnChoice(c, true, tgtNames.contains(c.toLowerCase())));
-        }
-        for (String c : dstCols) {
-            if (!srcNames.contains(c.toLowerCase())) choices.add(new ColumnChoice(c, false, true));
-        }
-        boolean keepPrevious = !previous.isEmpty() && choices.stream().anyMatch(c -> previous.containsKey(c.name.toLowerCase()));
-        for (ColumnChoice c : choices) {
-            Boolean[] before = previous.get(c.name.toLowerCase());
-            if (!c.onBothSides()) continue;
-            // nothing ticked by default; choices made for the same column names are kept
-            if (keepPrevious && before != null) {
-                c.key.set(before[0]);
-                c.compare.set(before[1]);
-                c.show.set(before[2]);
-            }
-        }
-        columnChoices.setAll(choices);
+        picker.setColumns(srcCols, dstCols);
         maybeAutoCompare();
     }
 
@@ -811,10 +635,9 @@ class DataCompareTab extends Tab implements UnsavedWork {
             dataStatus.setText("Pick a connection, schema and table on both sides.");
             return null;
         }
-        List<String> keys = columnChoices.stream().filter(c -> c.key.get()).map(c -> c.name).toList();
-        List<String> compared = columnChoices.stream().filter(c -> c.compare.get() && !c.key.get()).map(c -> c.name).toList();
-        List<String> shownOnly = columnChoices.stream().filter(c -> c.show.get() && !c.key.get() && !c.compare.get())
-                .map(c -> c.name).toList();
+        List<String> keys = picker.keys();
+        List<String> compared = picker.compared();
+        List<String> shownOnly = picker.shownOnly();
         if (keys.isEmpty()) {
             dataStatus.setText("Tick Key for the column(s) that identify a row (e.g. id).");
             return null;
