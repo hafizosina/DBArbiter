@@ -120,4 +120,40 @@ class ScreenPiecesTest {
             assertFalse(picker.lists(List.of("missing")));
         });
     }
+
+    private static <T extends javafx.scene.Node> List<T> all(javafx.scene.Node root, Class<T> kind) {
+        List<T> found = new java.util.ArrayList<>();
+        if (kind.isInstance(root)) found.add(kind.cast(root));
+        if (root instanceof javafx.scene.control.ScrollPane sp && sp.getContent() != null) found.addAll(all(sp.getContent(), kind));
+        if (root instanceof javafx.scene.Parent p) p.getChildrenUnmodifiable().forEach(n -> found.addAll(all(n, kind)));
+        return found;
+    }
+
+    /** The warning level is offered only while Read-only is off, and saved with the connection. */
+    @Test
+    void connectionFormOffersTheWarningLevelWhenWritable() throws Exception {
+        Fx.run(() -> {
+            com.dbadmin.model.ConnectionConfig c = new com.dbadmin.model.ConnectionConfig();
+            c.setName("prod");
+            c.setDatabase("shop");
+            c.setReadOnly(false);
+            c.setWarningLevel(2);
+            List<com.dbadmin.model.ConnectionConfig> saved = new java.util.ArrayList<>();
+            ConnectionTab tab = new ConnectionTab(c, saved::add);
+            javafx.scene.control.CheckBox readOnly = all(tab.getContent(), javafx.scene.control.CheckBox.class).stream()
+                    .filter(b -> b.getText().startsWith("Read-only")).findFirst().orElseThrow();
+            @SuppressWarnings("unchecked")
+            javafx.scene.control.ComboBox<String> level = all(tab.getContent(), javafx.scene.control.ComboBox.class).stream()
+                    .filter(b -> b.getItems().contains("Any change")).findFirst().orElseThrow();
+            assertEquals("Any change", level.getValue());
+            assertFalse(level.isDisabled());
+            readOnly.setSelected(true);
+            assertTrue(level.isDisabled());
+            readOnly.setSelected(false);
+            level.getSelectionModel().select(3);
+            all(tab.getContent(), Button.class).stream().filter(b -> "Save".equals(b.getText())).findFirst().orElseThrow().fire();
+            assertEquals(3, saved.get(0).getWarningLevel());
+            assertFalse(saved.get(0).isReadOnly());
+        });
+    }
 }

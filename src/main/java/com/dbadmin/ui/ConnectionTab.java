@@ -41,6 +41,9 @@ class ConnectionTab extends Tab {
     private final PasswordField password = new PasswordField();
     private final CheckBox savePassword = new CheckBox("Save password");
     private final CheckBox readOnly = new CheckBox("Read-only (block all changes to the database)");
+    /** Index = warning level (see QueryRisk). */
+    private final ComboBox<String> warningLevel = new ComboBox<>(javafx.collections.FXCollections.observableArrayList(
+            "Nothing", "Dangerous only: drop, truncate, every row", "Any change", "Any change, inserts too"));
     private final Label databaseLabel = new Label("Database:");
     private final Button browse = new Button("Browse…");
     private final Label testResult = new Label();
@@ -66,6 +69,9 @@ class ConnectionTab extends Tab {
         username.setText(base.getUsername());
         password.setText(base.getPassword());
         readOnly.setSelected(base.isReadOnly());
+        warningLevel.getSelectionModel().select(base.getWarningLevel());
+        warningLevel.disableProperty().bind(readOnly.selectedProperty());
+        warningLevel.setTooltip(new Tooltip("Asks before running these statements on this connection"));
         savePassword.setSelected(base.isSavePassword());
         savePassword.setTooltip(new Tooltip("Off: the password is not written to disk; it is asked when connecting"));
 
@@ -105,6 +111,11 @@ class ConnectionTab extends Tab {
         HBox.setHgrow(password, Priority.ALWAYS);
         grid.addRow(r++, new Label("Password:"), passwordRow);
         grid.add(readOnly, 1, r++);
+        Label warnLabel = new Label("Warn before:");
+        warnLabel.disableProperty().bind(readOnly.selectedProperty());
+        HBox warnRow = new HBox(8, warnLabel, warningLevel);
+        warnRow.setAlignment(Pos.CENTER_LEFT);
+        grid.add(warnRow, 1, r++);
         grid.add(test, 1, r++);
         grid.add(testResult, 1, r);
 
@@ -200,6 +211,7 @@ class ConnectionTab extends Tab {
         c.setType(t);
         c.setDatabase(database.getText().trim());
         c.setReadOnly(readOnly.isSelected());
+        c.setWarningLevel(warningLevel.getSelectionModel().getSelectedIndex());
         if (!t.isFileBased()) {
             c.setHost(host.getText().trim());
             c.setPort(Integer.parseInt(port.getText().trim()));

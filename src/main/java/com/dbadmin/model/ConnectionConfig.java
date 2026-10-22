@@ -16,6 +16,8 @@ public class ConnectionConfig {
     private boolean savePassword = true;
     /** Blocks all changes to the database. On by default; missing in older saved files means on. */
     private boolean readOnly = true;
+    /** When not read-only, what to ask before running (see QueryRisk): 0 nothing, 1 dangerous, 2 any change, 3 inserts too. Missing in older saved files means 1. */
+    private int warningLevel = 1;
 
     public String getId() { return id; }
     public void setId(String id) { this.id = id; }
@@ -38,6 +40,8 @@ public class ConnectionConfig {
 
     public boolean isReadOnly() { return readOnly; }
     public void setReadOnly(boolean readOnly) { this.readOnly = readOnly; }
+    public int getWarningLevel() { return warningLevel; }
+    public void setWarningLevel(int warningLevel) { this.warningLevel = Math.max(0, Math.min(3, warningLevel)); }
 
     public String jdbcUrl() {
         return type.buildUrl(this);

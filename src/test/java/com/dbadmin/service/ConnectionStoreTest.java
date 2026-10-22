@@ -57,5 +57,6 @@ class ConnectionStoreTest {
         ConnectionConfig c = new ConnectionStore(file).load().get(0);
         assertEquals("pw", c.getPassword());
         assertTrue(c.isSavePassword());
+        assertEquals(1, c.getWarningLevel(), "a missing warning level warns before dangerous statements");
     }
 }

@@ -66,10 +66,10 @@ final class ScriptRunner {
 
     Outcome run(String sql, ConnectionConfig config, Window owner, Listener listener) {
         if (running.get()) return Outcome.CANCELLED;
-        List<ParsedSql> statements = SqlSplitter.split(sql, config.getType()).stream()
-                .map(s -> NamedParams.parse(s, config.getType()))
-                .toList();
+        List<String> texts = SqlSplitter.split(sql, config.getType());
+        List<ParsedSql> statements = texts.stream().map(s -> NamedParams.parse(s, config.getType())).toList();
         if (statements.isEmpty()) return Outcome.NOTHING_TO_RUN;
+        if (!RunWarning.confirm(owner, config, texts)) return Outcome.CANCELLED;
         Set<String> names = new LinkedHashSet<>();
         statements.forEach(s -> names.addAll(s.names()));
         Map<String, String> values = Map.of();
