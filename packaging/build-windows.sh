@@ -2,7 +2,7 @@
 # Builds a Windows x64 version of DBArbiter on Linux:
 #   target/windows/DBArbiter/DBArbiter.exe + jre/   (unzip and double-click; no Java install needed)
 #   target/windows/DBArbiter-windows-x64.zip
-# The Temurin JRE download is cached in ~/.cache/dbadmin.
+# The Temurin JRE download is cached in ~/.cache/dbadmin. Extra arguments go to Maven, e.g. -Drevision=0.1.12.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -14,7 +14,7 @@ OUT=target/windows/DBArbiter
 # no "clean": target/Script holds scripts saved by the jar version of the app
 rm -rf target/windows
 # no tests here: with the Windows JavaFX jars the UI tests cannot start on Linux (the normal build runs them)
-mvn -B -q -Pwindows -Djavafx.platform=win -DskipTests package
+mvn -B -q -Pwindows -Djavafx.platform=win -DskipTests package "$@"
 
 if [ ! -f "$JRE_ZIP" ]; then
     echo "Downloading Temurin $JRE_FEATURE JRE for Windows x64..."

@@ -1,0 +1,75 @@
+# Every push to main (and every pull request): tests, then the Linux and Windows downloads as build artifacts (7 days).
+# A pushed version tag (git push origin v0.1.12): the same, then a GitHub Release with both downloads.
+# The license generator and its signing key are never built or used here.
+name: build
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      - name: Version
+        id: version
+        run: |
+          # a tag gives the version (v0.1.12 -> 0.1.12); else the pom's <revision>
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION=$(sed -n 's:.*<revision>\(.*\)</revision>.*:\1:p' pom.xml | head -1)
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "args=-Drevision=$VERSION -Dbuild.commit=${GITHUB_SHA::7} -Dbuild.date=$(date -u '+%F %H:%M UTC')" >> "$GITHUB_OUTPUT"
+
+      - name: Tests
+        # the UI tests need a display
+        run: xvfb-run -a mvn -B test
+
+      - name: Linux download
+        run: packaging/build-linux.sh -DskipTests ${{ steps.version.outputs.args }}
+
+      - name: Windows download
+        run: packaging/build-windows.sh ${{ steps.version.outputs.args }}
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: DBArbiter-${{ steps.version.outputs.version }}
+          path: |
+            target/linux/DBArbiter-linux-x64.tar.gz
+            target/windows/DBArbiter-windows-x64.zip
+          retention-days: 7
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
+            --title "DBArbiter ${GITHUB_REF_NAME#v}" --generate-notes \
+            --notes "Windows: unzip DBArbiter-windows-x64.zip and run DBArbiter.exe (Windows may warn the first time: More info → Run anyway). Linux: extract DBArbiter-linux-x64.tar.gz and run ./DBArbiter. Java is included."
