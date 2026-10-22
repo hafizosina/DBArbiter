@@ -13,6 +13,8 @@
 
     <properties>
         <revision>0.1.0</revision>
+        <!-- where Maven builds; override (-Dbuild.dir=...) to build without touching target/, e.g. while the app runs from it -->
+        <build.dir>${project.basedir}/target</build.dir>
         <!-- the git commit shown next to the version; packaging/deploy-linux.sh passes the real one -->
         <build.commit>dev</build.commit>
         <!-- when the jar was built (UTC here; packaging/deploy-linux.sh passes local time) -->
@@ -74,6 +76,7 @@
     </dependencies>
 
     <build>
+        <directory>${build.dir}</directory>
         <resources>
             <!-- only version.properties gets ${...} filled in; icons and CSS are copied as they are -->
             <resource>

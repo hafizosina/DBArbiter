@@ -200,7 +200,8 @@ public class MainWindow implements SessionProvider {
         MenuItem about = new MenuItem("About DBAdmin");
         about.setOnAction(e -> {
             Alert info = new Alert(Alert.AlertType.INFORMATION,
-                    "A desktop database browser and SQL editor.\nPostgreSQL · MySQL / MariaDB · SQLite", ButtonType.OK);
+                    "A desktop database browser and SQL editor.\nPostgreSQL · MySQL / MariaDB · SQLite"
+                            + "\n\nAuthor: Hafiz Hisbullah\nzhenzhu.gamedev@gmail.com", ButtonType.OK);
             info.setTitle("About");
             info.setHeaderText("DBAdmin " + AppFooter.version());
             InAppDialogs.show(info);

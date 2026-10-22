@@ -161,7 +161,7 @@ class TableSearch extends VBox {
             // schema -> its matching tables, schemas in name order
             Map<String, List<TableRef>> bySchema = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
             for (TableRef t : index.getOrDefault(s, List.of())) {
-                if (hits < MAX_HITS && rank(t, query) < 3) {
+                if (hits < MAX_HITS && rank(t, query) < NO_MATCH) {
                     bySchema.computeIfAbsent(schemaOf(t), k -> new ArrayList<>()).add(t);
                     hits++;
                 }
@@ -215,12 +215,18 @@ class TableSearch extends VBox {
         return null;
     }
 
-    /** 0 = name starts with the query, 1 = name contains it, 2 = schema.name contains it, 3 = no match. */
-    private static int rank(TableRef t, String query) {
+    static final int NO_MATCH = 4;
+
+    /**
+     * 0 = name starts with the query, 1 = its initials do ("mpv" for m_product_variant, 2+ characters),
+     * 2 = name contains it, 3 = schema.name contains it, {@link #NO_MATCH}.
+     */
+    static int rank(TableRef t, String query) {
         String name = t.name().toLowerCase(Locale.ROOT);
         if (name.startsWith(query)) return 0;
-        if (name.contains(query)) return 1;
-        return t.displayName().toLowerCase(Locale.ROOT).contains(query) ? 2 : 3;
+        if (query.length() >= 2 && SqlCompleter.initials(t.name()).startsWith(query)) return 1;
+        if (name.contains(query)) return 2;
+        return t.displayName().toLowerCase(Locale.ROOT).contains(query) ? 3 : NO_MATCH;
     }
 
     private void load(DatabaseSession session) {

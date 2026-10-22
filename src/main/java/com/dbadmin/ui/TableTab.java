@@ -83,6 +83,7 @@ class TableTab extends Tab {
         addSection("Foreign Keys", () -> session.listForeignKeys(table));
         addSection("Indexes", () -> session.listIndexes(table));
         addSection("Triggers", () -> session.listTriggers(table));
+        // DDL is not a grid: see showDdl
 
         Tab properties = new Tab("Properties", buildPropertiesPane());
         Tab data = new Tab("Data", buildDataPane());
@@ -134,20 +135,30 @@ class TableTab extends Tab {
     private BorderPane buildPropertiesPane() {
         ListView<String> nav = new ListView<>();
         nav.getItems().addAll(sections.keySet());
+        nav.getItems().add(DDL);
         nav.getStyleClass().add("section-nav");
         nav.setPrefWidth(140);
         nav.setMinWidth(120);
         nav.getSelectionModel().selectedItemProperty().addListener((o, a, name) -> {
-            if (name != null) showSection(name, false);
+            if (DDL.equals(name)) showDdl(false);
+            else if (name != null) showSection(name, false);
         });
 
         Button refresh = new Button("Refresh");
         refresh.setOnAction(e -> {
             if (!dataView.confirmDiscard()) return;
             String name = nav.getSelectionModel().getSelectedItem();
-            if (name != null) showSection(name, true);
+            if (DDL.equals(name)) showDdl(true);
+            else if (name != null) showSection(name, true);
         });
-        HBox bar = new HBox(8, refresh);
+        ddlCopy.setTooltip(new Tooltip("Copy the DDL"));
+        ddlCopy.setOnAction(e -> {
+            javafx.scene.input.ClipboardContent c = new javafx.scene.input.ClipboardContent();
+            c.putString(ddlArea.getText());
+            javafx.scene.input.Clipboard.getSystemClipboard().setContent(c);
+        });
+        ddlCopy.setVisible(false);
+        HBox bar = new HBox(8, refresh, ddlCopy);
         bar.setPadding(new Insets(6));
         sectionContent.setTop(bar);
 
@@ -157,9 +168,38 @@ class TableTab extends Tab {
         return pane;
     }
 
+    private static final String DDL = "DDL";
+    private final org.fxmisc.richtext.CodeArea ddlArea = new org.fxmisc.richtext.CodeArea();
+    /** Next to Refresh, only while the DDL is shown. */
+    private final Button ddlCopy = new Button("Copy");
+    private org.fxmisc.flowless.VirtualizedScrollPane<org.fxmisc.richtext.CodeArea> ddlPane;
+    private boolean ddlLoaded;
+
+    /** The CREATE statement(s) of the table, view or materialized view, colored as SQL; read-only, copyable. */
+    private void showDdl(boolean reload) {
+        if (ddlPane == null) {
+            ddlArea.setEditable(false);
+            ddlArea.getStyleClass().add("sql-editor");
+            ddlArea.setParagraphGraphicFactory(org.fxmisc.richtext.LineNumberFactory.get(ddlArea));
+            ddlPane = new org.fxmisc.flowless.VirtualizedScrollPane<>(ddlArea);
+        }
+        sectionContent.setCenter(ddlPane);
+        ddlCopy.setVisible(true);
+        if (ddlLoaded && !reload) return;
+        ddlLoaded = true;
+        ddlArea.replaceText("-- loading…");
+        Async.run(session, () -> session.ddl(table), sql -> {
+            ddlArea.replaceText(sql.isEmpty() ? "-- no DDL found" : sql);
+            ddlArea.setStyleSpans(0, SqlHighlighter.highlight(ddlArea.getText(), session.getConfig().getType()));
+            ddlArea.moveTo(0);
+            ddlArea.requestFollowCaret();
+        }, ex -> ddlArea.replaceText("-- could not read the DDL: " + ex.getMessage()));
+    }
+
     private void showSection(String name, boolean reload) {
         Section section = sections.get(name);
         sectionContent.setCenter(section.grid());
+        ddlCopy.setVisible(false);
         if (!loadedSections.add(name) && !reload) return;
         section.grid().getItems().clear();
         section.grid().setPlaceholder(new Label("Loading…"));
@@ -238,8 +278,13 @@ class TableTab extends Tab {
         split.setOrientation(Orientation.VERTICAL);
         SplitPane.setResizableWithParent(query, false); // a taller window gives the rows the extra space
         query.setMinHeight(0);
+        // no taller than its 3 lines until sized (else the first frame shows the split's default, half the tab)
+        query.setMaxHeight(Region.USE_PREF_SIZE);
         Runnable fit = () -> {
-            if (split.getHeight() > 0) split.setDividerPositions(query.prefHeight(query.getWidth()) / split.getHeight());
+            if (split.getHeight() <= 0) return;
+            double height = query.prefHeight(query.getWidth());
+            query.setMaxHeight(Double.MAX_VALUE); // from now on the divider can be dragged anywhere
+            split.setDividerPositions(height / split.getHeight());
         };
         queryEditor.setInitialLines(3, () -> {
             if (split.getHeight() > 0) {

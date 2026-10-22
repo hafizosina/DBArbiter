@@ -106,6 +106,7 @@ class SqlEditor extends VBox {
         area.setWrapText(true);
         scroll.setHbarPolicy(javafx.scene.control.ScrollPane.ScrollBarPolicy.NEVER);
         boolean[] applied = {false};
+        scroll.setPrefHeight(lines * 18.0); // a close guess for the first frame, measured below
         // the line height is known once the first paragraph has been laid out
         area.totalHeightEstimateProperty().addListener((o, before, total) -> {
             if (applied[0] || total == null || total <= 0) return;
