@@ -25,6 +25,18 @@ final class Themes {
     /** The settings shown right now (saved ones, or a preview from the Settings dialog). */
     private static final ObjectProperty<AppSettings> SHOWN = new SimpleObjectProperty<>(settings.copy());
 
+    static {
+        // the app's own fonts, so text looks the same on every system: Inter for the UI, JetBrains Mono for SQL
+        // and values (both SIL Open Font License 1.1, free for commercial use; the licenses are next to them)
+        for (String font : List.of("Inter-Regular", "Inter-Bold", "JetBrainsMono-Regular", "JetBrainsMono-Bold")) {
+            try (java.io.InputStream in = Themes.class.getResourceAsStream("/com/dbadmin/fonts/" + font + ".ttf")) {
+                if (in != null) javafx.scene.text.Font.loadFont(in, 12);
+            } catch (java.io.IOException e) {
+                // the system font is used instead
+            }
+        }
+    }
+
     private Themes() {
     }
 
