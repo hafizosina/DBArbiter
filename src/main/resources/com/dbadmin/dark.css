@@ -91,3 +91,7 @@
 .edit-bar { -fx-border-color: #43454a transparent transparent transparent; }
 .sql-diff .diff-removed { -fx-background-color: #5c2427; }
 .sql-diff .diff-added { -fx-background-color: #1e4a29; }
+.sql-diff .diff-word-removed { -rtfx-background-color: #a33a3f; }
+.sql-diff .diff-word-added { -rtfx-background-color: #2e7d3e; }
+.sql-diff .diff-folded { -fx-fill: #7a7e85; -fx-font-style: italic; }
+.sql-diff .diff-gutter { -fx-text-fill: #6f737a; -fx-font-family: "DejaVu Sans Mono", "Monospaced"; -fx-font-size: 11px; -fx-padding: 0 6 0 2; }

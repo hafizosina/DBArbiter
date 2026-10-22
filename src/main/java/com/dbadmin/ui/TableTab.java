@@ -13,6 +13,7 @@ import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListView;
 import javafx.scene.control.Separator;
+import javafx.scene.control.SplitPane;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
 import javafx.scene.control.Tooltip;
@@ -180,7 +181,7 @@ class TableTab extends Tab {
         defaultQuery = "select * from " + qualified();
         queryEditor.getStyleClass().add("quick-query");
         queryEditor.setText(defaultQuery);
-        queryEditor.setVisibleLines(3);
+
 
         Button run = new Button("▶ Run");
         run.setTooltip(new Tooltip("Run the statement at the cursor, or the selection (Ctrl+Enter). Not saved; up to "
@@ -230,9 +231,31 @@ class TableTab extends Tab {
         bar.setPadding(new Insets(6));
 
         VBox.setMargin(queryEditor, new Insets(6, 6, 0, 6));
-        BorderPane pane = new BorderPane(dataView);
-        pane.setTop(new VBox(queryEditor, bar));
-        return pane;
+        VBox.setVgrow(queryEditor, Priority.ALWAYS);
+        // the query box starts 3 lines high; drag the divider below the buttons to make it taller or shorter
+        VBox query = new VBox(queryEditor, bar);
+        SplitPane split = new SplitPane(query, dataView);
+        split.setOrientation(Orientation.VERTICAL);
+        SplitPane.setResizableWithParent(query, false); // a taller window gives the rows the extra space
+        query.setMinHeight(0);
+        Runnable fit = () -> {
+            if (split.getHeight() > 0) split.setDividerPositions(query.prefHeight(query.getWidth()) / split.getHeight());
+        };
+        queryEditor.setInitialLines(3, () -> {
+            if (split.getHeight() > 0) {
+                fit.run();
+            } else {
+                split.heightProperty().addListener(new javafx.beans.value.ChangeListener<>() {
+                    @Override
+                    public void changed(javafx.beans.value.ObservableValue<? extends Number> o, Number a, Number h) {
+                        if (h.doubleValue() <= 0) return;
+                        split.heightProperty().removeListener(this);
+                        fit.run();
+                    }
+                });
+            }
+        });
+        return new BorderPane(split);
     }
 
     /** schema.table (database.table on MySQL), quoting names only where needed. */

@@ -37,6 +37,8 @@ class DataView extends BorderPane {
     private static final BooleanProperty SHOW_VALUE_PANEL = new SimpleBooleanProperty(true);
     /** One row as a list of column / value pairs, in every view that offers it. */
     private static final BooleanProperty RECORD_MODE = new SimpleBooleanProperty(false);
+    /** A changed compare value as a git-style line diff (else source and target side by side), everywhere at once. */
+    private static final BooleanProperty LINE_DIFF = new SimpleBooleanProperty(true);
 
     private final DataGrid grid = new DataGrid();
     private final CellInspector inspector = new CellInspector();
@@ -44,6 +46,12 @@ class DataView extends BorderPane {
     private final CellInspector targetInspector = new CellInspector();
     private final SplitPane pairPanel = new SplitPane();
     private final javafx.scene.layout.StackPane inspectorHost = new javafx.scene.layout.StackPane(inspector);
+    /** For a compare result: a bar (legend, Line diff toggle) above the diff or the two values. */
+    private final DiffView diffView = new DiffView();
+    private final Label compareLegend = new Label();
+    private final ToggleButton diffToggle = new ToggleButton("Line diff");
+    private final javafx.scene.layout.StackPane compareBody = new javafx.scene.layout.StackPane();
+    private final VBox comparePanel = new VBox();
     private final SplitPane split = new SplitPane(grid);
     private double divider = 0.7;
     private final RecordView record = new RecordView(grid, () -> this.canFetchMore, this::fetchMore);
@@ -51,6 +59,19 @@ class DataView extends BorderPane {
     DataView() {
         grid.selectedCellProperty().addListener((o, a, cell) -> showCell(cell));
         pairPanel.setOrientation(Orientation.VERTICAL);
+        compareLegend.getStyleClass().add("hint-small");
+        compareLegend.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(compareLegend, javafx.scene.layout.Priority.ALWAYS);
+        diffToggle.selectedProperty().bindBidirectional(LINE_DIFF);
+        diffToggle.setTooltip(new Tooltip("Show a changed value as a line-by-line diff (like git), or both values side by side"));
+        diffToggle.setFocusTraversable(false);
+        LINE_DIFF.addListener((o, a, b) -> showCell(grid.selectedCellProperty().get()));
+        diffToggle.setMinWidth(javafx.scene.layout.Region.USE_PREF_SIZE); // the legend shortens, never the toggle
+        HBox compareBar = new HBox(8, diffToggle, compareLegend);
+        compareBar.setAlignment(Pos.CENTER_LEFT);
+        compareBar.setPadding(new Insets(4, 6, 4, 6));
+        VBox.setVgrow(compareBody, javafx.scene.layout.Priority.ALWAYS);
+        comparePanel.getChildren().setAll(compareBar, compareBody);
         SplitPane.setResizableWithParent(inspectorHost, false);
         setCenter(split);
         SHOW_VALUE_PANEL.addListener((o, a, show) -> applyVisibility(show));
@@ -71,7 +92,14 @@ class DataView extends BorderPane {
         revertEdits.setOnAction(e -> revertAll());
         editBar.setVisible(false);
         editBar.setManaged(false);
-        setBottom(new VBox(editBar, moreBar));
+        // one line: the edit hint and its buttons on the left, the row count on the right
+        javafx.scene.layout.Region gap = new javafx.scene.layout.Region();
+        HBox.setHgrow(gap, javafx.scene.layout.Priority.ALWAYS);
+        HBox bottom = new HBox(editBar, gap, moreBar);
+        bottom.setAlignment(Pos.CENTER_LEFT);
+        bottom.visibleProperty().bind(editBar.visibleProperty().or(moreBar.visibleProperty()));
+        bottom.managedProperty().bind(bottom.visibleProperty());
+        setBottom(bottom);
         // anything else showing data in the grid (e.g. a table page) ends the chunked result
         grid.itemsProperty().addListener((o, a, b) -> {
             // new rows: edits of the old ones are gone (callers ask first, see confirmDiscard)
@@ -113,7 +141,11 @@ class DataView extends BorderPane {
         split.setDividerPositions(dividers);
     }
 
-    /** One view for a value; two (source, target) for a value from a data compare. */
+    /**
+     * One view for a value; for a value from a compare, a line diff of what the target gets from the source
+     * (red: the target's value now, green: the source's), when the sides differ or the row is on one side
+     * only; else, or with Line diff off, both values, source above target.
+     */
     private void showCell(DataGrid.CellValue cell) {
         if (cell != null && cell.value() instanceof ComparedValue cv) {
             inspector.show(new DataGrid.CellValue(cell.column() + "  ·  " + cv.sourceName(), cell.type(),
@@ -122,7 +154,21 @@ class DataView extends BorderPane {
                     cv.inTarget() ? cv.target() : "(no row in " + cv.targetName() + ")"));
             if (pairPanel.getItems().isEmpty()) {
                 pairPanel.getItems().setAll(inspector, targetInspector);
-                inspectorHost.getChildren().setAll(pairPanel);
+                inspectorHost.getChildren().setAll(comparePanel);
+            }
+            boolean differs = cv.valuesDiffer() || cv.inSource() != cv.inTarget();
+            diffToggle.setDisable(!differs);
+            if (differs && LINE_DIFF.get()) {
+                // Source → Target: the target's value is the old one, the source's the new one
+                diffView.show(cv.inTarget() ? text(cv.target()) : null, cv.inSource() ? text(cv.source()) : null, false);
+                long[] n = diffView.counts();
+                compareLegend.setText(cell.column() + (!cv.inTarget() ? "   + new in " + cv.targetName()
+                        : !cv.inSource() ? "   − only in " + cv.targetName()
+                        : "   − " + cv.targetName() + " (" + n[0] + ")   + " + cv.sourceName() + " (" + n[1] + ")"));
+                compareBody.getChildren().setAll(diffView);
+            } else {
+                compareLegend.setText(cell.column() + (differs ? "" : cv.inSource() && cv.inTarget() ? "   · same on both sides" : ""));
+                compareBody.getChildren().setAll(pairPanel);
             }
         } else {
             if (!pairPanel.getItems().isEmpty()) {
@@ -131,6 +177,10 @@ class DataView extends BorderPane {
             }
             inspector.show(cell, cell == null ? null : cellEdits());
         }
+    }
+
+    private static String text(Object v) {
+        return v == null ? "NULL" : v.toString();
     }
 
     /** Edits of the focused cell through the value panel, or null when it cannot be edited there. */
@@ -285,8 +335,7 @@ class DataView extends BorderPane {
         record.refresh();
         if (!editable) return;
         if (edits.isEmpty()) {
-            editInfo.setText("✎ Editable: double-click a cell or edit it in the value panel (right-click: Set NULL / Revert). "
-                    + "Changes are saved only with Save.");
+            editInfo.setText("✎ Editable · double-click a cell · saved only with Save");
         } else {
             editInfo.setText(edits.cellCount() + " change(s) in " + edits.rowCount() + " row(s), not saved yet");
         }
@@ -313,12 +362,22 @@ class DataView extends BorderPane {
             TextArea statements = new TextArea(String.join("\n", sql));
             statements.setEditable(false);
             statements.setWrapText(true); // a long UPDATE wraps instead of needing a sideways scroll
-            statements.setPrefRowCount(Math.min(12, sql.size() + 1));
+            statements.setPrefRowCount(Math.max(8, Math.min(20, sql.size() + 2)));
             statements.getStyleClass().add("sql-messages");
             // wide enough for the statements (up to a limit), so the text and buttons are not cut off
             int longest = sql.stream().mapToInt(String::length).max().orElse(0);
             ask.getDialogPane().setPrefWidth(Math.max(560, Math.min(1000, longest * 7.5 + 80)));
-            ask.getDialogPane().setExpandableContent(statements);
+            // to run them by hand instead (e.g. in a script, or by a DBA)
+            Button copy = new Button("Copy SQL");
+            copy.setOnAction(e -> {
+                javafx.scene.input.ClipboardContent c = new javafx.scene.input.ClipboardContent();
+                c.putString(statements.getText());
+                javafx.scene.input.Clipboard.getSystemClipboard().setContent(c);
+                copy.setText("Copied");
+            });
+            VBox details = new VBox(6, statements, copy);
+            VBox.setVgrow(statements, javafx.scene.layout.Priority.ALWAYS);
+            ask.getDialogPane().setExpandableContent(details);
             ask.getDialogPane().setExpanded(true);
             if (InAppDialogs.showAndWait(ask).orElse(ButtonType.CANCEL) != save) return;
             saveEdits.setDisable(true);
@@ -374,22 +433,26 @@ class DataView extends BorderPane {
     }
 
     private void updateMoreBar() {
-        boolean show = chunked != null && (chunked.truncated() || fetched > chunked.data().rows().size());
+        boolean show = chunked != null;
         moreBar.setVisible(show);
         moreBar.setManaged(show);
         moreButton.setVisible(canFetchMore);
         moreButton.setDisable(fetching);
         if (fetching) {
-            moreInfo.setText(fetched + " rows fetched · fetching more…");
+            moreInfo.setText(rows(fetched) + " · fetching more…");
         } else if (canFetchMore) {
-            moreInfo.setText(fetched + " rows fetched · more available" + (unordered
-                    ? ". No ORDER BY: the query is re-run for each chunk, so rows may repeat or be missed" : ""));
+            moreInfo.setText(rows(fetched) + " · more available" + (unordered ? " · no ORDER BY: rows may repeat" : ""));
         } else if (chunked != null && chunked.truncated() && fetched == chunked.data().rows().size()) {
-            moreInfo.setText("First " + fetched + " rows. More exist, but this statement is not re-run to fetch them "
-                    + "(only plain read-only queries are).");
+            moreInfo.setText("First " + rows(fetched) + " (this statement is not re-run for more)");
         } else {
-            moreInfo.setText("All " + fetched + " rows fetched");
+            moreInfo.setText(rows(fetched));
         }
+        moreInfo.setTooltip(unordered && canFetchMore ? new Tooltip("Without ORDER BY the query is re-run for each chunk, "
+                + "so rows may repeat or be missed") : null);
+    }
+
+    private static String rows(int n) {
+        return String.format("%,d", n) + (n == 1 ? " row" : " rows");
     }
 
     private void fetchMore() {

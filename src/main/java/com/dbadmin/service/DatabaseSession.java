@@ -764,7 +764,13 @@ public class DatabaseSession implements AutoCloseable {
         return (System.nanoTime() - startNanos) / 1_000_000;
     }
 
-    private String qualifiedName(TableRef t) throws SQLException {
+    /** How the database quotes names: " on PostgreSQL and SQLite, ` on MySQL. */
+    public String identifierQuote() throws SQLException {
+        return connection.getMetaData().getIdentifierQuoteString().trim();
+    }
+
+    /** The table's quoted name with its schema (PostgreSQL) or database (MySQL), as used in SQL. */
+    public String qualifiedName(TableRef t) throws SQLException {
         String q = connection.getMetaData().getIdentifierQuoteString().trim();
         StringBuilder sb = new StringBuilder();
         // MySQL addresses tables as db.table, PostgreSQL as schema.table

@@ -98,10 +98,11 @@ class SqlEditor extends VBox {
     }
 
     /**
-     * Makes the text area exactly {@code lines} lines high (the find bar adds to that when open).
-     * Long lines wrap, so a horizontal scroll bar never hides one of them.
+     * Starts the text area {@code lines} lines high (the find bar adds to that when open); it can then be
+     * resized down to one line or up to any height. Long lines wrap, so a horizontal scroll bar never hides
+     * one of them. {@code onSized} runs once the height is known.
      */
-    void setVisibleLines(int lines) {
+    void setInitialLines(int lines, Runnable onSized) {
         area.setWrapText(true);
         scroll.setHbarPolicy(javafx.scene.control.ScrollPane.ScrollBarPolicy.NEVER);
         boolean[] applied = {false};
@@ -114,9 +115,9 @@ class SqlEditor extends VBox {
             if (lineHeight <= 0) return;
             applied[0] = true;
             double height = Math.ceil(lines * lineHeight);
-            scroll.setMinHeight(height);
+            scroll.setMinHeight(Math.ceil(lineHeight));
             scroll.setPrefHeight(height);
-            scroll.setMaxHeight(height);
+            onSized.run();
         });
     }
 

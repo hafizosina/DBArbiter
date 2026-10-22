@@ -118,8 +118,7 @@ class SearchBox<T> extends HBox {
     }
 
     private void showMatches(String text) {
-        String q = text == null ? "" : text.trim().toLowerCase(Locale.ROOT);
-        matches.getItems().setAll(items.stream().filter(i -> name.apply(i).toLowerCase(Locale.ROOT).contains(q)).toList());
+        matches.getItems().setAll(matching(items, name, text));
         if (matches.getItems().isEmpty() || getScene() == null) {
             popup.hide();
             return;
@@ -129,6 +128,27 @@ class SearchBox<T> extends HBox {
             Bounds b = localToScreen(getBoundsInLocal());
             popup.show(this, b.getMinX(), b.getMaxY());
         }
+    }
+
+    /**
+     * Names starting with the text first, then (for 2+ characters) names whose initials start with it
+     * ("mpv" finds m_product_variant), then names containing it.
+     */
+    static <T> List<T> matching(List<T> items, Function<T, String> name, String text) {
+        String q = text == null ? "" : text.trim().toLowerCase(Locale.ROOT);
+        List<T> starts = new java.util.ArrayList<>();
+        List<T> initials = new java.util.ArrayList<>();
+        List<T> contains = new java.util.ArrayList<>();
+        for (T i : items) {
+            String n = name.apply(i);
+            String lower = n.toLowerCase(Locale.ROOT);
+            if (lower.startsWith(q)) starts.add(i);
+            else if (q.length() >= 2 && SqlCompleter.initials(n).startsWith(q)) initials.add(i);
+            else if (lower.contains(q)) contains.add(i);
+        }
+        starts.addAll(initials);
+        starts.addAll(contains);
+        return starts;
     }
 
     private void pick(T item) {

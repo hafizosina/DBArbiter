@@ -58,6 +58,10 @@ public final class CompareHtml {
         meta(h, "Source", r.source.connection() + " · " + r.source.schema() + "." + r.source.table());
         meta(h, "Target", r.target.connection() + " · " + r.target.schema() + "." + r.target.table());
         meta(h, "Key", String.join(", ", r.keyColumns));
+        if (r.joins != null && !r.joins.isEmpty()) {
+            meta(h, "Key joins", r.source.table() + " " + r.mainAlias + " " + String.join(" ",
+                    r.joins.stream().map(KeyJoins::describe).toList()));
+        }
         meta(h, "Compared columns", r.comparedColumns.isEmpty() ? "none (only which keys exist)" : String.join(", ", r.comparedColumns));
         if (r.where != null && !r.where.isBlank()) meta(h, "Where", r.where);
         meta(h, "Rows", r.sourceRows + " in source · " + r.targetRows + " in target");

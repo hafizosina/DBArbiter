@@ -15,7 +15,8 @@ record ComparedValue(Object source, Object target, boolean inSource, boolean inT
         return compared && valuesDiffer();
     }
 
-    private boolean valuesDiffer() {
+    /** Both sides have the row and their values differ (whether or not the column is compared). */
+    boolean valuesDiffer() {
         return inSource && inTarget && !DataCompare.normalize(source).equals(DataCompare.normalize(target));
     }
 

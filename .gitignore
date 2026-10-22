@@ -6,8 +6,9 @@ dependency-reduced-pom.xml
 # Local secrets for docker/docker-compose.yml (template: docker/.env.example)
 docker/.env
 
-# Scripts saved by the app when run with "mvn javafx:run" (user data)
+# Scripts and compare reports saved by the app when run from the project (user data)
 /Script/
+/Reports/
 
 # Logs (e.g. launch4j.log from DBAdmin.exe --l4j-debug)
 *.log

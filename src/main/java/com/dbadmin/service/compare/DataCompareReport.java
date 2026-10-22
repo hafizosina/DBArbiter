@@ -49,6 +49,9 @@ public final class DataCompareReport {
     public List<String> shownColumns = List.of();
     public List<String> sourceColumns = List.of();
     public String where = "";
+    /** The main table's alias and the joins that give it a key from other tables; no joins: the table's own columns. */
+    public String mainAlias;
+    public List<KeyJoins.Join> joins = List.of();
     public int rowsPerSide;
     /** A side had more rows than {@link #rowsPerSide}: only the first ones were compared. */
     public boolean truncated;

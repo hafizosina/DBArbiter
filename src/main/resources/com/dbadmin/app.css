@@ -150,3 +150,7 @@
 /* SQL diff of view definitions */
 .sql-diff .diff-removed { -fx-background-color: #ffd7d5; }
 .sql-diff .diff-added { -fx-background-color: #ccf0d2; }
+.sql-diff .diff-word-removed { -rtfx-background-color: #ff9c95; }
+.sql-diff .diff-word-added { -rtfx-background-color: #7fd890; }
+.sql-diff .diff-folded { -fx-fill: #8c8c8c; -fx-font-style: italic; }
+.sql-diff .diff-gutter { -fx-text-fill: #9a9a9a; -fx-font-family: "DejaVu Sans Mono", "Monospaced"; -fx-font-size: 11px; -fx-padding: 0 6 0 2; }
