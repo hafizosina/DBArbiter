@@ -11,6 +11,7 @@ import com.dbadmin.service.compare.SchemaCompare;
 import com.dbadmin.service.compare.CompareHtml;
 import com.dbadmin.service.compare.CompareReportFiles;
 import com.dbadmin.service.compare.SchemaCompareReport;
+import com.dbadmin.service.Job;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
@@ -73,6 +74,8 @@ class SchemaCompareTab extends Tab implements UnsavedWork {
     private String targetName = "Target";
     /** Save… (Ctrl+S): the in-app dialog asks where, and whether with the results or the settings only. */
     private final Button saveButton = new Button("Save");
+    /** Compare, or Cancel while a compare runs. */
+    private final Button compareButton = new Button("Compare");
     private final Button saveAsButton = new Button("Save As…");
     static final javafx.scene.input.KeyCombination SAVE_KEY = javafx.scene.input.KeyCombination.keyCombination("Shortcut+S");
     static final javafx.scene.input.KeyCombination SAVE_AS_KEY = javafx.scene.input.KeyCombination.keyCombination("Shortcut+Shift+S");
@@ -98,6 +101,9 @@ class SchemaCompareTab extends Tab implements UnsavedWork {
         setOnCloseRequest(e -> {
             if (!confirmClose()) e.consume();
         });
+        setOnClosed(e -> {
+            if (running != null) running.cancel(); // its connections close with it
+        });
         getContent().addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, e -> {
             if (SAVE_AS_KEY.match(e)) {
                 e.consume();
@@ -114,10 +120,13 @@ class SchemaCompareTab extends Tab implements UnsavedWork {
     }
 
     private Node schemaPage() {
-        Button compare = new Button("Compare");
+        Button compare = compareButton;
         compare.getStyleClass().add("default-look");
-        compare.setTooltip(new Tooltip("Compare the tables of both schemas (Ctrl+Enter)"));
-        compare.setOnAction(e -> runSchemaCompare());
+        compare.setTooltip(new Tooltip("Compare the tables of both schemas (Ctrl+Enter); while it runs: Cancel"));
+        compare.setOnAction(e -> {
+            if (running != null) running.cancel();
+            else runSchemaCompare();
+        });
         Button swap = CompareSide.swapButton(schemaSource, schemaTarget);
 
         diffList.setCellFactory(lv -> new DiffCell());
@@ -321,7 +330,12 @@ class SchemaCompareTab extends Tab implements UnsavedWork {
                         }), ex -> schemaStatus.setText(ex.getMessage())), ex -> schemaStatus.setText(ex.getMessage()));
     }
 
+    /**
+     * Compare (Ctrl+Enter): reads both schemas as a {@link Job}, each on a connection of its own (so the navigator and
+     * scripts keep working), at the same time; while it runs the button is Cancel.
+     */
     private void runSchemaCompare() {
+        if (running != null) return;
         if (!schemaSource.ready() || !schemaTarget.ready()) {
             schemaStatus.setText("Pick a connection and schema on both sides.");
             return;
@@ -331,46 +345,74 @@ class SchemaCompareTab extends Tab implements UnsavedWork {
         diffs.clear();
         refreshFilters();
         showDetails(null);
-        DatabaseSession src = schemaSource.session;
-        DatabaseSession dst = schemaTarget.session;
         Namespace srcNs = schemaSource.schema.getValue();
         Namespace dstNs = schemaTarget.schema.getValue();
-
-        // read both sides at the same time (they usually are different servers)
-        int[] progress = {0, 0, 0, 0};
-        Runnable showProgress = () -> schemaStatus.setText("Reading " + sourceName + ": " + progress[0] + "/" + progress[1]
-                + " · " + targetName + ": " + progress[2] + "/" + progress[3] + " tables…");
-        showProgress.run();
-        @SuppressWarnings("unchecked")
-        List<SchemaCompare.TableSnapshot>[] snapshots = new List[2];
-        Consumer<Throwable> failed = ex -> schemaStatus.setText("Could not read the schema: " + ex.getMessage());
-        Runnable whenBoth = () -> {
-            if (snapshots[0] == null || snapshots[1] == null) return;
-            diffs.setAll(SchemaCompare.compare(snapshots[0], snapshots[1]));
-            // a results file is now out of date (Save writes the new results to it); a settings file is not
-            resultsUnsaved = reportFile != null && !fileSettingsOnly;
-            refreshDirty();
-            refreshFilters();
-            schemaStatus.setText("");
-            diffList.getSelectionModel().selectFirst();
-        };
         Set<String> only = pickedTables;
-        Async.run(src, () -> SchemaCompare.snapshot(src, srcNs, only, (done, total) -> Platform.runLater(() -> {
-            progress[0] = done;
-            progress[1] = total;
-            showProgress.run();
-        })), snap -> {
-            snapshots[0] = snap;
-            whenBoth.run();
-        }, failed);
-        Async.run(dst, () -> SchemaCompare.snapshot(dst, dstNs, only, (done, total) -> Platform.runLater(() -> {
-            progress[2] = done;
-            progress[3] = total;
-            showProgress.run();
-        })), snap -> {
-            snapshots[1] = snap;
-            whenBoth.run();
-        }, failed);
+        String src = sourceName;
+        String dst = targetName;
+        compareButton.setText("Cancel");
+        running = Job.start(List.of(schemaSource.connection.getValue(), schemaTarget.connection.getValue()), DatabaseSession::open,
+                Async.background(), Platform::runLater, (sessions, job) -> {
+                    DatabaseSession a = sessions.get(0);
+                    DatabaseSession b = sessions.get(1);
+                    // read both sides at the same time (they usually are different servers)
+                    int[] progress = {0, 0, 0, 0};
+                    Runnable show = () -> job.progress("Reading " + src + ": " + progress[0] + "/" + progress[1]
+                            + " · " + dst + ": " + progress[2] + "/" + progress[3] + " tables…");
+                    show.run();
+                    var readA = a.submit(() -> SchemaCompare.snapshot(a, srcNs, only, (done, total) -> {
+                        job.checkCancelled();
+                        progress[0] = done;
+                        progress[1] = total;
+                        show.run();
+                    }));
+                    var readB = b.submit(() -> SchemaCompare.snapshot(b, dstNs, only, (done, total) -> {
+                        job.checkCancelled();
+                        progress[2] = done;
+                        progress[3] = total;
+                        show.run();
+                    }));
+                    return SchemaCompare.compare(readA.get(), readB.get());
+                }, new Job.Listener<>() {
+                    @Override
+                    public void progress(String text) {
+                        schemaStatus.setText(text);
+                    }
+
+                    @Override
+                    public void done(List<TableDiff> result) {
+                        jobEnded();
+                        diffs.setAll(result);
+                        // a results file is now out of date (Save writes the new results to it); a settings file is not
+                        resultsUnsaved = reportFile != null && !fileSettingsOnly;
+                        refreshDirty();
+                        refreshFilters();
+                        schemaStatus.setText("");
+                        diffList.getSelectionModel().selectFirst();
+                    }
+
+                    @Override
+                    public void failed(Throwable error) {
+                        jobEnded();
+                        Throwable cause = error instanceof java.util.concurrent.ExecutionException && error.getCause() != null
+                                ? error.getCause() : error;
+                        schemaStatus.setText("Could not read the schema: " + cause.getMessage());
+                    }
+
+                    @Override
+                    public void cancelled() {
+                        jobEnded();
+                        schemaStatus.setText("Compare cancelled");
+                    }
+                });
+    }
+
+    /** The compare running now (null when none): the Compare button cancels it. */
+    private Job<List<TableDiff>> running;
+
+    private void jobEnded() {
+        running = null;
+        compareButton.setText("Compare");
     }
 
     /** Shows a report opened from a file; a new compare can still be run from the form above. */

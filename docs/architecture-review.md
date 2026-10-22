@@ -187,7 +187,7 @@ _Added 2026-10-22._ The plan is more release tools (a scan for test data, a rele
 and maybe more databases. Each item below is cheap today and gets more expensive with every tool added on top of it.
 They are ordered by how soon they would hurt.
 
-### G1. One connection per database is shared by everything — high
+### G1. One connection per database is shared by everything — partly fixed
 
 Each connection has one JDBC connection and one worker thread (`DatabaseSession.submit`). The navigator, table tabs,
 scripts, autocomplete metadata and both compares queue on it. A long script blocks a compare on the same
@@ -198,7 +198,12 @@ hold the connection for minutes.
 ("work" next to "interactive"), opened on demand and closed when the job ends. It also solves paging (#4), since a
 job connection can keep a cursor open.
 
-### G2. No shared idea of a long job — high
+**Done for both compares** (with G2): a compare opens its own session per side, reads both sides at the same time and
+closes them at the end. Tried in the app: during a data compare PostgreSQL shows the 2 interactive connections plus
+the job's 2; after it, or after Cancel, only the 2 interactive ones. **Still on the shared connection:** export and
+import (`TableTransfer`) and fetching more rows (#4); move them to a `Job` when they are next touched.
+
+### G2. No shared idea of a long job — partly fixed
 
 Each tool hand-rolls its own progress text, cancellation and error line: the table compare counts tables in a
 label, the data compare has no cancel at all, import has its own progress. There are 26 `Async.run` calls,
@@ -207,6 +212,13 @@ nested inside each other in places (read side A, then side B, then compare). Eve
 **Add a small `Job` type:** a title, progress (done / total), cancel, and a result or error, run on G1's connection,
 with one progress bar and Cancel button that every tool reuses. New tools then describe *what* to do, not how to
 show it.
+
+**Done:** `service/Job` (no JavaFX): opens a session per connection it needs, runs the work on a background thread,
+reports progress, and on Cancel cancels the running statements; exactly one of done / failed / cancelled is called,
+after its sessions are closed. 4 tests on SQLite (result, failure, cancel, a connection that cannot open). Both
+compares use it, and their Compare button turns into **Cancel** while they run (the data compare could not be
+stopped before); closing the tab cancels too. Tried in the app: a data compare slowed with `pg_sleep(8)` stopped
+within 0.8 s of Cancel. **Not yet:** a shared progress bar widget (each tool shows the text in its own status line).
 
 ### G3. Whole result sets in memory — medium, high for the scan
 

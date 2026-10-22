@@ -14,6 +14,8 @@ import com.dbadmin.service.compare.KeyJoins;
 import com.dbadmin.service.compare.MigrationSql;
 import com.dbadmin.service.compare.Verdict;
 import com.dbadmin.service.compare.Verdicts;
+import com.dbadmin.service.Job;
+import javafx.application.Platform;
 import javafx.beans.property.BooleanProperty;
 import javafx.beans.property.ReadOnlyStringWrapper;
 import javafx.beans.property.SimpleBooleanProperty;
@@ -56,6 +58,7 @@ import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Set;
 import java.util.Map;
+import java.util.concurrent.Future;
 import java.util.function.Consumer;
 
 /**
@@ -99,6 +102,8 @@ class DataCompareTab extends Tab implements UnsavedWork {
     private String titleBase = "Data Compare";
     /** Clickable when there is something to save (always for a compare without a file yet). */
     private final Button saveButton = new Button("Save");
+    /** Compare, or Cancel while a compare runs. */
+    private final Button compareButton = new Button("Compare");
     private final MenuButton verdictForShown = new MenuButton();
     private final Label verdictSummary = new Label();
     /** Joined tables (for a key, or to compare an id column by the code it points to): the main table's alias, one {@link JoinRow} per join. */
@@ -136,6 +141,9 @@ class DataCompareTab extends Tab implements UnsavedWork {
         if (initial != null) dataSource.connection.setValue(initial);
         setOnCloseRequest(e -> {
             if (!confirmClose()) e.consume();
+        });
+        setOnClosed(e -> {
+            if (running != null) running.cancel(); // its connections close with it
         });
     }
 
@@ -360,10 +368,10 @@ class DataCompareTab extends Tab implements UnsavedWork {
     }
 
     private Node dataPage() {
-        Button compare = new Button("Compare");
+        Button compare = compareButton;
         compare.getStyleClass().add("default-look");
-        compare.setTooltip(new Tooltip("Compare the rows of both tables (Ctrl+Enter)"));
-        compare.setOnAction(e -> runDataCompare());
+        compare.setTooltip(new Tooltip("Compare the rows of both tables (Ctrl+Enter); while it runs: Cancel"));
+        compare.setOnAction(e -> compareOrCancel());
         Button swap = CompareSide.swapButton(dataSource, dataTarget);
         dataSource.table.valueProperty().addListener((o, a, t) -> loadColumns());
         dataTarget.table.valueProperty().addListener((o, a, t) -> loadColumns());
@@ -840,31 +848,47 @@ class DataCompareTab extends Tab implements UnsavedWork {
                 oneToMany.isSelected());
     }
 
+    /**
+     * Compare (Ctrl+Enter): reads both sides as a {@link Job}, each on a connection of its own (so the navigator and
+     * scripts keep working), at the same time; while it runs the button is Cancel.
+     */
     private void runDataCompare() {
+        if (running != null) return;
         Plan p = plan();
         if (p == null) return;
         String src = dataSource.label();
         String dst = dataTarget.label();
-        DatabaseSession s1 = dataSource.session;
-        DatabaseSession s2 = dataTarget.session;
         TableRef t1 = dataSource.table.getValue();
         TableRef t2 = dataTarget.table.getValue();
-        dataStatus.setText("Reading " + t1.name() + " from " + src + " and " + dst + "…");
-        dataGrid.getItems().clear();
-
-        StatementResult[] read = new StatementResult[2];
-        Consumer<Throwable> failed = ex -> dataStatus.setText("Could not compare: " + ex.getMessage());
         DataCompareReport.Side srcSide = new DataCompareReport.Side(dataSource.connection.getValue().getName(),
                 dataSource.schemaLabel(), t1.name(), src);
         DataCompareReport.Side dstSide = new DataCompareReport.Side(dataTarget.connection.getValue().getName(),
                 dataTarget.schemaLabel(), t2.name(), dst);
-        Runnable whenBoth = () -> {
-            if (read[0] == null || read[1] == null) return;
-            boolean truncated = read[0].truncated() || read[1].truncated();
-            Async.run(() -> DataCompareReport.of(DataCompare.compare(read[0].data(), read[1].data(), p.keys(), p.compared(),
-                            p.shownOnly(), MAX_LISTED_ROWS, p.oneToMany()), srcSide, dstSide, p.keys(), p.filter(), p.limit(), truncated,
-                            "v" + AppFooter.version()),
-                    r -> {
+        dataGrid.getItems().clear();
+        compareButton.setText("Cancel");
+        running = Job.start(List.of(dataSource.connection.getValue(), dataTarget.connection.getValue()), DatabaseSession::open,
+                Async.background(), Platform::runLater, (sessions, job) -> {
+                    DatabaseSession a = sessions.get(0);
+                    DatabaseSession b = sessions.get(1);
+                    job.progress("Reading " + t1.name() + " from " + src + " and " + dst + "…");
+                    Future<StatementResult> readA = a.submit(() -> a.execute(sideSql(a, t1, p.srcJoins(), p), p.limit()));
+                    Future<StatementResult> readB = b.submit(() -> b.execute(sideSql(b, t2, p.dstJoins(), p), p.limit()));
+                    StatementResult ra = readA.get();
+                    StatementResult rb = readB.get();
+                    job.checkCancelled();
+                    job.progress("Comparing " + ra.data().rows().size() + " and " + rb.data().rows().size() + " rows…");
+                    return DataCompareReport.of(DataCompare.compare(ra.data(), rb.data(), p.keys(), p.compared(), p.shownOnly(),
+                                    MAX_LISTED_ROWS, p.oneToMany()), srcSide, dstSide, p.keys(), p.filter(), p.limit(),
+                            ra.truncated() || rb.truncated(), "v" + AppFooter.version());
+                }, new Job.Listener<>() {
+                    @Override
+                    public void progress(String text) {
+                        dataStatus.setText(text);
+                    }
+
+                    @Override
+                    public void done(DataCompareReport r) {
+                        jobEnded();
                         if (!confirmDiscardVerdicts()) return;
                         r.oneToMany = p.oneToMany();
                         r.mainAlias = p.joins().isEmpty() ? null : p.alias();
@@ -874,16 +898,36 @@ class DataCompareTab extends Tab implements UnsavedWork {
                         resultsUnsaved = reportFile != null && !fileSettingsOnly;
                         showReport(r);
                         refreshDirty();
-                    }, failed);
-        };
-        Async.run(s1, () -> s1.execute(sideSql(s1, t1, p.srcJoins(), p), p.limit()), r -> {
-            read[0] = r;
-            whenBoth.run();
-        }, failed);
-        Async.run(s2, () -> s2.execute(sideSql(s2, t2, p.dstJoins(), p), p.limit()), r -> {
-            read[1] = r;
-            whenBoth.run();
-        }, failed);
+                    }
+
+                    @Override
+                    public void failed(Throwable error) {
+                        jobEnded();
+                        Throwable cause = error instanceof java.util.concurrent.ExecutionException && error.getCause() != null
+                                ? error.getCause() : error;
+                        dataStatus.setText("Could not compare: " + cause.getMessage());
+                    }
+
+                    @Override
+                    public void cancelled() {
+                        jobEnded();
+                        dataStatus.setText("Compare cancelled");
+                    }
+                });
+    }
+
+    /** The compare running now (null when none): the Compare button cancels it. */
+    private Job<DataCompareReport> running;
+
+    private void jobEnded() {
+        running = null;
+        compareButton.setText("Compare");
+    }
+
+    /** The Compare button: compares, or cancels the compare that is running. */
+    private void compareOrCancel() {
+        if (running != null) running.cancel();
+        else runDataCompare();
     }
 
     /** The query one side runs: its rows in key order, alone or with the joins. Session thread. */
