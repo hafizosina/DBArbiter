@@ -1,82 +1,68 @@
-# Every push to main (and every pull request): tests, then the Linux and Windows downloads as build artifacts (7 days).
-# A pushed version tag (git push origin v0.1.12): the same, then a GitHub Release with both downloads.
-# The license generator and its signing key are never built or used here.
+# Runs on GitHub every time you push:
+#   - a push to main:          run the tests, build the Linux and Windows downloads
+#   - a push of a version tag: the same, then publish them as a GitHub Release
+#     (git push origin v0.1.16)
 name: build
 
 on:
   push:
     branches: [main]
     tags: ['v*']
-  pull_request:
 
+# allows the last step to create a Release
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   build:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v5
+      - name: Get the code
+        uses: actions/checkout@v5
 
-      - uses: actions/setup-java@v5
+      - name: Install Java 21
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '21'
           cache: maven
 
-      - name: Version
-        id: version
+      - name: Pick the version number
+        # a tag v0.1.16 gives 0.1.16; a normal push uses <revision> from pom.xml
         run: |
-          # a tag gives the version (v0.1.12 -> 0.1.12); else the pom's <revision>
-          if [ "$GITHUB_REF_TYPE" = tag ]; then
-            VERSION="${GITHUB_REF_NAME#v}"
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
           else
-            VERSION=$(sed -n 's:.*<revision>\(.*\)</revision>.*:\1:p' pom.xml | head -1)
+            echo "VERSION=$(sed -n 's:.*<revision>\(.*\)</revision>.*:\1:p' pom.xml)" >> "$GITHUB_ENV"
           fi
-          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
-          echo "date=$(date -u '+%F %H:%M UTC')" >> "$GITHUB_OUTPUT"
 
-      - name: Tests
-        # the UI tests need a display
+      - name: Run the tests
+        # xvfb-run gives the UI tests a virtual screen
         run: xvfb-run -a mvn -B test
 
-      # each value its own quoted argument: the date has spaces
-      - name: Linux download
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-          BUILD_DATE: ${{ steps.version.outputs.date }}
-        run: packaging/build-linux.sh -DskipTests "-Drevision=$VERSION" "-Dbuild.commit=${GITHUB_SHA::7}" "-Dbuild.date=$BUILD_DATE"
+      - name: Build the Linux download
+        # -DskipTests: the tests already ran above
+        run: packaging/build-linux.sh -DskipTests -Drevision=$VERSION -Dbuild.commit=$GITHUB_SHA
 
-      - name: Windows download
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-          BUILD_DATE: ${{ steps.version.outputs.date }}
-        run: packaging/build-windows.sh "-Drevision=$VERSION" "-Dbuild.commit=${GITHUB_SHA::7}" "-Dbuild.date=$BUILD_DATE"
+      - name: Build the Windows download
+        run: packaging/build-windows.sh -Drevision=$VERSION -Dbuild.commit=$GITHUB_SHA
 
-      - uses: actions/upload-artifact@v6
+      - name: Keep the downloads on the run page for 7 days
+        uses: actions/upload-artifact@v6
         with:
-          name: DBArbiter-${{ steps.version.outputs.version }}
+          name: DBArbiter-${{ env.VERSION }}
           path: |
             target/linux/DBArbiter-linux-x64.tar.gz
             target/windows/DBArbiter-windows-x64.zip
           retention-days: 7
 
-  release:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: build
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/download-artifact@v7
-        with:
-          path: dist
-          merge-multiple: true
-
-      - name: GitHub Release
+      - name: Publish the Release (version tags only)
+        if: github.ref_type == 'tag'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" \
-            --title "DBArbiter ${GITHUB_REF_NAME#v}" --generate-notes \
-            --notes "Windows: unzip DBArbiter-windows-x64.zip and run DBArbiter.exe (Windows may warn the first time: More info → Run anyway). Linux: extract DBArbiter-linux-x64.tar.gz and run ./DBArbiter. Java is included."
+          gh release create "$GITHUB_REF_NAME" \
+            target/linux/DBArbiter-linux-x64.tar.gz \
+            target/windows/DBArbiter-windows-x64.zip \
+            --title "DBArbiter $VERSION" \
+            --generate-notes
