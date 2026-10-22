@@ -6,7 +6,8 @@
 
     <groupId>com.dbadmin</groupId>
     <artifactId>dbadmin</artifactId>
-    <!-- the app version: set it in <revision> below (shown in the status bar and About) -->
+    <!-- the app version (status bar, About): major.minor from <revision> below; packaging/deploy-linux.sh
+         adds 1 to the patch number on every deploy of main and tags the commit (v0.1.1, v0.1.2, ...) -->
     <version>${revision}</version>
     <name>DBAdmin</name>
 

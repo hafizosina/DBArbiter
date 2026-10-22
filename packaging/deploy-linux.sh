@@ -8,6 +8,9 @@
 # Builds from a clean export of the commit, so uncommitted changes are never deployed.
 # Tests run as part of the build; if they fail, the installed app is left as it was.
 # Run by .githooks/reference-transaction whenever main moves; also fine to run by hand.
+# Version: major.minor from <revision> in pom.xml, patch +1 per deploy of a new commit, recorded as a
+# git tag (v0.1.1, v0.1.2, ...). A commit that already has a tag keeps its version. A new <revision>
+# minor (e.g. 0.2.0) starts at that version.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -19,7 +22,19 @@ trap 'rm -rf "$BUILD"' EXIT
 echo "$(date '+%F %T') deploying $(git log -1 --format='%h %s' "$COMMIT")"
 git archive "$COMMIT" | tar -x -C "$BUILD"
 SHORT=$(git rev-parse --short "$COMMIT") # here: the build folder is not a git repository
-(cd "$BUILD" && mvn -B -q package -Dbuild.commit="$SHORT" -Dbuild.date="$(date '+%F %H:%M')")
+
+BASE=$(git show "$COMMIT:pom.xml" | sed -n 's:.*<revision>\(.*\)</revision>.*:\1:p' | head -1)
+MINOR=${BASE%.*}
+VERSION=$(git tag --points-at "$COMMIT" -l "v$MINOR.*" | sort -V | tail -1 | sed 's/^v//')
+NEW_TAG=
+if [ -z "$VERSION" ]; then
+    LAST=$(git tag -l "v$MINOR.*" | sort -V | tail -1)
+    VERSION=${LAST:+$MINOR.$(( ${LAST##*.} + 1 ))}
+    VERSION=${VERSION:-$BASE}
+    NEW_TAG=1
+fi
+echo "version $VERSION"
+(cd "$BUILD" && mvn -B -q package -Drevision="$VERSION" -Dbuild.commit="$SHORT" -Dbuild.date="$(date '+%F %H:%M')")
 
 mkdir -p "$DEST"
 if [ ! -x "$DEST/jre/bin/java" ]; then
@@ -80,5 +95,7 @@ StartupWMClass=com.dbadmin.licensetool.LicenseGenerator
 EOF
 update-desktop-database "$APPS" 2>/dev/null || true
 
-echo "$SHORT" > "$DEST/VERSION"
-echo "$(date '+%F %T') installed $(cat "$DEST/VERSION") in $DEST"
+# tagged only once installed: a failed build does not use up a version number
+if [ -n "$NEW_TAG" ]; then git tag "v$VERSION" "$COMMIT"; fi
+echo "$VERSION $SHORT" > "$DEST/VERSION"
+echo "$(date '+%F %T') installed $VERSION ($SHORT) in $DEST"
