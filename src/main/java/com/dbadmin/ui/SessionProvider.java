@@ -6,10 +6,16 @@ import com.dbadmin.service.DatabaseSession;
 import java.util.Optional;
 import java.util.function.Consumer;
 
-/** Hands out the open session for a connection, connecting first if needed. Callbacks run on the FX thread. */
+/**
+ * Hands out the open session for a connection, connecting first if needed. Callbacks run on the FX thread.
+ * Also opens new script tabs (e.g. generated SQL) for a connection.
+ */
 interface SessionProvider {
     void withSession(ConnectionConfig config, Consumer<DatabaseSession> onReady, Consumer<Throwable> onError);
 
     /** The session if the connection is already open; never connects. */
     Optional<DatabaseSession> openSession(ConnectionConfig config);
+
+    /** A new, unsaved script tab with this text, bound to the connection. */
+    void newScript(ConnectionConfig connection, String content);
 }

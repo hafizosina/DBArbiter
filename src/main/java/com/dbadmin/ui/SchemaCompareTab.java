@@ -79,6 +79,9 @@ class SchemaCompareTab extends Tab {
     static final javafx.scene.input.KeyCombination SAVE_AS_KEY = javafx.scene.input.KeyCombination.keyCombination("Shortcut+Shift+S");
     /** The file holds only the settings (Save keeps it that way); else settings and results. */
     private boolean fileSettingsOnly;
+    /** Compared again since its results file was saved: the file is out of date. */
+    private boolean resultsUnsaved;
+    private String titleBase = "Table Compare";
     private final Button htmlButton = new Button("Export HTML…");
     private Path reportFile;
 
@@ -92,6 +95,9 @@ class SchemaCompareTab extends Tab {
         schemaTarget = new CompareSide("Target", false, connections, sessions, schemaStatus::setText);
         CompareSide.pair(schemaSource, schemaTarget);
         setContent(schemaPage());
+        setOnCloseRequest(e -> {
+            if (!confirmClose()) e.consume();
+        });
         getContent().addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, e -> {
             if (SAVE_AS_KEY.match(e)) {
                 e.consume();
@@ -178,6 +184,36 @@ class SchemaCompareTab extends Tab {
         }
     }
 
+    private void setTitle(String base) {
+        titleBase = base;
+        refreshDirty();
+    }
+
+    /** "*" before the tab's name while the results file is out of date; Save clickable when there is something to save. */
+    private void refreshDirty() {
+        setText((resultsUnsaved ? "*" : "") + titleBase);
+        saveButton.setDisable(reportFile != null && !resultsUnsaved);
+    }
+
+    /** Asks about unsaved results before the tab (or the app) closes. Returns false if the user cancelled. */
+    boolean confirmClose() {
+        if (!resultsUnsaved) return true;
+        if (getTabPane() != null) getTabPane().getSelectionModel().select(this);
+        javafx.scene.control.ButtonType save = new javafx.scene.control.ButtonType("Save", javafx.scene.control.ButtonBar.ButtonData.YES);
+        javafx.scene.control.ButtonType discard = new javafx.scene.control.ButtonType("Don't Save", javafx.scene.control.ButtonBar.ButtonData.NO);
+        javafx.scene.control.Alert alert = new javafx.scene.control.Alert(javafx.scene.control.Alert.AlertType.CONFIRMATION,
+                "\"" + titleBase + "\" has unsaved changes (the results of the last compare).", save, discard,
+                javafx.scene.control.ButtonType.CANCEL);
+        alert.initOwner(getTabPane().getScene().getWindow());
+        alert.setHeaderText("Save changes?");
+        javafx.scene.control.ButtonType answer = InAppDialogs.showAndWait(alert).orElse(javafx.scene.control.ButtonType.CANCEL);
+        if (answer == save) {
+            save();
+            return !resultsUnsaved;
+        }
+        return answer == discard;
+    }
+
     /** Save (Ctrl+S): to the compare's file, the same kind as it is (results, or settings only); without a file yet, as Save As. */
     void save() {
         if (reportFile == null) {
@@ -226,7 +262,8 @@ class SchemaCompareTab extends Tab {
         }
         reportFile = file;
         fileSettingsOnly = !withResults;
-        setText("Table Compare: " + file.getFileName());
+        resultsUnsaved = false;
+        setTitle("Table Compare: " + file.getFileName());
         schemaStatus.setText(withResults ? summary() + " · saved to " + file : "Settings saved to " + file + " · opening it compares again");
     }
 
@@ -274,7 +311,10 @@ class SchemaCompareTab extends Tab {
         Consumer<Throwable> failed = ex -> schemaStatus.setText("Could not read the schema: " + ex.getMessage());
         Runnable whenBoth = () -> {
             if (snapshots[0] == null || snapshots[1] == null) return;
-            diffs.setAll(SchemaCompare.compare(snapshots[0], snapshots[1])); // Save writes them to the compare's file, if any
+            diffs.setAll(SchemaCompare.compare(snapshots[0], snapshots[1]));
+            // a results file is now out of date (Save writes the new results to it); a settings file is not
+            resultsUnsaved = reportFile != null && !fileSettingsOnly;
+            refreshDirty();
             schemaStatus.setText(summary());
             diffList.getSelectionModel().selectFirst();
         };
@@ -299,9 +339,10 @@ class SchemaCompareTab extends Tab {
 
     /** Shows a report opened from a file; a new compare can still be run from the form above. */
     void showSaved(SchemaCompareReport saved, Path file) {
-        setText("Table Compare: " + file.getFileName());
+        setTitle("Table Compare: " + file.getFileName());
         reportFile = file;
         fileSettingsOnly = saved.settingsOnly;
+        resultsUnsaved = false;
         if (saved.settingsOnly) {
             pendingAutoCompare = true;
             schemaStatus.setText("Settings from " + file.getFileName() + ": comparing as soon as both sides are ready…");

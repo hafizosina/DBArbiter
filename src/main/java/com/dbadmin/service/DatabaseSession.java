@@ -285,6 +285,20 @@ public class DatabaseSession implements AutoCloseable {
         return result;
     }
 
+    /** Columns the database fills itself on insert: serial / identity / auto-increment, or a nextval default. */
+    public Set<String> generatedColumns(TableRef t) throws SQLException {
+        Set<String> result = new HashSet<>();
+        try (ResultSet rs = connection.getMetaData().getColumns(t.catalog(), t.schema(), t.name(), "%")) {
+            while (rs.next()) {
+                String def = rs.getString("COLUMN_DEF");
+                if ("YES".equals(rs.getString("IS_AUTOINCREMENT")) || def != null && def.startsWith("nextval(")) {
+                    result.add(rs.getString("COLUMN_NAME"));
+                }
+            }
+        }
+        return result;
+    }
+
     /** The primary key's columns in key order; empty if the table has none. */
     public List<String> primaryKey(TableRef t) throws SQLException {
         Map<Short, String> columns = new TreeMap<>();
@@ -1001,7 +1015,7 @@ public class DatabaseSession implements AutoCloseable {
     }
 
     /** A PostgreSQL column type as written in CAST: serial types are their integers, "_int4" is int4[]. */
-    static String postgresCastType(String type) {
+    public static String postgresCastType(String type) {
         if (type == null || type.isEmpty()) return "text";
         String t = switch (type) {
             case "serial", "serial4" -> "int4";

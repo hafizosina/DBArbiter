@@ -756,13 +756,18 @@ public class MainWindow implements SessionProvider {
 
     /** A new empty script for the given connection, or with no connection chosen yet (null). */
     private void newScript(ConnectionConfig c) {
+        newScript(c, "");
+    }
+
+    @Override
+    public void newScript(ConnectionConfig c, String content) {
         List<String> open = tabs.getTabs().stream()
                 .filter(t -> t instanceof ScriptTab).map(t -> ((ScriptTab) t).displayName()).toList();
         // "Untitled-n" until saved; the Save dialog suggests the file name for the connection
         int n = 1;
         while (open.contains("Untitled-" + n)) n++;
         String name = "Untitled-" + n;
-        openScriptTab(new ScriptTab(name, null, "", connections, c, this, completer, scriptBindings));
+        openScriptTab(new ScriptTab(name, null, content, connections, c, this, completer, scriptBindings));
     }
 
     private void openScript() {
@@ -863,11 +868,12 @@ public class MainWindow implements SessionProvider {
         return tabs.getSelectionModel().getSelectedItem() instanceof ScriptTab st ? Optional.of(st) : Optional.empty();
     }
 
-    /** Asks about every unsaved script and compare verdicts. Returns false if the user cancelled. */
+    /** Asks about every unsaved script and compare. Returns false if the user cancelled. */
     private boolean confirmCloseScripts() {
         for (Tab t : List.copyOf(tabs.getTabs())) {
             if (t instanceof ScriptTab st && !st.confirmClose()) return false;
             if (t instanceof DataCompareTab dt && !dt.confirmClose()) return false;
+            if (t instanceof SchemaCompareTab st && !st.confirmClose()) return false;
         }
         return true;
     }

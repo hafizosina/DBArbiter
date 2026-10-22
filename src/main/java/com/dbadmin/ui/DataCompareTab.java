@@ -11,6 +11,7 @@ import com.dbadmin.service.compare.CompareReportFiles;
 import com.dbadmin.service.compare.DataCompare;
 import com.dbadmin.service.compare.DataCompareReport;
 import com.dbadmin.service.compare.KeyJoins;
+import com.dbadmin.service.compare.MigrationSql;
 import com.dbadmin.service.compare.Verdict;
 import javafx.beans.property.BooleanProperty;
 import javafx.beans.property.ReadOnlyStringWrapper;
@@ -91,6 +92,12 @@ class DataCompareTab extends Tab {
     private boolean fileSettingsOnly;
     /** Verdicts changed since the report was last saved. */
     private boolean unsaved;
+    /** Compared again since its results file was saved: the file is out of date. */
+    private boolean resultsUnsaved;
+    /** The tab's name without the "*" of unsaved changes. */
+    private String titleBase = "Data Compare";
+    /** Clickable when there is something to save (always for a compare without a file yet). */
+    private final Button saveButton = new Button("Save");
     private final MenuButton verdictForShown = new MenuButton("Verdict for shown rows");
     private final Label verdictSummary = new Label();
     private final Label fileStatus = new Label();
@@ -103,10 +110,12 @@ class DataCompareTab extends Tab {
     private final CheckBox oneToMany = new CheckBox("Several rows per key (one-to-many)");
 
     private final ObservableList<ConnectionConfig> connections;
+    private final SessionProvider sessions;
 
     DataCompareTab(ObservableList<ConnectionConfig> connections, SessionProvider sessions, ConnectionConfig initial) {
         super("Data Compare");
         this.connections = connections;
+        this.sessions = sessions;
         dataSource = new CompareSide("Source", true, connections, sessions, dataStatus::setText);
         dataTarget = new CompareSide("Target", true, connections, sessions, dataStatus::setText);
         dataTarget.preferredTable = dataSource::tableName;
@@ -132,7 +141,8 @@ class DataCompareTab extends Tab {
         reportFile = file;
         fileSettingsOnly = saved.settingsOnly;
         unsaved = false;
-        setText("Data Compare: " + file.getFileName());
+        resultsUnsaved = false;
+        setTitle("Data Compare: " + file.getFileName());
         restoreSettings(saved);
         if (saved.settingsOnly) {
             autoCompareColumns = saved.shownColumns;
@@ -246,7 +256,9 @@ class DataCompareTab extends Tab {
         }
         reportFile = file;
         fileSettingsOnly = true;
-        setText("Data Compare: " + file.getFileName());
+        unsaved = false; // chosen: the settings only (the verdicts were offered)
+        resultsUnsaved = false;
+        setTitle("Data Compare: " + file.getFileName());
         dataStatus.setText("Settings saved to " + file + " · opening it compares again");
         return false;
     }
@@ -261,7 +273,8 @@ class DataCompareTab extends Tab {
         reportFile = file;
         fileSettingsOnly = false;
         unsaved = false;
-        setText("Data Compare: " + file.getFileName());
+        resultsUnsaved = false;
+        setTitle("Data Compare: " + file.getFileName());
         fileStatus.setText("Saved to " + file);
         return true;
     }
@@ -391,7 +404,7 @@ class DataCompareTab extends Tab {
         });
         HBox.setHgrow(where, Priority.ALWAYS);
         // Save: the settings (opening the file compares again); the arrow: with the results and verdicts too
-        Button save = new Button("Save");
+        Button save = saveButton;
         save.setTooltip(new Tooltip("Save this compare to its file (Ctrl+S); the first time, asks where and what"));
         save.setOnAction(e -> save());
         Button saveAs = new Button("Save As…");
@@ -427,15 +440,25 @@ class DataCompareTab extends Tab {
             statusFilters.put(status, box);
             statusBar.getChildren().add(box);
         }
+        Button suggest = new Button("Suggest verdicts");
+        suggest.setTooltip(new Tooltip("Fills the rows without a verdict: only in source → INSERT, changed → UPDATE, "
+                + "only in target → SKIP (DELETE only by hand). Rows already decided are kept."));
+        suggest.setOnAction(e -> suggestVerdicts());
+        // with rows selected: I U D S set a verdict, Backspace clears it, Ctrl+V pastes a copied one
+        dataGrid.addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, this::verdictKeys);
         verdictForShown.setTooltip(new Tooltip("Sets the verdict of every row shown now (use the status boxes to narrow them down)."
                 + "\nRight-click selected rows to set theirs."));
+        Button generate = new Button("Generate SQL…");
+        generate.setTooltip(new Tooltip("A PostgreSQL script for the target from the verdicts: INSERT / UPDATE / DELETE, ids found "
+                + "again by the joined columns (e.g. product_id by mpv.product_code), parents first, safe to run again"));
+        generate.setOnAction(e -> generateSql());
         Button html = new Button("Export HTML…");
         html.setTooltip(new Tooltip("A page with the summary and the differences, to share with people who do not use DBAdmin"));
         html.setOnAction(e -> exportHtml());
         verdictSummary.getStyleClass().add("hint-small");
         fileStatus.getStyleClass().add("hint-small");
         statusBar.getChildren().addAll(new javafx.scene.control.Separator(javafx.geometry.Orientation.VERTICAL),
-                verdictForShown, html, verdictSummary, fileStatus);
+                verdictForShown, suggest, generate, html, verdictSummary, fileStatus);
         statusBar.setAlignment(Pos.CENTER_LEFT);
         statusBar.setPadding(new Insets(4, 6, 4, 6));
         statusBar.setVisible(false);
@@ -496,14 +519,10 @@ class DataCompareTab extends Tab {
             c.compare.set(false);
             c.show.set(false);
         }));
-        Label hint = new Label("Key: identifies a row (several allowed). Compare: values checked. "
-                + "Show: only displayed in the report, never changes a status.");
-        hint.setWrapText(true);
-        hint.getStyleClass().add("hint-small");
         HBox buttons = new HBox(6, all, showAll, none);
         oneToMany.setTooltip(new Tooltip("For a key with several rows (e.g. the images of a tier code): each row is matched by the "
                 + "compared columns.\nOn both sides: MATCH · only in the source: new, to add · only in the target: old, to remove."));
-        VBox pane = new VBox(6, hint, oneToMany, columnChooser, buttons);
+        VBox pane = new VBox(6, oneToMany, columnChooser, buttons);
         pane.setPadding(new Insets(6));
         VBox.setVgrow(columnChooser, Priority.ALWAYS);
         return pane;
@@ -827,8 +846,11 @@ class DataCompareTab extends Tab {
                         r.oneToMany = p.oneToMany();
                         r.mainAlias = p.joins().isEmpty() ? null : p.alias();
                         r.joins = p.joins();
-                        unsaved = false; // Save writes the new results to the compare's file, if it has one
+                        unsaved = false;
+                        // a results file is now out of date (Save writes the new results to it); a settings file is not
+                        resultsUnsaved = reportFile != null && !fileSettingsOnly;
                         showReport(r);
+                        refreshDirty();
                     }, failed);
         };
         Async.run(s1, () -> s1.execute(sideSql(s1, t1, p.srcJoins(), p), p.limit()), r -> {
@@ -865,6 +887,43 @@ class DataCompareTab extends Tab {
                         p.limit())), failed), failed);
     }
 
+    /**
+     * Generate SQL…: the verdicts as a script for the target. Reads the target's columns of the compared and joined
+     * tables (connecting to the target if needed), then shows the script to copy or open in a script tab.
+     */
+    private void generateSql() {
+        DataCompareReport r = report;
+        if (r == null || r.settingsOnly) {
+            dataStatus.setText("Compare first: the SQL is made from the verdicts of the results.");
+            return;
+        }
+        if (r.count(Verdict.INSERT) + r.count(Verdict.UPDATE) + r.count(Verdict.DELETE) == 0) {
+            dataStatus.setText("No row has an INSERT, UPDATE or DELETE verdict yet.");
+            return;
+        }
+        ConnectionConfig target = connections.stream().filter(c -> c.getName().equals(r.target.connection())).findFirst().orElse(null);
+        if (target == null) {
+            dataStatus.setText("The target connection " + r.target.connection() + " is not in the connection list.");
+            return;
+        }
+        if (target.getType() != com.dbadmin.model.DbType.POSTGRESQL) {
+            dataStatus.setText("Generate SQL writes PostgreSQL: the target " + r.target.label() + " is " + target.getType() + ".");
+            return;
+        }
+        Consumer<Throwable> failed = ex -> dataStatus.setText("Could not generate the SQL: " + ex.getMessage());
+        String file = reportFile == null ? null : reportFile.getFileName().toString();
+        dataStatus.setText("Reading the columns of " + r.target.table() + " on " + r.target.label() + "…");
+        sessions.withSession(target, s -> Async.run(s, () -> MigrationSql.targetColumns(s, r), tables -> {
+            if (!tables.containsKey(r.target.table().toLowerCase(java.util.Locale.ROOT))) {
+                dataStatus.setText(r.target.table() + " is not in " + r.target.schema() + " on " + r.target.label() + ".");
+                return;
+            }
+            dataStatus.setText("");
+            InAppDialogs.showAndWait(new GenerateSqlDialog(getTabPane().getScene().getWindow(), r, tables, file))
+                    .ifPresent(sql -> sessions.newScript(target, sql));
+        }, failed), failed);
+    }
+
     /** The filter has to stay a condition of one SELECT: one statement, nothing that writes. */
     private static boolean isPlainCondition(String condition) {
         String sql = "select * from t where (" + condition + ")";
@@ -885,12 +944,6 @@ class DataCompareTab extends Tab {
             sb.append("\n⚠ ").append(r.duplicateKeys).append(" key value(s) match more than one row: ")
                     .append(String.join(", ", r.keyColumns)).append(" does not identify rows uniquely.");
         }
-        if (r.joins != null && !r.joins.isEmpty()) {
-            sb.append("\nKey joins: ").append(r.source.table()).append(' ').append(r.mainAlias).append(' ')
-                    .append(String.join(" ", r.joins.stream().map(KeyJoins::describe).toList()));
-        }
-        if (r.oneToMany) sb.append("\nOne-to-many: a key's rows are matched by the compared columns (only in source = new, only in target = old).");
-        if (r.where != null && !r.where.isEmpty()) sb.append("\nWhere: ").append(r.where);
         if (r.truncated) {
             sb.append("\n⚠ Only the first ").append(r.rowsPerSide).append(" rows of each side (in key order) were compared; ")
                     .append("rows near that limit may wrongly show as only on one side. Raise \"Rows per side\" to compare more.");
@@ -1041,6 +1094,111 @@ class DataCompareTab extends Tab {
     }
 
     /** Sets (null: clears) the verdict of the given grid rows where it fits their status; other rows are left alone. */
+    /** Every row without a verdict gets the usual one for its status; DELETE is never suggested. */
+    private void suggestVerdicts() {
+        if (report == null) return;
+        int set = 0;
+        for (Map.Entry<DataCompare.RowStatus, List<Object>> e : reportRows) {
+            DataCompareReport.Row r = ((VerdictCell) e.getValue().get(1)).row;
+            if (r.verdict != null) continue;
+            Verdict v = switch (r.status) {
+                case ONLY_SOURCE -> Verdict.INSERT;
+                case CHANGED -> Verdict.UPDATE;
+                case ONLY_TARGET -> Verdict.SKIP;
+                case MATCH, DUPLICATE_KEY -> null;
+            };
+            if (v == null) continue;
+            r.verdict = v;
+            set++;
+        }
+        if (set > 0) unsaved = true;
+        refreshDirty();
+        dataGrid.refresh();
+        updateVerdictSummary();
+        fileStatus.setText(set + " verdict(s) suggested; rows already decided were kept" + (unsaved ? " · not saved" : ""));
+    }
+
+    private void verdictKeys(javafx.scene.input.KeyEvent e) {
+        if (report == null || e.isAltDown()) return;
+        if (e.isShortcutDown()) {
+            if (e.getCode() == javafx.scene.input.KeyCode.V) {
+                pasteVerdicts();
+                e.consume();
+            }
+            return;
+        }
+        Verdict v = switch (e.getCode()) {
+            case I -> Verdict.INSERT;
+            case U -> Verdict.UPDATE;
+            case D -> Verdict.DELETE;
+            case S -> Verdict.SKIP;
+            default -> null;
+        };
+        if (v != null || e.getCode() == javafx.scene.input.KeyCode.BACK_SPACE) {
+            applyVerdict(v, selectedRows());
+            e.consume();
+        }
+    }
+
+    /**
+     * Ctrl+V: a copied verdict (e.g. a Verdict cell copied with Ctrl+C) on each selected row it fits; several
+     * copied verdicts onto as many selected rows go one by one.
+     */
+    private void pasteVerdicts() {
+        String text = javafx.scene.input.Clipboard.getSystemClipboard().getString();
+        if (text == null) return;
+        List<String> words = text.lines().map(String::strip).filter(w -> !w.isEmpty()).toList();
+        List<List<Object>> rows = dataGrid.getSelectionModel().getSelectedCells().stream()
+                .map(c -> c.getRow()).distinct().sorted().map(i -> dataGrid.getItems().get(i)).toList();
+        if (words.isEmpty() || rows.isEmpty()) return;
+        if (words.size() == 1) {
+            Verdict v = parseVerdict(words.get(0));
+            if (v == null && !isClear(words.get(0))) {
+                fileStatus.setText("The clipboard holds no verdict (INSERT, UPDATE, DELETE or SKIP).");
+                return;
+            }
+            applyVerdict(v, rows);
+            return;
+        }
+        if (words.size() != rows.size()) {
+            fileStatus.setText(words.size() + " verdicts copied but " + rows.size() + " rows selected: select as many rows, or copy one verdict.");
+            return;
+        }
+        int set = 0;
+        int skipped = 0;
+        for (int i = 0; i < rows.size(); i++) {
+            Verdict v = parseVerdict(words.get(i));
+            DataCompareReport.Row r = ((VerdictCell) rows.get(i).get(1)).row;
+            if (v == null && !isClear(words.get(i)) || v != null && !Verdict.allowed(r.status).contains(v)) {
+                skipped++;
+                continue;
+            }
+            if (r.verdict != v) {
+                r.verdict = v;
+                set++;
+            }
+        }
+        if (set > 0) unsaved = true;
+        refreshDirty();
+        dataGrid.refresh();
+        updateVerdictSummary();
+        fileStatus.setText(set + " verdict(s) pasted" + (skipped > 0 ? "; " + skipped + " row(s) left alone (not a verdict for their status)" : "")
+                + (unsaved ? " · not saved" : ""));
+    }
+
+    private static Verdict parseVerdict(String word) {
+        try {
+            return Verdict.valueOf(word.toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            return null;
+        }
+    }
+
+    /** An undecided verdict cell copied ("–") or the word CLEAR: pasting it clears the verdict. */
+    private static boolean isClear(String word) {
+        return word.equals("–") || word.equalsIgnoreCase("CLEAR");
+    }
+
     private void applyVerdict(Verdict v, Collection<List<Object>> rows) {
         int changed = 0;
         int skipped = 0;
@@ -1056,6 +1214,7 @@ class DataCompareTab extends Tab {
             }
         }
         if (changed > 0) unsaved = true;
+        refreshDirty();
         dataGrid.refresh();
         updateVerdictSummary();
         fileStatus.setText(changed + " verdict(s) set" + (skipped > 0 ? "; " + skipped + " row(s) left alone (" + (v == null ? "" : v.label())
@@ -1084,9 +1243,35 @@ class DataCompareTab extends Tab {
         }
     }
 
-    /** Asks about unsaved verdicts before the tab closes. Returns false if the user cancelled. */
+    private void setTitle(String base) {
+        titleBase = base;
+        refreshDirty();
+    }
+
+    /** Unsaved verdicts, or results newer than the compare's results file. */
+    boolean isDirty() {
+        return unsaved || resultsUnsaved;
+    }
+
+    /** "*" before the tab's name while there are unsaved changes; Save clickable when there is something to save. */
+    private void refreshDirty() {
+        setText((isDirty() ? "*" : "") + titleBase);
+        saveButton.setDisable(reportFile != null && !isDirty());
+    }
+
+    /** Asks about unsaved changes before the tab (or the app) closes. Returns false if the user cancelled. */
     boolean confirmClose() {
-        return confirmDiscardVerdicts();
+        if (!isDirty()) return true;
+        if (getTabPane() != null) getTabPane().getSelectionModel().select(this);
+        ButtonType save = new ButtonType("Save", ButtonBar.ButtonData.YES);
+        ButtonType discard = new ButtonType("Don't Save", ButtonBar.ButtonData.NO);
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION, "\"" + titleBase + "\" has unsaved changes"
+                + (unsaved ? " (verdicts)." : " (the results of the last compare)."), save, discard, ButtonType.CANCEL);
+        alert.initOwner(getTabPane().getScene().getWindow());
+        alert.setHeaderText("Save changes?");
+        ButtonType answer = InAppDialogs.showAndWait(alert).orElse(ButtonType.CANCEL);
+        if (answer == save) return save() || !isDirty();
+        return answer == discard;
     }
 
     /** Asks before unsaved verdicts are lost (closing, or a new compare replacing the report). */
@@ -1100,7 +1285,10 @@ class DataCompareTab extends Tab {
         alert.setHeaderText("Save the report?");
         ButtonType answer = InAppDialogs.showAndWait(alert).orElse(ButtonType.CANCEL);
         if (answer == save) return save();
-        if (answer == discard) unsaved = false;
+        if (answer == discard) {
+            unsaved = false;
+            refreshDirty();
+        }
         return answer == discard;
     }
 
