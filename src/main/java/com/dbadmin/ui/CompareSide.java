@@ -40,8 +40,15 @@ class CompareSide extends HBox {
         this.sessions = sessions;
         this.showError = showError;
         setAlignment(Pos.CENTER_LEFT);
-        Label label = new Label(title + ":");
+        Label label = new Label(title);
         label.setStyle("-fx-font-weight: bold;");
+        label.setMinWidth(46);
+        if (withTable) {
+            // stacked one above the other: the same widths, so the source and target line up
+            connection.setPrefWidth(180);
+            schema.setPrefWidth(150);
+            table.setPrefWidth(230);
+        }
         connection.setItems(connections);
         connection.setPromptText("connection");
         connection.setCellFactory(lv -> new ConnectionCell());
@@ -79,8 +86,27 @@ class CompareSide extends HBox {
         });
     }
 
+    /** Controls that keep their full width in a crowded bar (the lists and text fields give way instead). */
+    static void keepWidth(javafx.scene.layout.Region... controls) {
+        for (javafx.scene.layout.Region r : controls) r.setMinWidth(javafx.scene.layout.Region.USE_PREF_SIZE);
+    }
+
+    /** The split's first pane starts this many pixels wide and keeps its width when the window is resized. */
+    static void fixedFirstPane(javafx.scene.control.SplitPane split, double width) {
+        javafx.scene.control.SplitPane.setResizableWithParent(split.getItems().get(0), false);
+        split.widthProperty().addListener(new javafx.beans.value.ChangeListener<>() {
+            @Override
+            public void changed(javafx.beans.value.ObservableValue<? extends Number> o, Number before, Number now) {
+                if (now.doubleValue() <= 0) return;
+                split.widthProperty().removeListener(this);
+                split.setDividerPositions(Math.min(0.5, width / now.doubleValue()));
+            }
+        });
+    }
+
     static Button swapButton(CompareSide a, CompareSide b) {
         Button swap = new Button("⇄");
+        keepWidth(swap);
         swap.setTooltip(new Tooltip("Swap source and target"));
         swap.setOnAction(e -> {
             ConnectionConfig ac = a.connection.getValue();

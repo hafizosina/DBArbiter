@@ -19,7 +19,6 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
-import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
@@ -27,7 +26,6 @@ import javafx.scene.control.SplitPane;
 import javafx.scene.control.Tab;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.BorderPane;
-import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
@@ -64,8 +62,9 @@ class SchemaCompareTab extends Tab {
     private final DataView detailView = new DataView();
     private final DataGrid detailGrid = detailView.grid();
     private final Label detailTitle = new Label();
-    private final CheckBox showIdentical = new CheckBox("Show identical");
-    private final Button compareDataButton = new Button("Compare data of this table");
+    /** Filters of the table list by status, with their counts; identical tables (and items) are hidden until ticked. */
+    private final Map<Status, javafx.scene.control.ToggleButton> statusFilters = new java.util.EnumMap<>(Status.class);
+    private final Button compareDataButton = new Button("Compare data");
     private final Button sqlDiffButton = new Button("SQL diff");
     /** Tables picked for a Table Compare (lower case); empty = all. */
     private Set<String> pickedTables = Set.of();
@@ -77,12 +76,13 @@ class SchemaCompareTab extends Tab {
     private final Button saveAsButton = new Button("Save As…");
     static final javafx.scene.input.KeyCombination SAVE_KEY = javafx.scene.input.KeyCombination.keyCombination("Shortcut+S");
     static final javafx.scene.input.KeyCombination SAVE_AS_KEY = javafx.scene.input.KeyCombination.keyCombination("Shortcut+Shift+S");
+    /** Compare again, from anywhere in a compare tab. */
+    static final javafx.scene.input.KeyCombination COMPARE_KEY = javafx.scene.input.KeyCombination.keyCombination("Shortcut+Enter");
     /** The file holds only the settings (Save keeps it that way); else settings and results. */
     private boolean fileSettingsOnly;
     /** Compared again since its results file was saved: the file is out of date. */
     private boolean resultsUnsaved;
     private String titleBase = "Table Compare";
-    private final Button htmlButton = new Button("Export HTML…");
     private Path reportFile;
 
     SchemaCompareTab(ObservableList<ConnectionConfig> connections, SessionProvider sessions, ConnectionConfig initial,
@@ -105,6 +105,9 @@ class SchemaCompareTab extends Tab {
             } else if (SAVE_KEY.match(e)) {
                 e.consume();
                 save();
+            } else if (COMPARE_KEY.match(e)) {
+                e.consume();
+                runSchemaCompare();
             }
         });
         if (initial != null) schemaSource.connection.setValue(initial);
@@ -113,10 +116,9 @@ class SchemaCompareTab extends Tab {
     private Node schemaPage() {
         Button compare = new Button("Compare");
         compare.getStyleClass().add("default-look");
+        compare.setTooltip(new Tooltip("Compare the tables of both schemas (Ctrl+Enter)"));
         compare.setOnAction(e -> runSchemaCompare());
         Button swap = CompareSide.swapButton(schemaSource, schemaTarget);
-        showIdentical.selectedProperty().addListener((o, a, b) -> applyFilter());
-        applyFilter();
 
         diffList.setCellFactory(lv -> new DiffCell());
         diffList.setPlaceholder(new Label("Pick a source and a target, then Compare."));
@@ -124,6 +126,7 @@ class SchemaCompareTab extends Tab {
         detailGrid.setPlaceholder(new Label("Select a table to see its differences."));
 
         detailTitle.getStyleClass().add("form-title");
+        compareDataButton.setTooltip(new Tooltip("Open a Data Compare of this table, with both sides chosen"));
         compareDataButton.setDisable(true);
         compareDataButton.setOnAction(e -> openDataCompare(diffList.getSelectionModel().getSelectedItem()));
 
@@ -132,15 +135,35 @@ class SchemaCompareTab extends Tab {
         sqlDiffButton.setVisible(false);
         sqlDiffButton.setManaged(false);
         HBox detailBar = new HBox(8, detailTitle, spacer, sqlDiffButton, compareDataButton);
+        CompareSide.keepWidth(sqlDiffButton, compareDataButton);
         detailBar.setAlignment(Pos.CENTER_LEFT);
-        detailBar.setPadding(new Insets(6));
+        detailBar.setPadding(new Insets(4, 6, 4, 6));
         BorderPane details = new BorderPane(detailView); // the value panel shows long definitions in full
         details.setTop(detailBar);
 
-        SplitPane split = new SplitPane(diffList, details);
-        split.setDividerPositions(0.24);
+        // the list's filters: one toggle per status with its count (also the legend)
+        HBox filters = new HBox(4);
+        filters.setAlignment(Pos.CENTER_LEFT);
+        filters.setPadding(new Insets(4, 6, 4, 6));
+        for (Status status : List.of(Status.CHANGED, Status.ONLY_SOURCE, Status.ONLY_TARGET, Status.SAME)) {
+            javafx.scene.control.ToggleButton t = new javafx.scene.control.ToggleButton();
+            t.setSelected(status != Status.SAME);
+            t.getStyleClass().add("cmp-filter");
+            t.selectedProperty().addListener((o, a, b) -> {
+                applyFilter();
+                showDetails(diffList.getSelectionModel().getSelectedItem());
+            });
+            CompareSide.keepWidth(t);
+            statusFilters.put(status, t);
+            filters.getChildren().add(t);
+        }
+        refreshFilters();
+        applyFilter();
+        VBox list = new VBox(filters, diffList);
+        VBox.setVgrow(diffList, Priority.ALWAYS);
+        SplitPane split = new SplitPane(list, details);
+        CompareSide.fixedFirstPane(split, 280);
 
-        schemaStatus.getStyleClass().add("hint-small");
         tablesButton.setOnAction(e -> pickTables());
         tablesButton.setTooltip(new Tooltip("Compare all tables, or only the ones you pick"));
         // a different schema means a different list of tables
@@ -148,16 +171,26 @@ class SchemaCompareTab extends Tab {
         schemaTarget.schema.valueProperty().addListener((o, a, b) -> resetPickedTables());
         saveButton.setTooltip(new Tooltip("Save this compare to its file (Ctrl+S); the first time, asks where and what"));
         saveButton.setOnAction(e -> save());
-        saveAsButton.setTooltip(new Tooltip("Save to another file, with the results or the settings only (Ctrl+Shift+S)"));
-        saveAsButton.setOnAction(e -> saveAs());
-        htmlButton.setOnAction(e -> exportHtml());
-        htmlButton.setTooltip(new Tooltip("A page with the summary and the differences, to share with people who do not use DBAdmin"));
-        htmlButton.disableProperty().bind(javafx.beans.binding.Bindings.isEmpty(diffs));
-        FlowPane form = new FlowPane(10, 6, schemaSource, swap, schemaTarget, tablesButton, compare, showIdentical,
-                saveButton, saveAsButton, htmlButton);
+        javafx.scene.control.MenuItem saveAs = new javafx.scene.control.MenuItem("Save As…");
+        saveAs.setAccelerator(SAVE_AS_KEY);
+        saveAs.setOnAction(e -> saveAs());
+        javafx.scene.control.MenuItem html = new javafx.scene.control.MenuItem("Export HTML…");
+        html.setOnAction(e -> exportHtml());
+        html.disableProperty().bind(javafx.beans.binding.Bindings.isEmpty(diffs));
+        javafx.scene.control.MenuButton more = new javafx.scene.control.MenuButton("⋯", null, saveAs, html);
+        more.setTooltip(new Tooltip("Save As, Export HTML"));
+        Region gap = new Region();
+        HBox.setHgrow(gap, Priority.ALWAYS);
+        HBox form = new HBox(8, schemaSource, swap, schemaTarget, tablesButton, compare, gap, saveButton, more);
+        CompareSide.keepWidth(tablesButton, compare, saveButton, more);
         form.setAlignment(Pos.CENTER_LEFT);
+        schemaStatus.getStyleClass().add("hint-small");
+        schemaStatus.setWrapText(true);
+        schemaStatus.managedProperty().bind(schemaStatus.textProperty().isNotEmpty());
+        schemaStatus.visibleProperty().bind(schemaStatus.managedProperty());
         VBox top = new VBox(6, form, schemaStatus);
-        top.setPadding(new Insets(8));
+        top.setPadding(new Insets(6, 8, 6, 8));
+        top.getStyleClass().add("compare-settings");
         BorderPane page = new BorderPane(split);
         page.setTop(top);
         return page;
@@ -264,7 +297,7 @@ class SchemaCompareTab extends Tab {
         fileSettingsOnly = !withResults;
         resultsUnsaved = false;
         setTitle("Table Compare: " + file.getFileName());
-        schemaStatus.setText(withResults ? summary() + " · saved to " + file : "Settings saved to " + file + " · opening it compares again");
+        schemaStatus.setText(withResults ? "Saved to " + file : "Settings saved to " + file + " · opening it compares again");
     }
 
     /** Lets the user pick tables from both sides' lists; none picked means all. */
@@ -295,6 +328,7 @@ class SchemaCompareTab extends Tab {
         sourceName = schemaSource.label();
         targetName = schemaTarget.label();
         diffs.clear();
+        refreshFilters();
         showDetails(null);
         DatabaseSession src = schemaSource.session;
         DatabaseSession dst = schemaTarget.session;
@@ -315,7 +349,8 @@ class SchemaCompareTab extends Tab {
             // a results file is now out of date (Save writes the new results to it); a settings file is not
             resultsUnsaved = reportFile != null && !fileSettingsOnly;
             refreshDirty();
-            schemaStatus.setText(summary());
+            refreshFilters();
+            schemaStatus.setText("");
             diffList.getSelectionModel().selectFirst();
         };
         Set<String> only = pickedTables;
@@ -350,7 +385,8 @@ class SchemaCompareTab extends Tab {
             sourceName = saved.sourceLabel;
             targetName = saved.targetLabel;
             diffs.setAll(saved.tables);
-            schemaStatus.setText(summary() + " · opened " + file.getFileName());
+            refreshFilters();
+            schemaStatus.setText("");
             diffList.getSelectionModel().selectFirst();
         }
         // the form as it was, to compare again (connects to both sides, as picking them does)
@@ -387,23 +423,49 @@ class SchemaCompareTab extends Tab {
         if (file == null) return;
         try {
             Files.writeString(file, CompareHtml.table(report()), StandardCharsets.UTF_8);
-            schemaStatus.setText(summary() + " · HTML saved as " + file);
+            schemaStatus.setText("HTML saved as " + file);
         } catch (IOException e) {
             schemaStatus.setText("Could not save the HTML report: " + e.getMessage());
         }
     }
 
-    private String summary() {
-        long same = diffs.stream().filter(d -> d.status() == Status.SAME).count();
-        long changed = diffs.stream().filter(d -> d.status() == Status.CHANGED).count();
-        long onlySource = diffs.stream().filter(d -> d.status() == Status.ONLY_SOURCE).count();
-        long onlyTarget = diffs.stream().filter(d -> d.status() == Status.ONLY_TARGET).count();
-        return same + " identical · " + changed + " changed · " + onlySource + " only in " + sourceName
-                + " · " + onlyTarget + " only in " + targetName;
+    /** Each filter's icon and count; the hover text says what it is (with the sides' names). */
+    private void refreshFilters() {
+        Map<Status, Long> counts = new java.util.EnumMap<>(Status.class);
+        diffs.forEach(d -> counts.merge(d.status(), 1L, Long::sum));
+        statusFilters.forEach((status, t) -> {
+            t.setText(icon(status) + " " + counts.getOrDefault(status, 0L));
+            t.getStyleClass().removeIf(c -> c.startsWith("cmp-") && !c.equals("cmp-filter"));
+            t.getStyleClass().add(styleClass(status));
+            t.setTooltip(new Tooltip(switch (status) {
+                case SAME -> "Identical tables (and identical columns of a changed table)";
+                case CHANGED -> "Tables that differ";
+                case ONLY_SOURCE -> "Tables only in " + sourceName;
+                case ONLY_TARGET -> "Tables only in " + targetName;
+            } + ": shown while pressed"));
+        });
+    }
+
+    private static String icon(Status s) {
+        return switch (s) {
+            case SAME -> "✔";
+            case CHANGED -> "✎";
+            case ONLY_SOURCE -> "＋";
+            case ONLY_TARGET -> "−";
+        };
+    }
+
+    private static String styleClass(Status s) {
+        return switch (s) {
+            case SAME -> "cmp-same";
+            case CHANGED -> "cmp-changed";
+            case ONLY_SOURCE -> "cmp-only-source";
+            case ONLY_TARGET -> "cmp-only-target";
+        };
     }
 
     private void applyFilter() {
-        shownDiffs.setPredicate(d -> showIdentical.isSelected() || d.status() != Status.SAME);
+        shownDiffs.setPredicate(d -> statusFilters.get(d.status()).isSelected());
     }
 
     private void showDetails(TableDiff d) {
@@ -423,7 +485,7 @@ class SchemaCompareTab extends Tab {
         SchemaCompare.Item definition = null;
         for (SchemaCompare.Item i : d.items()) {
             if (i.category().equals("Definition")) definition = i;
-            if (i.status() == Status.SAME && !showIdentical.isSelected() && !i.name().contains(" = ")) continue;
+            if (i.status() == Status.SAME && !statusFilters.get(Status.SAME).isSelected() && !i.name().contains(" = ")) continue;
             if (i.category().equals("Definition")) {
                 // long SQL: click the row to see both sides in full in the value panel
                 rows.add(List.of(i.category(), i.name(), statusText(i.status()),
@@ -496,20 +558,14 @@ class SchemaCompareTab extends Tab {
                 setGraphic(null);
                 return;
             }
-            Map<Status, String[]> look = Map.of(
-                    Status.SAME, new String[]{"✔", "cmp-same"},
-                    Status.CHANGED, new String[]{"✎", "cmp-changed"},
-                    Status.ONLY_SOURCE, new String[]{"＋", "cmp-only-source"},
-                    Status.ONLY_TARGET, new String[]{"−", "cmp-only-target"});
-            icon.setText(look.get(d.status())[0]);
-            icon.getStyleClass().setAll("label", "cmp-icon", look.get(d.status())[1]);
+            icon.setText(icon(d.status()));
+            icon.getStyleClass().setAll("label", "cmp-icon", styleClass(d.status()));
             name.setText(d.name());
             String kind = d.kind().contains("VIEW") ? "view" : "";
             detail.setText(switch (d.status()) {
                 case SAME -> kind;
                 case CHANGED -> (kind.isEmpty() ? "" : kind + " · ") + d.differences() + " diff";
-                case ONLY_SOURCE -> "only in " + sourceName;
-                case ONLY_TARGET -> "only in " + targetName;
+                case ONLY_SOURCE, ONLY_TARGET -> kind;
             });
             setGraphic(box);
         }

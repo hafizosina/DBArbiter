@@ -98,7 +98,10 @@ class CellInspector extends VBox {
         format.getItems().addAll((Object[]) Format.values());
         format.setValue(AUTO);
         format.valueProperty().addListener((o, a, b) -> render());
-        wrap.selectedProperty().addListener((o, a, b) -> text.setWrapText(b));
+        wrap.selectedProperty().addListener((o, a, b) -> {
+            text.setWrapText(b);
+            relayLines();
+        });
         preview.setSelected(true);
         preview.setTooltip(new Tooltip("Render HTML (scripts and external content are blocked)"));
         preview.selectedProperty().addListener((o, a, b) -> render());
@@ -292,6 +295,23 @@ class CellInspector extends VBox {
         }
         String auto = format == Format.TEXT ? "" : format + " · ";
         return auto + value.toString().length() + " chars · " + formatted.lines().count() + " lines";
+    }
+
+    /**
+     * Lays the lines out again after Wrap changed: the text area keeps the width of the widest line it has
+     * shown, so with a scroll bar showing the lines would still not wrap at the panel's width. Setting the
+     * same text anew (with its highlighting and caret) starts that over.
+     */
+    private void relayLines() {
+        String content = text.getText();
+        if (content.isEmpty()) return;
+        var styles = text.getStyleSpans(0, content.length());
+        int caret = text.getCaretPosition();
+        text.clear();
+        text.replaceText(content);
+        text.setStyleSpans(0, styles);
+        text.moveTo(Math.min(caret, content.length()));
+        text.requestFollowCaret();
     }
 
     private void setText(String content, Format format) {

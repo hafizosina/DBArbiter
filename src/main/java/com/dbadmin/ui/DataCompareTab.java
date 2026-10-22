@@ -39,9 +39,9 @@ import javafx.scene.control.TableColumn;
 import javafx.scene.control.TableView;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.BorderPane;
-import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 
 import java.io.IOException;
@@ -73,16 +73,16 @@ class DataCompareTab extends Tab {
     private final ObservableList<ColumnChoice> columnChoices = FXCollections.observableArrayList();
     private final TableView<ColumnChoice> columnChooser = new TableView<>(columnChoices);
     private final javafx.scene.control.TextField where = new javafx.scene.control.TextField();
-    private final javafx.scene.control.ToggleButton columnsToggle = new javafx.scene.control.ToggleButton("Columns");
-    /** Shows the advanced options (key from other tables); while off, no joins are used. */
-    private final javafx.scene.control.ToggleButton advanced = new javafx.scene.control.ToggleButton("Advanced");
+    private final javafx.scene.control.ToggleButton columnsToggle = new javafx.scene.control.ToggleButton();
+    /** A report is shown: the results bar and Export HTML are there. */
+    private final javafx.beans.property.BooleanProperty reportShown = new javafx.beans.property.SimpleBooleanProperty();
     private final Spinner<Integer> rowLimit = new Spinner<>(100, 1_000_000, 10_000, 1_000);
     private final Label dataStatus = new Label();
     /** The last data-compare report: each row with its status, filtered by the status check boxes. */
     private final List<Map.Entry<DataCompare.RowStatus, List<Object>>> reportRows = new ArrayList<>();
     private List<String> reportHeader = List.of();
     private final Map<DataCompare.RowStatus, CheckBox> statusFilters = new java.util.EnumMap<>(DataCompare.RowStatus.class);
-    private final FlowPane statusBar = new FlowPane(12, 4);
+    private final javafx.scene.layout.FlowPane statusBar = new javafx.scene.layout.FlowPane(10, 4);
     private final DataView dataView = new DataView();
     private final DataGrid dataGrid = dataView.grid();
     /** The report shown now (a compare just run, or one opened from a file); null before the first. */
@@ -98,16 +98,15 @@ class DataCompareTab extends Tab {
     private String titleBase = "Data Compare";
     /** Clickable when there is something to save (always for a compare without a file yet). */
     private final Button saveButton = new Button("Save");
-    private final MenuButton verdictForShown = new MenuButton("Verdict for shown rows");
+    private final MenuButton verdictForShown = new MenuButton();
     private final Label verdictSummary = new Label();
-    private final Label fileStatus = new Label();
     /** Joined tables (for a key, or to compare an id column by the code it points to): the main table's alias, one {@link JoinRow} per join. */
     private final javafx.scene.control.TextField mainAlias = new javafx.scene.control.TextField();
     /** The alias last filled in automatically, replaced when the main table changes (unless the user typed one). */
     private String autoAlias = "";
     private final VBox joinRows = new VBox(4);
     /** Several rows per key: a key's rows are matched by their compared values (see DataCompare). */
-    private final CheckBox oneToMany = new CheckBox("Several rows per key (one-to-many)");
+    private final CheckBox oneToMany = new CheckBox("One-to-many");
 
     private final ObservableList<ConnectionConfig> connections;
     private final SessionProvider sessions;
@@ -128,6 +127,9 @@ class DataCompareTab extends Tab {
             } else if (SchemaCompareTab.SAVE_KEY.match(e)) {
                 e.consume();
                 save();
+            } else if (SchemaCompareTab.COMPARE_KEY.match(e)) {
+                e.consume();
+                runDataCompare();
             }
         });
         if (initial != null) dataSource.connection.setValue(initial);
@@ -275,7 +277,7 @@ class DataCompareTab extends Tab {
         unsaved = false;
         resultsUnsaved = false;
         setTitle("Data Compare: " + file.getFileName());
-        fileStatus.setText("Saved to " + file);
+        dataStatus.setText("Saved to " + file);
         return true;
     }
 
@@ -308,7 +310,6 @@ class DataCompareTab extends Tab {
                 row.pendingTable = j.table(); // picked once the source schema's tables are listed
                 joinRows.getChildren().add(row);
             }
-            advanced.setSelected(true);
         }
         ConnectionConfig source = connectionNamed(r.source.connection());
         ConnectionConfig target = connectionNamed(r.target.connection());
@@ -358,18 +359,18 @@ class DataCompareTab extends Tab {
     }
 
     private Node dataPage() {
-        Button compare = new Button("Compare data");
+        Button compare = new Button("Compare");
         compare.getStyleClass().add("default-look");
+        compare.setTooltip(new Tooltip("Compare the rows of both tables (Ctrl+Enter)"));
         compare.setOnAction(e -> runDataCompare());
         Button swap = CompareSide.swapButton(dataSource, dataTarget);
         dataSource.table.valueProperty().addListener((o, a, t) -> loadColumns());
         dataTarget.table.valueProperty().addListener((o, a, t) -> loadColumns());
         rowLimit.setEditable(true);
-        rowLimit.setPrefWidth(110);
+        rowLimit.setPrefWidth(95);
         rowLimit.setTooltip(new Tooltip("Rows read from each side, in key order"));
 
-        FlowPane sides = new FlowPane(10, 6, dataSource, swap, dataTarget);
-        sides.setAlignment(Pos.CENTER_LEFT);
+        // joins: listed under the sides while there are some; joined columns appear in the picker as alias.column
         mainAlias.setPrefColumnCount(5);
         mainAlias.setPromptText("alias");
         mainAlias.setTooltip(new Tooltip("The compared table's alias, used in the joins' ON conditions"));
@@ -378,21 +379,21 @@ class DataCompareTab extends Tab {
             autoAlias = SqlCompleter.aliasFor(t.name(), java.util.Set.of());
             mainAlias.setText(autoAlias);
         });
-        Button addJoin = new Button("+ Add join");
-        addJoin.setTooltip(new Tooltip("Join another table to take the key from it, e.g. a product code when the ids differ"
-                + "\nbetween the databases. Only the main table is compared."));
+        Button addJoin = new Button("+ Join");
+        addJoin.setTooltip(new Tooltip("Join another table, e.g. to take the key from a code when the ids differ between the "
+                + "databases;\nits columns appear as alias.column. Only the main table is compared."));
         addJoin.setOnAction(e -> joinRows.getChildren().add(new JoinRow()));
-        Label joinHint = new Label("Joined columns appear as alias.column: tick them as Key, Compare or Show "
-                + "(e.g. compare mpc.category_code instead of category_id).");
-        joinHint.getStyleClass().add("hint-small");
-        HBox joinHeader = new HBox(8, new Label("Joined tables:"), new Label("main table alias"), mainAlias, addJoin, joinHint);
+        Label joinsLabel = new Label("Joins");
+        joinsLabel.setMinWidth(Region.USE_PREF_SIZE);
+        HBox joinHeader = new HBox(6, joinsLabel, new Label("main alias"), mainAlias);
         joinHeader.setAlignment(Pos.CENTER_LEFT);
         VBox joins = new VBox(4, joinHeader, joinRows);
-        joins.visibleProperty().bind(advanced.selectedProperty());
-        joins.managedProperty().bind(advanced.selectedProperty());
-        advanced.setTooltip(new Tooltip("Advanced options: take the key from other tables (joins)"));
-        advanced.selectedProperty().addListener((o, a, b) -> loadColumns()); // joined columns come and go
-        where.setPromptText("optional, e.g.  is_deleted = false and type = 'EMAS'");
+        javafx.beans.binding.BooleanBinding hasJoins = javafx.beans.binding.Bindings.isNotEmpty(joinRows.getChildren());
+        joins.visibleProperty().bind(hasJoins);
+        joins.managedProperty().bind(hasJoins);
+        joinRows.getChildren().addListener((javafx.collections.ListChangeListener<Node>) c -> loadColumns()); // joined columns come and go
+
+        where.setPromptText("Where, e.g.  is_deleted = false");
         where.setTooltip(new Tooltip("A SQL condition applied to both sides; only matching rows are compared"));
         where.setOnAction(e -> runDataCompare());
         // column suggestions: the table's own by name, joined ones as "alias.column" (how the filter sees them)
@@ -403,27 +404,48 @@ class DataCompareTab extends Tab {
             return q + name + q;
         });
         HBox.setHgrow(where, Priority.ALWAYS);
-        // Save: the settings (opening the file compares again); the arrow: with the results and verdicts too
-        Button save = saveButton;
-        save.setTooltip(new Tooltip("Save this compare to its file (Ctrl+S); the first time, asks where and what"));
-        save.setOnAction(e -> save());
-        Button saveAs = new Button("Save As…");
-        saveAs.setTooltip(new Tooltip("Save to another file, with the results (rows and verdicts) or the settings only (Ctrl+Shift+S)"));
+        oneToMany.setTooltip(new Tooltip("For a key with several rows (e.g. the images of a tier code): each row is matched by the "
+                + "compared columns.\nOn both sides: MATCH · only in the source: new, to add · only in the target: old, to remove."));
+        saveButton.setTooltip(new Tooltip("Save this compare to its file (Ctrl+S); the first time, asks where and what"));
+        saveButton.setOnAction(e -> save());
+        MenuItem saveAs = new MenuItem("Save As…");
+        saveAs.setAccelerator(SchemaCompareTab.SAVE_AS_KEY);
         saveAs.setOnAction(e -> saveAs());
-        Button sql = new Button("SQL…");
-        sql.setTooltip(new Tooltip("The queries Compare data runs on each side, to copy and run yourself"));
+        MenuItem html = new MenuItem("Export HTML…");
+        html.setOnAction(e -> exportHtml());
+        html.disableProperty().bind(reportShown.not());
+        MenuItem sql = new MenuItem("Show queries…");
         sql.setOnAction(e -> showQueries());
-        HBox options = new HBox(8, new Label("Where:"), where, new Label("Rows per side:"), rowLimit, compare, sql, save, saveAs,
-                columnsToggle, advanced);
-        options.setAlignment(Pos.CENTER_LEFT);
+        MenuButton more = new MenuButton("⋯", null, saveAs, html, new SeparatorMenuItem(), sql);
+        more.setTooltip(new Tooltip("Save As, Export HTML, the queries each side runs"));
+
+        // the sides on the left, the options and actions beside them
+        Label rowsLabel = new Label("Rows");
+        HBox optionsTop = new HBox(6, where, rowsLabel, rowLimit);
+        optionsTop.setAlignment(Pos.CENTER_LEFT);
+        Region gap = new Region();
+        HBox.setHgrow(gap, Priority.ALWAYS);
+        HBox optionsBottom = new HBox(6, oneToMany, addJoin, gap, compare, saveButton, more);
+        CompareSide.keepWidth(rowsLabel, rowLimit, oneToMany, addJoin, compare, saveButton, more);
+        optionsBottom.setAlignment(Pos.CENTER_LEFT);
+        VBox sideBoxes = new VBox(4, dataSource, dataTarget);
+        VBox options = new VBox(4, optionsTop, optionsBottom);
+        HBox.setHgrow(options, Priority.ALWAYS);
+        HBox settings = new HBox(8, sideBoxes, swap, new javafx.scene.control.Separator(javafx.geometry.Orientation.VERTICAL), options);
+        settings.setAlignment(Pos.CENTER_LEFT);
         dataStatus.setWrapText(true);
         dataStatus.getStyleClass().add("hint-small");
-        VBox top = new VBox(6, sides, joins, options, dataStatus);
-        top.setPadding(new Insets(8));
+        dataStatus.managedProperty().bind(dataStatus.textProperty().isNotEmpty());
+        dataStatus.visibleProperty().bind(dataStatus.managedProperty());
+        VBox top = new VBox(6, settings, joins, dataStatus);
+        top.setPadding(new Insets(6, 8, 6, 8));
+        top.getStyleClass().add("compare-settings");
 
-        dataGrid.setPlaceholder(new Label("Pick the table on both sides, then Compare data."));
-        Label showLabel = new Label("Show:");
-        statusBar.getChildren().add(showLabel);
+        dataGrid.setPlaceholder(new Label("Pick the table on both sides, tick the Key column(s), then Compare."));
+        // the results bar: column picker toggle · status filters (also the legend) · verdicts
+        columnsToggle.setText("◧");
+        columnsToggle.setTooltip(new Tooltip("Show or hide the column picker"));
+        statusBar.getChildren().addAll(columnsToggle, new javafx.scene.control.Separator(javafx.geometry.Orientation.VERTICAL));
         for (DataCompare.RowStatus status : DataCompare.RowStatus.values()) {
             CheckBox box = new CheckBox(statusLabel(status, "source", "target"));
             box.setMnemonicParsing(false); // keep the "_" in ONLY_IN_SOURCE
@@ -440,40 +462,37 @@ class DataCompareTab extends Tab {
             statusFilters.put(status, box);
             statusBar.getChildren().add(box);
         }
-        Button suggest = new Button("Suggest verdicts");
-        suggest.setTooltip(new Tooltip("Fills the rows without a verdict: only in source → INSERT, changed → UPDATE, "
-                + "only in target → SKIP (DELETE only by hand). Rows already decided are kept."));
-        suggest.setOnAction(e -> suggestVerdicts());
         // with rows selected: I U D S set a verdict, Backspace clears it, Ctrl+V pastes a copied one
         dataGrid.addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, this::verdictKeys);
-        verdictForShown.setTooltip(new Tooltip("Sets the verdict of every row shown now (use the status boxes to narrow them down)."
-                + "\nRight-click selected rows to set theirs."));
+        verdictForShown.setText("Verdict");
+        verdictForShown.setTooltip(new Tooltip("Suggest verdicts, or set one on every row shown now (narrow them with the status boxes)."
+                + "\nSelected rows: right-click, or the keys I U D S (Backspace clears)."));
         Button generate = new Button("Generate SQL…");
         generate.setTooltip(new Tooltip("A PostgreSQL script for the target from the verdicts: INSERT / UPDATE / DELETE, ids found "
                 + "again by the joined columns (e.g. product_id by mpv.product_code), parents first, safe to run again"));
         generate.setOnAction(e -> generateSql());
-        Button html = new Button("Export HTML…");
-        html.setTooltip(new Tooltip("A page with the summary and the differences, to share with people who do not use DBAdmin"));
-        html.setOnAction(e -> exportHtml());
         verdictSummary.getStyleClass().add("hint-small");
-        fileStatus.getStyleClass().add("hint-small");
-        statusBar.getChildren().addAll(new javafx.scene.control.Separator(javafx.geometry.Orientation.VERTICAL),
-                verdictForShown, suggest, generate, html, verdictSummary, fileStatus);
+        // the verdict tools stay together; in a narrow bar they go to a second line
+        HBox verdicts = new HBox(8, new javafx.scene.control.Separator(javafx.geometry.Orientation.VERTICAL), verdictForShown,
+                generate, verdictSummary);
+        verdicts.setAlignment(Pos.CENTER_LEFT);
+        statusBar.getChildren().add(verdicts);
+        CompareSide.keepWidth(columnsToggle, verdictForShown, generate);
+        statusFilters.values().forEach(CompareSide::keepWidth);
         statusBar.setAlignment(Pos.CENTER_LEFT);
         statusBar.setPadding(new Insets(4, 6, 4, 6));
-        statusBar.setVisible(false);
-        statusBar.setManaged(false);
+        statusBar.visibleProperty().bind(reportShown);
+        statusBar.managedProperty().bind(reportShown);
         // status cells take their colors from the theme settings
         Themes.shownSettings().addListener((o, a, b) -> dataGrid.refresh());
         BorderPane report = new BorderPane(dataView);
         report.setTop(statusBar);
         Node columns = columnPane();
         SplitPane split = new SplitPane(columns, report);
-        split.setDividerPositions(0.31);
+        CompareSide.fixedFirstPane(split, 300); // a wider window widens the report, not the picker
         // hide the column picker to give the report the whole width; showing it again restores its size
         columnsToggle.setSelected(true);
-        columnsToggle.setTooltip(new Tooltip("Show or hide the column picker"));
-        double[] divider = {0.31};
+        double[] divider = {0.25};
         columnsToggle.selectedProperty().addListener((o, a, show) -> {
             if (show && !split.getItems().contains(columns)) {
                 split.getItems().add(0, columns);
@@ -500,12 +519,19 @@ class DataCompareTab extends Tab {
         TableColumn<ColumnChoice, Boolean> compare = new TableColumn<>("Compare");
         compare.setCellValueFactory(c -> c.getValue().compare);
         compare.setCellFactory(col -> new ChoiceCheckCell());
-        compare.setPrefWidth(72);
+        compare.setPrefWidth(68);
         TableColumn<ColumnChoice, Boolean> show = new TableColumn<>("Show");
         show.setCellValueFactory(c -> c.getValue().show);
         show.setCellFactory(col -> new ChoiceCheckCell());
         show.setPrefWidth(52);
         columnChooser.getColumns().addAll(List.of(name, key, compare, show));
+        // the check box columns keep their width, the names take the rest (no sideways scrolling)
+        for (TableColumn<ColumnChoice, ?> c : List.of(key, compare, show)) {
+            c.setMinWidth(c.getPrefWidth());
+            c.setMaxWidth(c.getPrefWidth());
+            c.setResizable(false);
+        }
+        columnChooser.setColumnResizePolicy(TableView.CONSTRAINED_RESIZE_POLICY_ALL_COLUMNS);
         columnChooser.setEditable(true);
         columnChooser.setPlaceholder(new Label("The table's columns appear here."));
 
@@ -520,9 +546,8 @@ class DataCompareTab extends Tab {
             c.show.set(false);
         }));
         HBox buttons = new HBox(6, all, showAll, none);
-        oneToMany.setTooltip(new Tooltip("For a key with several rows (e.g. the images of a tier code): each row is matched by the "
-                + "compared columns.\nOn both sides: MATCH · only in the source: new, to add · only in the target: old, to remove."));
-        VBox pane = new VBox(6, oneToMany, columnChooser, buttons);
+        CompareSide.keepWidth(all, showAll, none);
+        VBox pane = new VBox(6, columnChooser, buttons);
         pane.setPadding(new Insets(6));
         VBox.setVgrow(columnChooser, Priority.ALWAYS);
         return pane;
@@ -616,10 +641,7 @@ class DataCompareTab extends Tab {
             HBox.setHgrow(on, Priority.ALWAYS);
             Button remove = new Button("✕");
             remove.setTooltip(new Tooltip("Remove this join"));
-            remove.setOnAction(e -> {
-                joinRows.getChildren().remove(this);
-                loadColumns();
-            });
+            remove.setOnAction(e -> joinRows.getChildren().remove(this)); // the list's listener lists the columns again
             table.valueProperty().addListener((o, a, t) -> {
                 if (t == null) return;
                 if (alias.getText().isBlank()) alias.setText(SqlCompleter.aliasFor(t.name(), takenAliases()));
@@ -660,9 +682,9 @@ class DataCompareTab extends Tab {
         return joinRows.getChildren().stream().map(n -> (JoinRow) n).toList();
     }
 
-    /** The joins in use: none while the advanced options are hidden. */
+    /** The joins in use. */
     private List<JoinRow> activeJoinRows() {
-        return advanced.isSelected() ? joinRowList() : List.of();
+        return joinRowList();
     }
 
     private java.util.Set<String> takenAliases() {
@@ -936,10 +958,9 @@ class DataCompareTab extends Tab {
         String src = r.source.label();
         String dst = r.target.label();
         StringBuilder sb = new StringBuilder();
-        sb.append(src).append(": ").append(r.sourceRows).append(" rows · ").append(dst).append(": ").append(r.targetRows)
-                .append(" rows  →  ").append(r.same).append(" identical · ").append(r.changed).append(" changed · ")
-                .append(r.onlySource).append(" only in ").append(src).append(" · ")
-                .append(r.onlyTarget).append(" only in ").append(dst);
+        // the counts per status are on the filter boxes
+        sb.append(r.sourceRows).append(" rows in ").append(src).append(" · ").append(r.targetRows).append(" rows in ").append(dst);
+        if (reportFile != null) sb.append(" · ").append(reportFile.getFileName());
         if (r.duplicateKeys > 0) {
             sb.append("\n⚠ ").append(r.duplicateKeys).append(" key value(s) match more than one row: ")
                     .append(String.join(", ", r.keyColumns)).append(" does not identify rows uniquely.");
@@ -974,11 +995,20 @@ class DataCompareTab extends Tab {
                     : d.note.replace("in source", "in " + src).replace("in target", "in " + dst));
             reportRows.add(Map.entry(d.status, row));
         }
-        statusFilters.forEach((status, box) -> box.setText(statusLabel(status, src, dst) + " (" + counts.getOrDefault(status, 0) + ")"));
-        verdictForShown.getItems().setAll(verdictItems(v -> applyVerdict(v, List.copyOf(dataGrid.getItems()))));
-        fileStatus.setText(reportFile == null ? "" : "File: " + reportFile.getFileName());
-        statusBar.setVisible(true);
-        statusBar.setManaged(true);
+        statusFilters.forEach((status, box) -> {
+            int n = counts.getOrDefault(status, 0);
+            box.setText(statusLabel(status, src, dst) + " " + n);
+            // duplicate keys are a warning: only listed when there are some
+            boolean listed = status != DataCompare.RowStatus.DUPLICATE_KEY || n > 0;
+            box.setVisible(listed);
+            box.setManaged(listed);
+        });
+        MenuItem suggest = new MenuItem("Suggest verdicts");
+        suggest.setOnAction(e -> suggestVerdicts());
+        javafx.scene.control.Menu forShown = new javafx.scene.control.Menu("Set on all shown rows");
+        forShown.getItems().setAll(verdictItems(v -> applyVerdict(v, List.copyOf(dataGrid.getItems()))));
+        verdictForShown.getItems().setAll(suggest, forShown);
+        reportShown.set(true);
         updateVerdictSummary();
         refreshGrid();
     }
@@ -1115,7 +1145,7 @@ class DataCompareTab extends Tab {
         refreshDirty();
         dataGrid.refresh();
         updateVerdictSummary();
-        fileStatus.setText(set + " verdict(s) suggested; rows already decided were kept" + (unsaved ? " · not saved" : ""));
+        dataStatus.setText(set + " verdict(s) suggested; rows already decided were kept" + (unsaved ? " · not saved" : ""));
     }
 
     private void verdictKeys(javafx.scene.input.KeyEvent e) {
@@ -1154,14 +1184,14 @@ class DataCompareTab extends Tab {
         if (words.size() == 1) {
             Verdict v = parseVerdict(words.get(0));
             if (v == null && !isClear(words.get(0))) {
-                fileStatus.setText("The clipboard holds no verdict (INSERT, UPDATE, DELETE or SKIP).");
+                dataStatus.setText("The clipboard holds no verdict (INSERT, UPDATE, DELETE or SKIP).");
                 return;
             }
             applyVerdict(v, rows);
             return;
         }
         if (words.size() != rows.size()) {
-            fileStatus.setText(words.size() + " verdicts copied but " + rows.size() + " rows selected: select as many rows, or copy one verdict.");
+            dataStatus.setText(words.size() + " verdicts copied but " + rows.size() + " rows selected: select as many rows, or copy one verdict.");
             return;
         }
         int set = 0;
@@ -1182,7 +1212,7 @@ class DataCompareTab extends Tab {
         refreshDirty();
         dataGrid.refresh();
         updateVerdictSummary();
-        fileStatus.setText(set + " verdict(s) pasted" + (skipped > 0 ? "; " + skipped + " row(s) left alone (not a verdict for their status)" : "")
+        dataStatus.setText(set + " verdict(s) pasted" + (skipped > 0 ? "; " + skipped + " row(s) left alone (not a verdict for their status)" : "")
                 + (unsaved ? " · not saved" : ""));
     }
 
@@ -1217,15 +1247,22 @@ class DataCompareTab extends Tab {
         refreshDirty();
         dataGrid.refresh();
         updateVerdictSummary();
-        fileStatus.setText(changed + " verdict(s) set" + (skipped > 0 ? "; " + skipped + " row(s) left alone (" + (v == null ? "" : v.label())
+        dataStatus.setText(changed + " verdict(s) set" + (skipped > 0 ? "; " + skipped + " row(s) left alone (" + (v == null ? "" : v.label())
                 + " does not fit their status)" : "") + (unsaved ? " · not saved" : ""));
     }
 
     private void updateVerdictSummary() {
         if (report == null) return;
-        verdictSummary.setText(report.count(Verdict.INSERT) + " insert · " + report.count(Verdict.UPDATE) + " update · "
-                + report.count(Verdict.DELETE) + " delete · " + report.count(Verdict.SKIP) + " skip · "
-                + report.undecided() + " not decided");
+        // only the verdicts in use, then what is left to decide
+        List<String> parts = new ArrayList<>();
+        for (Verdict v : Verdict.values()) {
+            long n = report.count(v);
+            if (n > 0) parts.add(n + " " + v.label().toLowerCase(java.util.Locale.ROOT));
+        }
+        long open = report.undecided();
+        if (open > 0 || parts.isEmpty()) parts.add(open + " to decide");
+        verdictSummary.setText(String.join(" · ", parts));
+
     }
 
     // ---- saving --------------------------------------------------------------
@@ -1237,7 +1274,7 @@ class DataCompareTab extends Tab {
         if (file == null) return;
         try {
             Files.writeString(file, CompareHtml.data(report), StandardCharsets.UTF_8);
-            fileStatus.setText("HTML saved as " + file);
+            dataStatus.setText("HTML saved as " + file);
         } catch (IOException e) {
             error("Could not save the HTML report", e);
         }
