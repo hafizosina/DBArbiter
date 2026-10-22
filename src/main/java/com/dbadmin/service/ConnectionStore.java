@@ -14,14 +14,23 @@ import java.util.List;
 
 /**
  * Saves connections to ~/.dbadmin/connections.json.
- * Passwords are stored in plain text, so the file is made readable by the owner only.
+ * A saved password is stored in plain text, so the file is made readable by the owner only (POSIX); a connection with
+ * "Save password" off is written without its password.
  */
 public class ConnectionStore {
 
-    private final Path file = Path.of(System.getProperty("user.home"), ".dbadmin", "connections.json");
+    private final Path file;
     private final ObjectMapper mapper = new ObjectMapper()
             .enable(SerializationFeature.INDENT_OUTPUT)
             .disable(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES);
+
+    public ConnectionStore() {
+        this(Path.of(System.getProperty("user.home"), ".dbadmin", "connections.json"));
+    }
+
+    ConnectionStore(Path file) {
+        this.file = file;
+    }
 
     public List<ConnectionConfig> load() {
         if (!Files.exists(file)) {
@@ -36,7 +45,13 @@ public class ConnectionStore {
 
     public void save(List<ConnectionConfig> connections) {
         try {
-            JsonFiles.write(mapper, file, connections, true);
+            com.fasterxml.jackson.databind.node.ArrayNode out = mapper.createArrayNode();
+            for (ConnectionConfig c : connections) {
+                com.fasterxml.jackson.databind.node.ObjectNode json = mapper.valueToTree(c);
+                if (!c.isSavePassword()) json.remove("password"); // asked when connecting instead
+                out.add(json);
+            }
+            JsonFiles.write(mapper, file, out, true);
         } catch (IOException e) {
             throw new IllegalStateException("Cannot write " + file + ": " + e.getMessage(), e);
         }

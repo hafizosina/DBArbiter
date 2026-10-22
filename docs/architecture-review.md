@@ -17,13 +17,13 @@ _First review: 2026-10-21 at commit `70ef05a` (the app was called DBAdmin then).
 | 5 | `DatabaseSession` does too much | Open, and grown: 1,108 lines, 43 public methods, 29 per-database branches |
 | 6 | `MainWindow` and `CompareTab` do too much | **Fixed**: sessions moved to a tested `SessionManager`; `CompareTab` split into two tabs |
 | 7 | Global static state | Open |
-| 8 | Saved files can be corrupted | **Partly fixed**: atomic writes; script bindings relative to `Script/`. Plain-text passwords remain |
+| 8 | Saved files can be corrupted | **Mostly fixed**: atomic writes; script bindings relative to `Script/`; a password can be left unsaved. Saved passwords are still plain text |
 | 9 | Errors swallowed silently | **Fixed**: non-editable results say why; errors are logged to `~/.dbadmin/logs` |
 | 10 | Small tidy-ups | **Fixed** |
 | 11 | `DataView` growing; side effects in `hasEdits()` / `show()` | **Partly fixed**: pending edits moved to a tested class; the side effects remain |
 | 12 | `DataCompareTab` is the largest class | Open (new): 1,349 lines, 45 methods |
 | 13 | `MainWindow` growing again | Open (new): 985 lines |
-| 14 | Shipping to other people | Open (new): passwords, license check, release build |
+| 14 | Shipping to other people | **Partly fixed**: "Save password" option. OS keyring, license check, release build remain |
 
 ## How it is organised
 
@@ -111,7 +111,13 @@ Re-checked 2026-10-22: 43 public methods and 29 branches on the database type. I
 ### 8. Saved files could be corrupted — partly fixed
 
 - **Fixed:** the three stores write through `JsonFiles`, which writes a temporary file and then moves it over the old one in one step. A crash or full disk leaves the old file intact. `connections.json` is created owner-only (POSIX) from the start, instead of having its permissions changed after writing.
-- **Open:** passwords are stored in plain text, with no file protection on Windows.
+- **Partly fixed:** passwords are stored in plain text, with no file protection on Windows. Each connection now has
+  **Save password**: off, the password is never written to `connections.json`; it is asked when connecting (an in-app
+  prompt), kept in memory for the run, and asked again if it was wrong. Older files mean "on". 2 store tests; the
+  prompt was tried in the app against PostgreSQL (wrong password, right one, reuse).
+- **New, small:** two tools opening the same unsaved-password connection at the same moment (e.g. a reopened data
+  compare whose sides share one connection) can each show the prompt. `SessionManager` already shares one opening
+  session between callers; the prompt could be moved inside that wait.
 - **Fixed (was open):** `ScriptBindings` keyed scripts by absolute path. Since `Script/` lives next to the jar, moving the app folder orphans every binding. This happened with the move from `~/App/DBAdmin` to `~/App/DBArbiter`: `deploy-linux.sh` had to rewrite the paths in `scripts.json` with `sed`. A user who moved or re-extracted a download hit it with no such help.
   Now a script in `Script/` is recorded as `Script/<path>` (others keep their absolute path); old files are read as
   before, and an absolute key into a moved app folder's `Script/` is matched to the same file in today's. 2 tests.
@@ -161,9 +167,9 @@ urgent, but licensing (activate, show, re-check the date) would fit its own smal
 
 The app is now downloaded from GitHub Releases, so a few things matter more than when it ran only on one machine:
 - **Passwords (#8):** other people's database passwords sit in plain text in `~/.dbadmin/connections.json`. On
-  Windows nothing protects the file. Simplest first step: a "Save password" checkbox per connection (off: asked when
-  connecting). Later: the OS keyring (Windows Credential Manager / DPAPI, Linux Secret Service), which needs a
-  native bridge such as JNA.
+  Windows nothing protects the file. **Done:** a "Save password" option per connection (off: asked when connecting).
+  **Still open:** the OS keyring (Windows Credential Manager / DPAPI, Linux Secret Service), which needs a native
+  bridge such as JNA.
 - **License check:** the jar can be decompiled and the check patched out. That is true of any offline Java license
   and is acceptable for a trial-then-key product sold to companies; obfuscation (e.g. ProGuard) would only raise the
   effort. The signing key never leaves the signer's machine, which is the part that matters.
@@ -269,7 +275,7 @@ is fine, but a public API or plugin later would carry it.
 
 | When | Do | Items |
 |---|---|---|
-| Now (small) | ~~Script bindings by relative path~~ (done); "Save password" option | #8, #14 |
+| Now (small) | ~~Script bindings by relative path~~, ~~"Save password" option~~ (both done) | #8, #14 |
 | Before the scan tool | A job connection per tool run, a shared `Job` with progress and cancel, streaming | G1, G2, G3 |
 | Before the next tool after that | `ToolTab` and a shared compare file; split `DataCompareTab` | G4, #12 |
 | Before a fourth database or MySQL migrations | `Dialect` | G5, #5 |

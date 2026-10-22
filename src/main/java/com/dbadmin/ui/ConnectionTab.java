@@ -15,6 +15,7 @@ import javafx.scene.control.PasswordField;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TextField;
+import javafx.scene.control.Tooltip;
 import javafx.scene.layout.ColumnConstraints;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
@@ -38,6 +39,7 @@ class ConnectionTab extends Tab {
     private final TextField database = new TextField();
     private final TextField username = new TextField();
     private final PasswordField password = new PasswordField();
+    private final CheckBox savePassword = new CheckBox("Save password");
     private final CheckBox readOnly = new CheckBox("Read-only (block all changes to the database)");
     private final Label databaseLabel = new Label("Database:");
     private final Button browse = new Button("Browse…");
@@ -64,6 +66,8 @@ class ConnectionTab extends Tab {
         username.setText(base.getUsername());
         password.setText(base.getPassword());
         readOnly.setSelected(base.isReadOnly());
+        savePassword.setSelected(base.isSavePassword());
+        savePassword.setTooltip(new Tooltip("Off: the password is not written to disk; it is asked when connecting"));
 
         type.valueProperty().addListener((obs, oldType, newType) -> {
             if (oldType != null && String.valueOf(oldType.getDefaultPort()).equals(port.getText())) {
@@ -96,7 +100,10 @@ class ConnectionTab extends Tab {
         grid.addRow(r++, new Label("Port:"), port);
         grid.addRow(r++, databaseLabel, dbRow);
         grid.addRow(r++, new Label("User:"), username);
-        grid.addRow(r++, new Label("Password:"), password);
+        HBox passwordRow = new HBox(10, password, savePassword);
+        passwordRow.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+        HBox.setHgrow(password, Priority.ALWAYS);
+        grid.addRow(r++, new Label("Password:"), passwordRow);
         grid.add(readOnly, 1, r++);
         grid.add(test, 1, r++);
         grid.add(testResult, 1, r);
@@ -150,7 +157,7 @@ class ConnectionTab extends Tab {
 
     private void updateFields() {
         boolean file = type.getValue().isFileBased();
-        for (Node n : new Node[]{host, port, username, password}) {
+        for (Node n : new Node[]{host, port, username, password, savePassword}) {
             n.setDisable(file);
         }
         browse.setVisible(file);
@@ -197,7 +204,9 @@ class ConnectionTab extends Tab {
             c.setHost(host.getText().trim());
             c.setPort(Integer.parseInt(port.getText().trim()));
             c.setUsername(username.getText());
-            c.setPassword(password.getText());
+            c.setSavePassword(savePassword.isSelected());
+            // not saved and left empty: asked when connecting
+            c.setPassword(!c.isSavePassword() && password.getText().isEmpty() ? null : password.getText());
         } else {
             c.setHost(null);
             c.setPort(0);

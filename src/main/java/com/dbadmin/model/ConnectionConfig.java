@@ -12,6 +12,8 @@ public class ConnectionConfig {
     private String database;
     private String username;
     private String password;
+    /** Write the password to connections.json; off: it is asked when connecting and kept in memory only. Missing in older saved files means on. */
+    private boolean savePassword = true;
     /** Blocks all changes to the database. On by default; missing in older saved files means on. */
     private boolean readOnly = true;
 
@@ -31,6 +33,8 @@ public class ConnectionConfig {
     public void setUsername(String username) { this.username = username; }
     public String getPassword() { return password; }
     public void setPassword(String password) { this.password = password; }
+    public boolean isSavePassword() { return savePassword; }
+    public void setSavePassword(boolean savePassword) { this.savePassword = savePassword; }
 
     public boolean isReadOnly() { return readOnly; }
     public void setReadOnly(boolean readOnly) { this.readOnly = readOnly; }

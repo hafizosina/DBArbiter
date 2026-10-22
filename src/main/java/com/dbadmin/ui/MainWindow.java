@@ -676,9 +676,33 @@ public class MainWindow implements SessionProvider {
         }
     }
 
+    /** Connections whose password was typed in the prompt (not saved): a failed connect asks again next time. */
+    private final java.util.Set<String> promptedPasswords = new java.util.HashSet<>();
+
+    /**
+     * Opens (or reuses) the connection's session. A connection with "Save password" off is asked for its password
+     * first, unless it is already open or the password is in memory (typed earlier in this run).
+     */
     @Override
     public void withSession(ConnectionConfig c, Consumer<DatabaseSession> onReady, Consumer<Throwable> onError) {
-        sessions.withSession(c, onReady, onError);
+        boolean ask = !c.getType().isFileBased() && !c.isSavePassword() && c.getPassword() == null && sessions.get(c.getId()).isEmpty();
+        if (ask) {
+            String typed = InAppDialogs.showAndWait(new PasswordPrompt(stage, c)).orElse(null);
+            if (typed == null) {
+                onError.accept(new java.util.concurrent.CancellationException("No password given for " + c.getName()));
+                return;
+            }
+            c.setPassword(typed);
+            promptedPasswords.add(c.getId());
+        }
+        sessions.withSession(c, s -> {
+            promptedPasswords.remove(c.getId()); // it worked: kept in memory for this run
+            onReady.accept(s);
+        }, ex -> {
+            // a wrong password typed in the prompt is not kept: the next try asks again
+            if (promptedPasswords.remove(c.getId())) c.setPassword(null);
+            onError.accept(ex);
+        });
     }
 
     @Override
