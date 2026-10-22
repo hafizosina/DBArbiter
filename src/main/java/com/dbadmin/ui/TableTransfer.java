@@ -3,6 +3,7 @@ package com.dbadmin.ui;
 import com.dbadmin.model.ConnectionConfig;
 import com.dbadmin.model.TableRef;
 import com.dbadmin.service.DatabaseSession;
+import com.dbadmin.service.Job;
 import com.dbadmin.service.transfer.Csv;
 import com.dbadmin.service.transfer.Json;
 import com.dbadmin.service.transfer.RowSink;
@@ -68,8 +69,8 @@ final class TableTransfer {
             lastDir = file.getParentFile();
             Path path = file.toPath();
             host.status("Exporting " + table.name() + "…");
-            Async.run(session, () -> {
-                String sql = choice.currentQuery() ? currentQuery : "SELECT * FROM " + session.qualifiedName(table);
+            inJob(session, s -> {
+                String sql = choice.currentQuery() ? currentQuery : "SELECT * FROM " + s.qualifiedName(table);
                 try (OutputStream out = new BufferedOutputStream(Files.newOutputStream(path))) {
                     Writer text = new BufferedWriter(new OutputStreamWriter(out, StandardCharsets.UTF_8));
                     RowSink sink = switch (choice.format()) {
@@ -78,11 +79,11 @@ final class TableTransfer {
                             yield Csv.writer(text, choice.delimiter(), choice.header());
                         }
                         case XLSX -> Xlsx.writer(out, table.name());
-                        case SQL -> SqlInserts.writer(text, session.getConfig().getType(), session.qualifiedName(table),
-                                session.identifierQuote(), choice.skipExisting(), primaryKey);
+                        case SQL -> SqlInserts.writer(text, s.getConfig().getType(), s.qualifiedName(table),
+                                s.identifierQuote(), choice.skipExisting(), primaryKey);
                         case JSON -> Json.writer(text);
                     };
-                    long n = session.streamRows(sql, sink, rows -> Platform.runLater(
+                    long n = s.streamRows(sql, sink, rows -> Platform.runLater(
                             () -> host.status("Exporting " + table.name() + ": " + String.format("%,d", rows) + " rows…")));
                     text.flush();
                     return n;
@@ -137,7 +138,7 @@ final class TableTransfer {
                 .indexOf(k.toLowerCase())).toList();
         boolean keyImported = !primaryKey.isEmpty() && !keyAt.contains(-1);
         host.status("Checking which rows already exist…");
-        Async.run(session, () -> keyImported ? session.keyValues(table, primaryKey) : Set.<String>of(), existing -> {
+        inJob(session, s -> keyImported ? s.keyValues(table, primaryKey) : Set.<String>of(), existing -> {
             List<List<String>> fresh = plan.rows().stream()
                     .filter(r -> !keyImported || !existing.contains(DatabaseSession.keyText(keyAt.stream().map(r::get).toList())))
                     .toList();
@@ -157,7 +158,7 @@ final class TableTransfer {
             ask.setHeaderText("Insert " + fresh.size() + " row(s) into " + table.name() + "?");
             if (InAppDialogs.showAndWait(ask).orElse(ButtonType.CANCEL) != go) return;
             host.status("Importing into " + table.name() + "…");
-            Async.run(session, () -> session.insertRows(table, plan.columns(), fresh, n -> Platform.runLater(
+            inJob(session, s -> s.insertRows(table, plan.columns(), fresh, n -> Platform.runLater(
                     () -> host.status("Importing into " + table.name() + ": " + String.format("%,d", n) + " rows…"))), n -> {
                 host.status("Imported " + n + " row(s) into " + table.name() + (skipped > 0 ? " (" + skipped + " already there, left out)" : ""));
                 host.imported(session, table);
@@ -166,6 +167,27 @@ final class TableTransfer {
                 error(owner, "Nothing was imported", ex);
             });
         }, ex -> error(owner, "Could not check the existing rows of " + table.name(), ex));
+    }
+
+    /** Work on a connection of its own (a {@link Job}), so the navigator and scripts on this connection keep working. */
+    private interface OnSession<T> {
+        T run(DatabaseSession session) throws Exception;
+    }
+
+    private static <T> void inJob(DatabaseSession session, OnSession<T> work, java.util.function.Consumer<T> done,
+                                  java.util.function.Consumer<Throwable> failed) {
+        Job.start(List.of(session.getConfig()), DatabaseSession::open, Async.background(), Platform::runLater,
+                (sessions, job) -> work.run(sessions.get(0)), new Job.Listener<T>() {
+                    @Override
+                    public void done(T result) {
+                        done.accept(result);
+                    }
+
+                    @Override
+                    public void failed(Throwable error) {
+                        failed.accept(error);
+                    }
+                });
     }
 
     private static FileChooser chooser(String title) {

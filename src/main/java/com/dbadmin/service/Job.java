@@ -36,6 +36,8 @@ public final class Job<T> {
         }
     }
 
+    private static final java.util.logging.Logger LOG = AppLog.get(Job.class);
+
     private final AtomicBoolean cancelled = new AtomicBoolean();
     private final List<DatabaseSession> sessions = new CopyOnWriteArrayList<>();
     private final Executor callbacks;
@@ -78,11 +80,22 @@ public final class Job<T> {
         if (cancelled.get()) {
             callbacks.execute(listener::cancelled);
         } else if (error != null) {
+            log(error);
             Throwable cause = error;
             callbacks.execute(() -> listener.failed(cause));
         } else {
             T done = result;
             callbacks.execute(() -> listener.done(done));
+        }
+    }
+
+    /** Like {@code Async}: database errors (often just bad SQL) in one line; anything else with its stack trace. */
+    private static void log(Throwable e) {
+        Throwable cause = e instanceof java.util.concurrent.ExecutionException && e.getCause() != null ? e.getCause() : e;
+        if (cause instanceof java.sql.SQLException sql) {
+            LOG.info("Database error in a job (SQLState " + sql.getSQLState() + "): " + sql.getMessage());
+        } else {
+            LOG.log(java.util.logging.Level.WARNING, "A job failed", cause);
         }
     }
 

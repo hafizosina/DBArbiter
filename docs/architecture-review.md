@@ -216,7 +216,7 @@ _Added 2026-10-22._ The plan is more release tools (a scan for test data, a rele
 and maybe more databases. Each item below is cheap today and gets more expensive with every tool added on top of it.
 They are ordered by how soon they would hurt.
 
-### G1. One connection per database is shared by everything — partly fixed
+### G1. One connection per database is shared by everything — mostly fixed
 
 Each connection has one JDBC connection and one worker thread (`DatabaseSession.submit`). The navigator, table tabs,
 scripts, autocomplete metadata and both compares queue on it. A long script blocks a compare on the same
@@ -229,9 +229,12 @@ job connection can keep a cursor open.
 
 **Done for both compares** (with G2): a compare opens its own session per side, reads both sides at the same time and
 closes them at the end. Tried in the app: during a data compare PostgreSQL shows the 2 interactive connections plus
-the job's 2; after it, or after Cancel, only the 2 interactive ones. **Still on the shared connection:** export and
-import (`TableTransfer`); move them to a `Job` when they are next touched. (Fetching more rows has its own connection
-now, #4.)
+the job's 2; after it, or after Cancel, only the 2 interactive ones. **Also done:** export (streaming the rows into the file), and import (reading the existing keys, inserting the
+rows) run as a `Job` on a connection of their own; fetching more rows has its own connection too (#4). `Job` now logs
+failures to the app log like `Async` does, so moving work to it loses nothing. Tried in the app: an export of 40 rows
+and an import of 2, each on its own session, the interactive connection alone afterwards. **What stays on the shared
+connection** is short, interactive work: the navigator, table pages, scripts the user runs, autocomplete metadata.
+**Not yet:** a Cancel for export and import (the status line has no button; see G2's shared progress bar).
 
 ### G2. No shared idea of a long job — partly fixed
 
