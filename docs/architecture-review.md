@@ -11,7 +11,7 @@ _First review: 2026-10-21 at commit `70ef05a` (the app was called DBAdmin then).
 | # | Issue | Status |
 |---|---|---|
 | 1 | Edits mapped to table columns by result label | **Fixed**: only `*` or plain column lists are editable |
-| 2 | No tests | **Mostly done**: 125 JUnit tests cover every class without a screen; the screens themselves are untested |
+| 2 | No tests | **Mostly done**: 206 tests; every class without a screen, and screen pieces without dialogs (`ScreenPiecesTest`) |
 | 3 | SQL scanner written three times | **Fixed**: one `SqlLexer`; splitting and autocomplete share statement boundaries |
 | 4 | Fetching more rows re-runs the query | **Fixed**: the rest is read from one kept-open cursor on a connection of its own |
 | 5 | `DatabaseSession` does too much | **Mostly fixed**: structure → `Metadata`, its catalog queries → one `Dialect` per database (session 750 lines) |
@@ -71,6 +71,13 @@ src/test/         JUnit 5 tests (mvn test)
 `mvn test` now runs 115 tests: `EditableQuery`, `SqlSplitter`, `NamedParams`, `CompletionContext`, `DataCompare`, `SchemaCompare`, `JsonFiles`, `AppLog`, `SessionManager` and `PendingEdits`. `SessionManager`'s tests open real sessions on empty SQLite files, so they need no database server. A failing test stops `mvn package`.
 
 **Still untested:** the screens themselves: how the grid, the value panel and the edit bar react to clicks, focus and typing. Testing those needs a UI test tool such as TestFX, or trying them in the running app.
+
+**Started (2026-10-23), without a new library:** `Fx` (test helper) starts JavaFX once and runs code on its thread,
+so screen pieces that need no database and show no dialog get plain JUnit tests: `ScreenPiecesTest` covers the tab
+menu (close left / all, stopping at a tab that stays open), asking every tab before the app closes, the compare file's
+`*` and Save button, and the column picker's ticks. CI already runs the tests under a virtual display (`xvfb-run`).
+The tests count 206 now. **Still by hand:** anything with a dialog or a database behind it (the checks in this round
+were run in the app against PostgreSQL); TestFX would be the next step if those should run in CI too.
 
 ### 3. The SQL scanner was written three times — fixed
 
