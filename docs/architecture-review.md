@@ -22,7 +22,7 @@ _First review: 2026-10-21 at commit `70ef05a` (the app was called DBAdmin then).
 | 10 | Small tidy-ups | **Fixed** |
 | 11 | `DataView` growing; side effects in `hasEdits()` / `show()` | **Partly fixed**: pending edits moved to a tested class; the side effects remain |
 | 12 | `DataCompareTab` is the largest class | **Done**: verdicts → `Verdicts`, columns → `ColumnPicker`, joins → `JoinEditor`, file state → `CompareFile` (956 lines left) |
-| 13 | `MainWindow` growing again | Open (new): 985 lines |
+| 13 | `MainWindow` growing again | **Partly fixed**: licensing → `LicenseGate` (987 lines, with this round's additions) |
 | 14 | Shipping to other people | **Partly fixed**: "Save password" option. OS keyring, license check, release build remain |
 
 ## How it is organised
@@ -169,10 +169,16 @@ code only. Each new compare feature has landed here, so it keeps growing.
 What stays in `DataCompareTab` (956 lines) is the form, running the compare, the results grid and Save / Save As /
 Export / Generate SQL wiring: one screen's worth. A further split is not needed until it grows again.
 
-### 13. `MainWindow` is growing again — open (new)
+### 13. `MainWindow` is growing again — partly fixed
 
 985 lines (776 after #6): licensing, the export/import host, the tab menu and the update check came in since. Not
 urgent, but licensing (activate, show, re-check the date) would fit its own small class next to `LicenseDialog`.
+
+**Done:** `LicenseGate` holds the footer's license line, the License dialog and the check before a licensed tool
+opens (`allows("Compare Table and Compare Data")`), so a new licensed tool calls one method. Tried in the app without a
+license: Tools → Compare Data shows "… need a license" and opens nothing. `MainWindow` is 987 lines: what left with
+the license came back with this round's fixes (password prompt, asking before disconnect). **Next candidates:** the
+connection create / edit / delete / disconnect code (about 150 lines) and the script open/new code.
 
 ### 14. Shipping the app to other people — open (new)
 
