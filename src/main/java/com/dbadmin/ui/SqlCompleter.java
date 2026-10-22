@@ -269,18 +269,25 @@ final class SqlCompleter {
         for (Namespace ns : cache.namespaces) out.add(new Suggestion(ns.label(), Kind.SCHEMA, "schema"));
     }
 
-    /** Prefix matches first, then (for 2+ characters) substring matches; duplicates removed. */
-    private static List<Suggestion> filter(List<Suggestion> all, String prefix) {
+    /**
+     * Prefix matches first, then (for 2+ characters) tables whose initials start with it ("mpv" finds
+     * m_product_variant, "bup" finds bo_user_portal and bo_user_path), then substring matches; duplicates removed.
+     */
+    static List<Suggestion> filter(List<Suggestion> all, String prefix) {
         String p = prefix.toLowerCase(Locale.ROOT);
         Map<String, Suggestion> starts = new LinkedHashMap<>();
+        Map<String, Suggestion> initials = new LinkedHashMap<>();
         Map<String, Suggestion> contains = new LinkedHashMap<>();
         for (Suggestion s : all) {
             String text = s.text().toLowerCase(Locale.ROOT);
             String id = s.kind() + ":" + text;
+            boolean table = s.kind() == Kind.TABLE || s.kind() == Kind.VIEW;
             if (text.startsWith(p)) starts.putIfAbsent(id, s);
+            else if (p.length() >= 2 && table && initials(s.text()).startsWith(p)) initials.putIfAbsent(id, s);
             else if (p.length() >= 2 && text.contains(p)) contains.putIfAbsent(id, s);
         }
         List<Suggestion> result = new ArrayList<>(starts.values());
+        result.addAll(initials.values());
         result.addAll(contains.values());
         return result.size() > MAX_SUGGESTIONS ? result.subList(0, MAX_SUGGESTIONS) : result;
     }
@@ -300,24 +307,30 @@ final class SqlCompleter {
      * "TransactionOrder" -> "to". Never an alias already in use or a SQL keyword: then a number is added.
      */
     static String aliasFor(String table, Set<String> taken) {
-        StringBuilder sb = new StringBuilder();
-        boolean wordStart = true;
-        for (int i = 0; i < table.length(); i++) {
-            char c = table.charAt(i);
-            if (!Character.isLetterOrDigit(c)) {
-                wordStart = true;
-            } else {
-                boolean camelStart = i > 0 && Character.isUpperCase(c) && Character.isLowerCase(table.charAt(i - 1));
-                if (wordStart || camelStart) sb.append(Character.toLowerCase(c));
-                wordStart = false;
-            }
-        }
-        String base = sb.length() == 0 || !Character.isLetter(sb.charAt(0)) ? "t" + sb : sb.toString();
+        String letters = initials(table);
+        String base = letters.isEmpty() || !Character.isLetter(letters.charAt(0)) ? "t" + letters : letters;
         Set<String> used = new HashSet<>();
         taken.forEach(a -> used.add(a.toLowerCase(Locale.ROOT)));
         String alias = base;
         for (int n = 2; used.contains(alias) || RESERVED.contains(alias); n++) alias = base + n;
         return alias;
+    }
+
+    /** The first letter of each word, lower case: "m_product_variant" -> "mpv", "TransactionOrder" -> "to". */
+    static String initials(String name) {
+        StringBuilder sb = new StringBuilder();
+        boolean wordStart = true;
+        for (int i = 0; i < name.length(); i++) {
+            char c = name.charAt(i);
+            if (!Character.isLetterOrDigit(c)) {
+                wordStart = true;
+            } else {
+                boolean camelStart = i > 0 && Character.isUpperCase(c) && Character.isLowerCase(name.charAt(i - 1));
+                if (wordStart || camelStart) sb.append(Character.toLowerCase(c));
+                wordStart = false;
+            }
+        }
+        return sb.toString();
     }
 
     private static final Set<String> RESERVED = new HashSet<>();
