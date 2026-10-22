@@ -13,7 +13,8 @@ OUT=target/windows/DBArbiter
 
 # no "clean": target/Script holds scripts saved by the jar version of the app
 rm -rf target/windows
-mvn -B -q -Pwindows -Djavafx.platform=win package
+# no tests here: with the Windows JavaFX jars the UI tests cannot start on Linux (the normal build runs them)
+mvn -B -q -Pwindows -Djavafx.platform=win -DskipTests package
 
 if [ ! -f "$JRE_ZIP" ]; then
     echo "Downloading Temurin $JRE_FEATURE JRE for Windows x64..."
