@@ -20,7 +20,7 @@ _First review: 2026-10-21 at commit `70ef05a` (the app was called DBAdmin then).
 | 8 | Saved files can be corrupted | **Mostly fixed**: atomic writes; script bindings relative to `Script/`; a password can be left unsaved. Saved passwords are still plain text |
 | 9 | Errors swallowed silently | **Fixed**: non-editable results say why; errors are logged to `~/.dbadmin/logs` |
 | 10 | Small tidy-ups | **Fixed** |
-| 11 | `DataView` growing; side effects in `hasEdits()` / `show()` | **Partly fixed**: pending edits moved to a tested class; the side effects remain |
+| 11 | `DataView` growing; side effects in `hasEdits()` / `show()` | **Fixed**: pending edits in a tested class; `hasEdits()` and `show()` change nothing |
 | 12 | `DataCompareTab` is the largest class | **Done**: verdicts → `Verdicts`, columns → `ColumnPicker`, joins → `JoinEditor`, file state → `CompareFile` (956 lines left) |
 | 13 | `MainWindow` growing again | **Partly fixed**: licensing → `LicenseGate` (987 lines, with this round's additions) |
 | 14 | Shipping to other people | **Partly fixed**: "Save password" option. OS keyring, license check, release build remain |
@@ -142,7 +142,11 @@ Re-checked 2026-10-22: 43 public methods and 29 branches on the database type. I
 ### 11. `DataView` was growing, with side effects in query-like methods — partly fixed
 
 - **Fixed:** the bookkeeping of unsaved edits (original values per edited row, revert, the row updates to save) moved from `DataView` into `PendingEdits`, which has no JavaFX dependency and 9 tests. `DataView` is down to about 420 lines and keeps the screen work: the edit bar, the save dialog, fetching more rows and the value panel.
-- **Open:** `DataView.hasEdits()` and `CellInspector.show()` apply text typed in the value panel but not yet applied. That is deliberate, so typed text is never lost, but a method named like a check now changes state, and focus changes also apply text, so the order of events matters. Trying editing in the running app is the main safeguard until the screens have tests.
+- **Fixed (was open):** `DataView.hasEdits()` and `CellInspector.show()` applied text typed in the value panel but not yet applied. That is deliberate, so typed text is never lost, but a method named like a check now changes state, and focus changes also apply text, so the order of events matters. Trying editing in the running app is the main safeguard until the screens have tests.
+  Now `hasEdits()` only looks (it counts typed text through `CellInspector.hasPendingText()`), `show()` only shows,
+  and the three places that need typed text applied do it themselves, in plain sight: moving to another cell
+  (`DataView.showCell`, like a grid cell editor), the discard question, and Save. Tried in the app: typed text counts
+  as unsaved without being applied, moving to another cell applies it to the cell it was typed for, closing asks.
 
 ### 12. `DataCompareTab` is the largest class — open (new)
 
@@ -350,5 +354,5 @@ In order, now that other people use the app:
 3. **Split `DataCompareTab` (#12)** before the next compare feature, starting with `VerdictActions` (testable) and the
    shared `CompareFile`.
 4. **`Dialect` (#5)** before adding a fourth database.
-5. As needed: a second connection for paging (#4), less static state (#7) once the screens get tests, and the
-   side effects in `hasEdits()` / `show()` (#11).
+5. As needed: a second connection for paging (#4) and less static state (#7) once the screens get tests. (The side
+   effects in `hasEdits()` / `show()`, #11, are fixed.)

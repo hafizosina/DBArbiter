@@ -156,6 +156,8 @@ class DataView extends BorderPane {
      * only; else, or with Line diff off, both values, source above target.
      */
     private void showCell(DataGrid.CellValue cell) {
+        // text typed for the cell shown before goes to that cell first, as a grid cell editor does when it loses focus
+        inspector.applyPending();
         if (cell != null && cell.value() instanceof ComparedValue cv) {
             inspector.show(new DataGrid.CellValue(cell.column() + "  ·  " + cv.sourceName(), cell.type(),
                     cv.inSource() ? cv.source() : "(no row in " + cv.sourceName() + ")"));
@@ -302,14 +304,15 @@ class DataView extends BorderPane {
         updateEditBar();
     }
 
+    /** Unsaved edits, counting text typed in the value panel and not applied yet. Changes nothing. */
     boolean hasEdits() {
-        inspector.applyPending(); // text typed in the value panel counts too
-        return !edits.isEmpty();
+        return !edits.isEmpty() || inspector.hasPendingText();
     }
 
     /** Asks before dropping unsaved edits (paging, refresh, closing). True if there are none left. */
     boolean confirmDiscard() {
         if (!hasEdits()) return true;
+        inspector.applyPending(); // typed text counts as an edit in the question
         Alert ask = new Alert(Alert.AlertType.CONFIRMATION,
                 edits.cellCount() + " edited cell(s) in " + edits.rowCount() + " row(s) are not saved. Discard them?",
                 ButtonType.YES, ButtonType.NO);
@@ -357,7 +360,8 @@ class DataView extends BorderPane {
 
     /** Shows the UPDATE statements, asks, then applies them in one transaction. */
     private void saveEdits() {
-        if (!hasEdits() || editTarget == null) return;
+        inspector.applyPending(); // text typed in the value panel is saved too
+        if (edits.isEmpty() || editTarget == null) return;
         TableEditing.Target target = editTarget;
         List<DatabaseSession.RowUpdate> updates = edits.updates(grid.columnNames(), target.primaryKey());
         DatabaseSession session = target.session();

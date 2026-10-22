@@ -153,11 +153,10 @@ class CellInspector extends VBox {
     }
 
     /**
-     * Shows a cell; with {@code edits} its value can be edited here. Text typed for the cell shown
-     * before and not applied yet is applied to that cell first, as the grid does when a cell loses focus.
+     * Shows a cell; with {@code edits} its value can be edited here. Text typed for the cell shown before and not
+     * applied yet is dropped: callers apply it first ({@link #applyPending}), as {@code DataView} does.
      */
     void show(CellValue cell, Edits edits) {
-        applyPending();
         this.edits = cell == null ? null : edits;
         current = cell;
         loadImages.setSelected(false); // a new value never loads images by itself
@@ -183,7 +182,8 @@ class CellInspector extends VBox {
         text.requestFocus();
     }
 
-    private boolean hasPendingText() {
+    /** Text typed for the cell shown that is not applied to it yet. */
+    boolean hasPendingText() {
         return edits != null && !text.getText().equals(shownText);
     }
 
