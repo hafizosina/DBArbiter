@@ -12,7 +12,6 @@ import com.dbadmin.service.SessionManager;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
-import javafx.geometry.Insets;
 import javafx.scene.Parent;
 import javafx.scene.control.Alert;
 import javafx.scene.control.ButtonType;
@@ -72,7 +71,8 @@ public class MainWindow implements SessionProvider {
     private final TreeItem<NavNode> treeRoot = new TreeItem<>();
     private final TreeView<NavNode> tree = new TreeView<>(treeRoot);
     private final TabPane tabs = new TabPane();
-    private final Label status = new Label("Ready");
+    private final AppFooter footer = new AppFooter("Ready");
+    private final Label status = footer.status();
     private final BorderPane root = new BorderPane();
     /** Holds the window content plus in-window dialogs layered on top (see InAppDialogs). */
     private final StackPane shell = new StackPane(root);
@@ -147,7 +147,6 @@ public class MainWindow implements SessionProvider {
         SplitPane.setResizableWithParent(navigator, false);
         SplitPane split = mainSplit;
 
-        status.setPadding(new Insets(3, 8, 3, 8));
         root.setTop(buildTopBar());
         // a filter, so it works wherever the focus is (editor, grid, tree)
         KeyCombination closeTab = KeyCombination.keyCombination("Shortcut+W");
@@ -158,7 +157,7 @@ public class MainWindow implements SessionProvider {
             }
         });
         root.setCenter(split);
-        root.setBottom(status);
+        root.setBottom(footer);
         installScriptDrop();
         updateMenuItems();
         updateScriptItems();
@@ -198,7 +197,7 @@ public class MainWindow implements SessionProvider {
             Alert info = new Alert(Alert.AlertType.INFORMATION,
                     "A desktop database browser and SQL editor.\nPostgreSQL · MySQL / MariaDB · SQLite", ButtonType.OK);
             info.setTitle("About");
-            info.setHeaderText("DBAdmin 0.1.0");
+            info.setHeaderText("DBAdmin " + AppFooter.version());
             InAppDialogs.show(info);
         });
         MenuButton gearMenu = new MenuButton(null, new javafx.scene.Group(gear), settings, new SeparatorMenuItem(), about);

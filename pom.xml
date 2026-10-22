@@ -6,10 +6,17 @@
 
     <groupId>com.dbadmin</groupId>
     <artifactId>dbadmin</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <!-- the app version: set it in <revision> below (shown in the status bar and About) -->
+    <version>${revision}</version>
     <name>DBAdmin</name>
 
     <properties>
+        <revision>0.1.0</revision>
+        <!-- the git commit shown next to the version; packaging/deploy-linux.sh passes the real one -->
+        <build.commit>dev</build.commit>
+        <!-- when the jar was built (UTC here; packaging/deploy-linux.sh passes local time) -->
+        <maven.build.timestamp.format>yyyy-MM-dd HH:mm 'UTC'</maven.build.timestamp.format>
+        <build.date>${maven.build.timestamp}</build.date>
         <maven.compiler.release>17</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <javafx.version>21.0.5</javafx.version>
@@ -66,6 +73,18 @@
     </dependencies>
 
     <build>
+        <resources>
+            <!-- only version.properties gets ${...} filled in; icons and CSS are copied as they are -->
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+                <includes><include>com/dbadmin/version.properties</include></includes>
+            </resource>
+            <resource>
+                <directory>src/main/resources</directory>
+                <excludes><exclude>com/dbadmin/version.properties</exclude></excludes>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -160,11 +179,11 @@
                                         <maxHeapPercent>50</maxHeapPercent>
                                     </jre>
                                     <versionInfo>
-                                        <fileVersion>0.1.0.0</fileVersion>
+                                        <fileVersion>${revision}.0</fileVersion>
                                         <txtFileVersion>${project.version}</txtFileVersion>
                                         <fileDescription>DBAdmin database browser</fileDescription>
                                         <copyright>Hafiz Hisbullah</copyright>
-                                        <productVersion>0.1.0.0</productVersion>
+                                        <productVersion>${revision}.0</productVersion>
                                         <txtProductVersion>${project.version}</txtProductVersion>
                                         <productName>DBAdmin</productName>
                                         <internalName>DBAdmin</internalName>

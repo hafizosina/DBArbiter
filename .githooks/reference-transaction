@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Deploys to ~/App/DBAdmin whenever main moves (merge, fast-forward, commit on main).
+# Enabled with: git config core.hooksPath .githooks
+# The build runs in the background; progress goes to ~/App/DBAdmin/deploy.log and a
+# desktop notification says how it ended.
+[ "$1" = committed ] || exit 0
+moved=
+while read -r old new ref; do
+    if [ "$ref" = refs/heads/main ] && [ "$new" != 0000000000000000000000000000000000000000 ]; then
+        moved=$new
+    fi
+done
+[ -n "$moved" ] || exit 0
+
+repo=$(git rev-parse --show-toplevel)
+dest="${DBADMIN_HOME:-$HOME/App/DBAdmin}"
+mkdir -p "$dest"
+echo "DBAdmin: deploying main ($(git rev-parse --short "$moved")) in the background, log: $dest/deploy.log" >&2
+(
+    # one deploy at a time; a later one waits and then builds the newer main
+    flock 9
+    if "$repo/packaging/deploy-linux.sh" "$moved" >> "$dest/deploy.log" 2>&1; then
+        notify-send -i "$dest/dbadmin.png" "DBAdmin deployed" "$(git -C "$repo" log -1 --format='%h %s' "$moved")" 2>/dev/null
+    else
+        echo "$(date '+%F %T') deploy FAILED" >> "$dest/deploy.log"
+        notify-send -u critical "DBAdmin deploy failed" "See $dest/deploy.log" 2>/dev/null
+    fi
+) 9> "$dest/.deploy.lock" < /dev/null > /dev/null 2>&1 &
+disown
+exit 0
