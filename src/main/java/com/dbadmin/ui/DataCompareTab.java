@@ -640,9 +640,14 @@ class DataCompareTab extends Tab implements UnsavedWork {
             return;
         }
         if (r.count(Verdict.INSERT) + r.count(Verdict.UPDATE) + r.count(Verdict.DELETE) == 0) {
-            dataStatus.setText("No row has an INSERT, UPDATE or DELETE verdict yet.");
+            Alert none = new Alert(Alert.AlertType.INFORMATION, "Set a verdict on the rows to change first: right-click rows, "
+                    + "Suggest verdicts, or Import Verdicts from Excel. Rows with SKIP or no verdict are left out of the script.", ButtonType.OK);
+            none.initOwner(getTabPane().getScene().getWindow());
+            none.setHeaderText("No row has an INSERT, UPDATE or DELETE verdict yet");
+            InAppDialogs.showAndWait(none);
             return;
         }
+        if (!confirmUndecided(r)) return;
         ConnectionConfig target = connections.stream().filter(c -> c.getName().equals(r.target.connection())).findFirst().orElse(null);
         if (target == null) {
             dataStatus.setText("The target connection " + r.target.connection() + " is not in the connection list.");
@@ -664,6 +669,39 @@ class DataCompareTab extends Tab implements UnsavedWork {
             InAppDialogs.showAndWait(new GenerateSqlDialog(getTabPane().getScene().getWindow(), r, tables, file))
                     .ifPresent(sql -> sessions.newScript(target, sql));
         }, failed), failed);
+    }
+
+    /**
+     * Rows that could get a verdict but have none are left out of the script: say how many of each status, before
+     * generating. Review first (the default) shows only the statuses that have such rows; true: generate anyway.
+     */
+    private boolean confirmUndecided(DataCompareReport r) {
+        Map<DataCompare.RowStatus, Long> open = new java.util.EnumMap<>(DataCompare.RowStatus.class);
+        for (DataCompareReport.Row row : r.rows) {
+            if (row.verdict == null && !Verdict.allowed(row.status).isEmpty()) open.merge(row.status, 1L, Long::sum);
+        }
+        if (open.isEmpty()) return true;
+        long total = open.values().stream().mapToLong(Long::longValue).sum();
+        StringBuilder text = new StringBuilder();
+        open.forEach((status, n) -> text.append("• ").append(n).append(switch (status) {
+            case CHANGED -> " changed (UPDATE or SKIP)";
+            case ONLY_SOURCE -> " only in " + r.source.label() + " (INSERT or SKIP)";
+            case ONLY_TARGET -> " only in " + r.target.label() + " (DELETE or SKIP)";
+            default -> " " + status.name();
+        }).append('\n'));
+        text.append("\nThey are left out of the script, as if they had SKIP.");
+        ButtonType review = new ButtonType("Review first", ButtonBar.ButtonData.CANCEL_CLOSE);
+        ButtonType generate = new ButtonType("Generate anyway", ButtonBar.ButtonData.OK_DONE);
+        Alert ask = new Alert(Alert.AlertType.WARNING, text.toString(), generate, review);
+        ask.initOwner(getTabPane().getScene().getWindow());
+        ask.setHeaderText(total + " row(s) have no verdict yet");
+        ((Button) ask.getDialogPane().lookupButton(generate)).setDefaultButton(false);
+        ((Button) ask.getDialogPane().lookupButton(review)).setDefaultButton(true);
+        if (InAppDialogs.showAndWait(ask).orElse(review) == generate) return true;
+        // review: only the statuses that still have rows to decide
+        statusFilters.forEach((status, box) -> box.setSelected(open.containsKey(status)));
+        dataStatus.setText(total + " row(s) to decide: set their verdict (SKIP to leave one as it is), then Generate SQL again");
+        return false;
     }
 
     /** The filter has to stay a condition of one SELECT: one statement (in the source database's syntax), nothing that writes. */
