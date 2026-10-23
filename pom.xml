@@ -12,7 +12,7 @@
     <name>DBArbiter</name>
 
     <properties>
-        <revision>0.1.0</revision>
+        <revision>0.2.0</revision>
         <!-- where Maven builds; override (-Dbuild.dir=...) to build without touching target/, e.g. while the app runs from it -->
         <build.dir>${project.basedir}/target</build.dir>
         <!-- the git commit shown next to the version; packaging/deploy-linux.sh passes the real one -->
