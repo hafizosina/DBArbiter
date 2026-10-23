@@ -383,7 +383,14 @@ public class MainWindow implements SessionProvider {
         MenuItem openLastScript = new MenuItem("Open Last Script");
         SeparatorMenuItem scriptSeparator = new SeparatorMenuItem();
         SeparatorMenuItem dataSeparator = new SeparatorMenuItem();
-        ContextMenu menu = new ContextMenu(open, exportData, importData, dataSeparator, newScript, openScript, openLastScript,
+        TableActions.Items tableItems = TableActions.items(() -> stage, () -> {
+            NavNode n = selectedNode();
+            if (n == null || n.kind() != NavNode.Kind.TABLE) return null;
+            return sessions.get(n.connection().getId()).map(s -> new TableActions.Target(s, n.table())).orElse(null);
+        }, tableActionsHost);
+        ContextMenu menu = new ContextMenu(open, exportData, importData);
+        menu.getItems().addAll(tableItems.all());
+        menu.getItems().addAll(dataSeparator, newScript, openScript, openLastScript,
                 scriptSeparator, edit, delete, disconnect, reconnect, new SeparatorMenuItem(), refresh);
         menu.setOnShowing(e -> {
             NavNode n = selectedNode();
@@ -401,6 +408,7 @@ public class MainWindow implements SessionProvider {
             exportData.setVisible(onTable);
             importData.setVisible(onTable && !n.table().isView());
             importData.setDisable(onTable && n.connection().isReadOnly());
+            tableItems.showFor(onTable ? n.connection() : null, onTable ? n.table() : null);
             dataSeparator.setVisible(onTable);
             boolean onConnection = n != null && n.kind() == NavNode.Kind.CONNECTION;
             edit.setVisible(onConnection);
@@ -728,6 +736,46 @@ public class MainWindow implements SessionProvider {
         }
     };
 
+    /** After a whole-table change: what is open and listed shows it. */
+    private final TableActions.Host tableActionsHost = (session, table, change) -> {
+        String key = TableTab.key(session, table);
+        completer.invalidate(session);
+        switch (change) {
+            case EMPTIED -> tabs.getTabs().forEach(t -> {
+                if (t instanceof TableTab tt && tt.key().equals(key)) tt.reload();
+            });
+            case DROPPED, RENAMED -> tabs.getTabs().removeIf(t -> t instanceof TableTab tt && tt.key().equals(key)); // the table is gone
+            case BACKED_UP -> { }
+        }
+        if (change != TableActions.Change.EMPTIED) refreshTablesAround(session.getConfig(), table);
+        status.setText(switch (change) {
+            case EMPTIED -> "Emptied " + table.displayName();
+            case DROPPED -> "Dropped " + table.displayName();
+            case RENAMED -> "Renamed " + table.displayName();
+            case BACKED_UP -> "Backed up " + table.displayName();
+        });
+    };
+
+    /** Lists again the tables of the navigator folder that holds {@code table}, if it is shown. */
+    private void refreshTablesAround(ConnectionConfig c, TableRef table) {
+        java.util.ArrayDeque<TreeItem<NavNode>> todo = new java.util.ArrayDeque<>(tree.getRoot() == null ? List.of() : List.of(tree.getRoot()));
+        while (!todo.isEmpty()) {
+            TreeItem<NavNode> item = todo.pop();
+            NavNode n = item.getValue();
+            if (n != null && n.kind() == NavNode.Kind.TABLE && table.equals(n.table()) && n.connection().getId().equals(c.getId())) {
+                TreeItem<NavNode> up = item.getParent();
+                while (up != null && !(up instanceof LazyItem)) up = up.getParent();
+                if (up instanceof LazyItem lazy) {
+                    lazy.reset();
+                    lazy.setExpanded(false);
+                    lazy.setExpanded(true);
+                }
+                return;
+            }
+            todo.addAll(item.getChildren());
+        }
+    }
+
     private void openSelectedTable() {
         NavNode node = selectedNode();
         if (node == null || node.kind() != NavNode.Kind.TABLE) return;
@@ -743,7 +791,7 @@ public class MainWindow implements SessionProvider {
                 return;
             }
         }
-        TableTab tab = new TableTab(session, table, this, completer, transferHost);
+        TableTab tab = new TableTab(session, table, this, completer, transferHost, tableActionsHost);
         tabs.getTabs().add(tab);
         tabs.getSelectionModel().select(tab);
     }

@@ -84,4 +84,29 @@ class SchemaChangeSqliteTest {
         assertTrue(e.getMessage().startsWith("Statement 2 of 2:") && e.getMessage().endsWith("Nothing was changed."), e.getMessage());
         assertEquals(null, column("tmp"));
     }
+
+    private long count(String sql) throws SQLException {
+        return ((Number) session.execute(sql, 1).data().rows().get(0).get(0)).longValue();
+    }
+
+    @Test
+    void truncateResetBackupRenameAndDropRun() throws Exception {
+        session.execute("insert into orders (code, total) values ('a', 1), ('b', 2)", 1);
+        session.applySchemaChange(SchemaChange.backupTable(DbType.SQLITE, orders, "orders_backup"));
+        assertEquals(2, count("select count(*) from orders_backup"));
+
+        session.applySchemaChange(SchemaChange.truncateTable(DbType.SQLITE, orders));
+        session.execute("insert into orders (code) values ('c')", 1);
+        assertEquals(3, count("select max(id) from orders"), "truncate: the ids keep counting");
+
+        session.applySchemaChange(SchemaChange.resetTable(DbType.SQLITE, orders, true));
+        session.execute("insert into orders (code) values ('d')", 1);
+        assertEquals(1, count("select max(id) from orders"), "reset: the ids start again");
+
+        session.applySchemaChange(SchemaChange.renameTable(DbType.SQLITE, orders, "orders_old"));
+        TableRef renamed = session.resolveTable(null, "orders_old");
+        assertEquals(1, count("select count(*) from orders_old"));
+        session.applySchemaChange(SchemaChange.dropTable(DbType.SQLITE, renamed));
+        assertEquals(null, session.resolveTable(null, "orders_old"));
+    }
 }

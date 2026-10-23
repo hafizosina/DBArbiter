@@ -151,4 +151,21 @@ class SchemaChangeTest {
     void columnListsAsTyped() {
         assertEquals(List.of("a", "b c"), SchemaChange.parseColumns(" a, ,b c ,"));
     }
+
+    @Test
+    void wholeTables() {
+        assertEquals(List.of("TRUNCATE TABLE \"app\".\"orders\""), SchemaChange.truncateTable(POSTGRESQL, PG));
+        assertEquals(List.of("DELETE FROM \"main\".\"orders\""), SchemaChange.truncateTable(SQLITE, LITE));
+        assertEquals(List.of("TRUNCATE TABLE \"app\".\"orders\" RESTART IDENTITY"), SchemaChange.resetTable(POSTGRESQL, PG, false));
+        assertEquals(List.of("TRUNCATE TABLE `shop`.`orders`"), SchemaChange.resetTable(MYSQL, MY, false));
+        assertEquals(List.of("DELETE FROM \"main\".\"orders\"", "DELETE FROM sqlite_sequence WHERE name = 'orders'"),
+                SchemaChange.resetTable(SQLITE, LITE, true));
+        assertEquals(List.of("DROP TABLE `shop`.`orders`"), SchemaChange.dropTable(MYSQL, MY));
+        assertEquals(List.of("ALTER TABLE \"app\".\"orders\" RENAME TO \"orders_old\""), SchemaChange.renameTable(POSTGRESQL, PG, "orders_old"));
+        assertEquals(List.of("RENAME TABLE `shop`.`orders` TO `shop`.`orders_old`"), SchemaChange.renameTable(MYSQL, MY, " orders_old "));
+        assertEquals(List.of(), SchemaChange.renameTable(SQLITE, LITE, "orders"));
+        assertEquals(List.of("CREATE TABLE \"app\".\"orders_backup_20261023\" AS SELECT * FROM \"app\".\"orders\""),
+                SchemaChange.backupTable(POSTGRESQL, PG, SchemaChange.backupName(PG, java.time.LocalDate.of(2026, 10, 23))));
+        assertThrows(IllegalArgumentException.class, () -> SchemaChange.backupTable(POSTGRESQL, PG, "orders"));
+    }
 }

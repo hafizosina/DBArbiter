@@ -77,8 +77,12 @@ class TableTab extends Tab implements UnsavedWork {
     private final Button editItem = new Button("Edit…");
     private final Button dropItem = new Button("Drop");
 
-    TableTab(DatabaseSession session, TableRef table, SessionProvider sessions, SqlCompleter completer, TableTransfer.Host transferHost) {
+    private final TableActions.Host tableActions;
+
+    TableTab(DatabaseSession session, TableRef table, SessionProvider sessions, SqlCompleter completer, TableTransfer.Host transferHost,
+             TableActions.Host tableActions) {
         super(table.name());
+        this.tableActions = tableActions;
         this.session = session;
         this.table = table;
         this.transferHost = transferHost;
@@ -134,7 +138,17 @@ class TableTab extends Tab implements UnsavedWork {
         connection.setGraphic(DbIcons.connection(session.getConfig().getType(), false));
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox header = new HBox(8, icon, name, kind, spacer, connection);
+        // Backup / Rename, and Truncate / Reset / Drop where the connection's warning level is 0 (see TableActions)
+        javafx.scene.control.MenuButton actions = new javafx.scene.control.MenuButton("Table");
+        TableActions.Items items = TableActions.items(() -> getTabPane() == null ? null : getTabPane().getScene().getWindow(),
+                () -> new TableActions.Target(session, table), tableActions);
+        actions.getItems().setAll(items.all());
+        actions.setOnShowing(e -> items.showFor(session.getConfig(), table)); // the connection may have been edited
+        items.showFor(session.getConfig(), table);
+        actions.setVisible(items.anyShown());
+        actions.setManaged(items.anyShown());
+        actions.getStyleClass().add("small-button");
+        HBox header = new HBox(8, icon, name, kind, actions, spacer, connection);
         header.setAlignment(Pos.CENTER_LEFT);
         header.getStyleClass().add("table-header");
         return header;

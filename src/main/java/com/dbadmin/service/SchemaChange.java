@@ -215,6 +215,56 @@ public final class SchemaChange {
         return List.of(alter(type, t) + (type == DbType.MYSQL ? " DROP FOREIGN KEY " : " DROP CONSTRAINT ") + type.quote(name));
     }
 
+    // ---- whole tables ----
+
+    /** Every row deleted; ids keep counting (PostgreSQL). MySQL's TRUNCATE also restarts them; SQLite has no TRUNCATE. */
+    public static List<String> truncateTable(DbType type, TableRef t) {
+        return List.of(type == DbType.SQLITE ? "DELETE FROM " + table(type, t) : "TRUNCATE TABLE " + table(type, t));
+    }
+
+    /**
+     * Every row deleted and the ids restarted from 1. {@code sqliteSequence}: the database has sqlite_sequence (made
+     * by AUTOINCREMENT), where SQLite keeps the last id.
+     */
+    public static List<String> resetTable(DbType type, TableRef t, boolean sqliteSequence) {
+        return switch (type) {
+            case POSTGRESQL -> List.of("TRUNCATE TABLE " + table(type, t) + " RESTART IDENTITY");
+            case MYSQL -> List.of("TRUNCATE TABLE " + table(type, t));
+            case SQLITE -> sqliteSequence
+                    ? List.of("DELETE FROM " + table(type, t), "DELETE FROM sqlite_sequence WHERE name = " + literal(type, t.name()))
+                    : List.of("DELETE FROM " + table(type, t));
+        };
+    }
+
+    public static List<String> dropTable(DbType type, TableRef t) {
+        return List.of("DROP TABLE " + table(type, t));
+    }
+
+    public static List<String> renameTable(DbType type, TableRef t, String newName) {
+        requireName(newName, "new name");
+        if (newName.strip().equals(t.name())) return List.of();
+        return List.of(type == DbType.MYSQL
+                ? "RENAME TABLE " + table(type, t) + " TO " + table(type, sibling(t, newName))
+                : alter(type, t) + " RENAME TO " + type.quote(newName.strip()));
+    }
+
+    /** A copy of the table with all its rows (columns and rows only: no keys, indexes or defaults). */
+    public static List<String> backupTable(DbType type, TableRef t, String backupName) {
+        requireName(backupName, "backup table's name");
+        if (backupName.strip().equals(t.name())) throw new IllegalArgumentException("Choose another name than the table's own.");
+        return List.of("CREATE TABLE " + table(type, sibling(t, backupName)) + " AS SELECT * FROM " + table(type, t));
+    }
+
+    /** "orders_backup_20261023": a backup name for today. */
+    public static String backupName(TableRef t, java.time.LocalDate day) {
+        return t.name() + "_backup_" + day.format(java.time.format.DateTimeFormatter.BASIC_ISO_DATE);
+    }
+
+    /** A table of the same schema / database, by name. */
+    private static TableRef sibling(TableRef t, String name) {
+        return new TableRef(t.catalog(), t.schema(), name.strip(), t.type());
+    }
+
     // ---- helpers ----
 
     /** "a, b" as typed into a form: the names, trimmed, empty ones left out. */
