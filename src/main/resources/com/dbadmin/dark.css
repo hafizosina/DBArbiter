@@ -112,3 +112,6 @@
 .tab-badge-compare { -fx-background-color: #e65100; }
 .tab-badge-scan { -fx-background-color: #1b5e20; }
 .tab-badge-connection { -fx-background-color: #616161; }
+
+.table-row-cell .table-cell:current-cell { -fx-border-color: #64b5f6; }
+.table-row-cell .table-cell:current-cell:selected { -fx-text-fill: #f0f0f0; }

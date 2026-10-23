@@ -182,3 +182,9 @@
 .tab-badge-compare { -fx-background-color: #ef6c00; }
 .tab-badge-scan { -fx-background-color: #2e7d32; }
 .tab-badge-connection { -fx-background-color: #757575; }
+
+/* the focused cell of a grid (DataGrid): outlined, also when it is selected with others or the focus is elsewhere;
+   the border replaces the cell's padding, so the text does not move */
+.table-row-cell .table-cell:current-cell { -fx-border-color: #1565c0; -fx-border-width: 2; -fx-padding: 0 1 0 1; }
+/* inside a selected block it keeps the normal background, as a spreadsheet shows the active cell of a range */
+.table-row-cell .table-cell:current-cell:selected { -fx-background-color: -fx-control-inner-background; -fx-text-fill: #1a1a1a; }

@@ -85,7 +85,10 @@ class DataGrid extends TableView<List<Object>> {
         });
         getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
         getSelectionModel().setCellSelectionEnabled(true);
-        getFocusModel().focusedCellProperty().addListener((o, a, pos) -> publishFocusedCell());
+        getFocusModel().focusedCellProperty().addListener((o, a, pos) -> {
+            publishFocusedCell();
+            markCurrentCell();
+        });
         // Ctrl+C: the selected cells; Ctrl+Shift+C: with the column names (not while a cell is being edited)
         addEventHandler(javafx.scene.input.KeyEvent.KEY_PRESSED, e -> {
             if (e.getCode() == javafx.scene.input.KeyCode.C && e.isShortcutDown() && !e.isAltDown() && getEditingCell() == null) {
@@ -124,6 +127,15 @@ class DataGrid extends TableView<List<Object>> {
         javafx.scene.input.Clipboard.getSystemClipboard().setContent(content);
     }
 
+
+    /** The focused cell, outlined (app.css) even while the focus is elsewhere, e.g. typing in the value panel. */
+    private static final javafx.css.PseudoClass CURRENT = javafx.css.PseudoClass.getPseudoClass("current-cell");
+
+    private void markCurrentCell() {
+        for (javafx.scene.Node n : lookupAll(".table-cell")) {
+            if (n instanceof ValueCell cell) cell.markCurrent();
+        }
+    }
 
     /** Publishes the focused cell, also again after its value was edited. */
     void publishFocusedCell() {
@@ -405,9 +417,22 @@ class DataGrid extends TableView<List<Object>> {
             setGraphic(null);
         }
 
+        void markCurrent() {
+            TableView<List<Object>> table = getTableView();
+            pseudoClassStateChanged(CURRENT, !isEmpty() && table != null && getIndex() >= 0
+                    && table.getFocusModel().isFocused(getIndex(), getTableColumn()));
+        }
+
+        @Override
+        public void updateIndex(int i) {
+            super.updateIndex(i);
+            markCurrent(); // cells are reused for other rows while scrolling
+        }
+
         @Override
         protected void updateItem(Object value, boolean empty) {
             super.updateItem(value, empty);
+            markCurrent();
             getStyleClass().removeAll("null-value", "cmp-cell-changed", "cell-edited");
             setStyle(null);
             if (isEditing()) return;
