@@ -171,6 +171,15 @@ Phase 3 done (2026-10-23): double-click a finding → **Rows** tab (`MatchRowsVi
 one line around the first match with the match highlighted and the number of matches, the selected row's whole value
 below with every match highlighted, and "values are JSON" when the column holds JSON (`DataScan.matchingRows`,
 `matches`, `isJson`).
+Phase 4 done (2026-10-23): **Replace…** in the Scan tab (`ReplaceDialog`, `ReplaceSql`, `AlsoSetStore`): each found
+value with what it becomes (empty: not replaced), the columns to change (key and generated columns never), Also set
+(saved per connection in `~/.dbadmin/also-set.json`, only where a table has the column), checks (values inside
+others, new values holding old ones, other-case rows, varchar too short, text JSON broken), a before / after preview;
+**Create script** opens it in a script tab. The WHERE uses `strpos` / `INSTR` / `instr` (exact, as REPLACE is) instead
+of the example's `LIKE ANY`: a `_` or `%` in a URL is a LIKE wildcard and would touch rows that hold nothing to change.
+MySQL and SQLite get no row-count SELECT: the script tab shows each UPDATE's count, and PostgreSQL's RAISE NOTICE now
+shows in the script output too. Tried on PostgreSQL 16 from the example's data: 25 rows replaced (HTML, text, jsonb),
+modified_date / modified_by set, a second run 0 rows, a new scan finds only the other-case rows; and on MySQL 8.4.
 
 1. Scan engine and tests (no UI).
 2. Scan tab: `CheckList` first (the tables picker and `ColumnPicker` moved onto it, their shift-click tried again),

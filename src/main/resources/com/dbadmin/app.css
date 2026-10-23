@@ -169,3 +169,7 @@
 /* Scan Data: a found value */
 .scan-match { -rtfx-background-color: #ffe082; }
 .scan-match-label { -fx-background-color: #ffe082; -fx-text-fill: black; -fx-padding: 0; }
+.preview-title { -fx-font-weight: bold; }
+.preview-label { -fx-fill: #777777; }
+.preview-old { -rtfx-background-color: #ffcdd2; }
+.preview-new { -rtfx-background-color: #c8e6c9; }

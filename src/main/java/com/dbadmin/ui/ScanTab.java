@@ -89,6 +89,7 @@ class ScanTab extends Tab {
     /** Rows shown per finding. */
     static final int ROWS_SHOWN = 100;
     private final Button export = new Button("Export CSV…");
+    private final Button replace = new Button("Replace…");
     private Job<List<TableResult>> running;
     /** The request of the last scan, for the findings' value headers and the coverage. */
     private ScanRequest lastRequest;
@@ -136,6 +137,9 @@ class ScanTab extends Tab {
         status.getStyleClass().add("hint-small");
         export.setOnAction(e -> exportFindings());
         export.setDisable(true);
+        replace.setOnAction(e -> openReplace());
+        replace.setDisable(true);
+        replace.setTooltip(new Tooltip("Writes a script that replaces the values found; it opens in a script tab to review and run"));
 
         HBox top = new HBox(8, new Label("Connection"), connection, new Label("Match"), match, ignoreCase,
                 new Label("Timeout per table"), timeout, new Label("s"), new Label("Big table over"), bigRows, new Label("rows"));
@@ -157,7 +161,7 @@ class ScanTab extends Tab {
         VBox.setVgrow(pickers, Priority.ALWAYS);
         Region gap = new Region();
         HBox.setHgrow(gap, Priority.ALWAYS);
-        HBox actions = new HBox(8, scanButton, status, gap, export);
+        HBox actions = new HBox(8, scanButton, status, gap, replace, export);
         actions.setAlignment(Pos.CENTER_LEFT);
         VBox form = new VBox(8, top, pickers, actions);
         form.setPadding(new Insets(8));
@@ -337,6 +341,7 @@ class ScanTab extends Tab {
         coverageTab.setText("Coverage");
         scanButton.setText("Cancel");
         export.setDisable(true);
+        replace.setDisable(true);
         long started = System.nanoTime();
         running = Job.start(List.of(c), DatabaseSession::open, Async.background(), Platform::runLater,
                 (ss, job) -> DataScan.run(ss.get(0), request, job, r -> Platform.runLater(() -> {
@@ -370,6 +375,7 @@ class ScanTab extends Tab {
         scanButton.setText("Scan");
         status.setText(text);
         export.setDisable(results.isEmpty());
+        replace.setDisable(results.stream().allMatch(r -> r.findings().isEmpty()));
         showCoverage();
     }
 
@@ -411,6 +417,18 @@ class ScanTab extends Tab {
     private static String valueHeader(int i, String v) {
         String shortV = v.length() > 28 ? "…" + v.substring(v.length() - 27) : v;
         return (i + 1) + ": " + shortV;
+    }
+
+    /** Replace…: the dialog on the tab's connection; its script opens in a script tab. */
+    private void openReplace() {
+        ConnectionConfig c = connection.getValue();
+        ScanRequest request = lastRequest;
+        List<ScanFinding> found = results.stream().flatMap(r -> r.findings().stream()).toList();
+        if (c == null || request == null || found.isEmpty()) return;
+        javafx.stage.Window owner = getTabPane() == null ? null : getTabPane().getScene().getWindow();
+        sessions.withSession(c, s -> InAppDialogs.showAndWait(new ReplaceDialog(owner, c, s, request, found,
+                        new com.dbadmin.service.scan.AlsoSetStore())).ifPresent(script -> sessions.newScript(c, script)),
+                ex -> status.setText("Could not connect: " + ex.getMessage()));
     }
 
     /** The first rows of a finding, read on the tab's connection. */

@@ -102,3 +102,6 @@
 
 .scan-match { -rtfx-background-color: #6d5a12; }
 .scan-match-label { -fx-background-color: #6d5a12; -fx-text-fill: #fff8e1; }
+.preview-label { -fx-fill: #9e9e9e; }
+.preview-old { -rtfx-background-color: #5c2b2b; }
+.preview-new { -rtfx-background-color: #2e5a33; }

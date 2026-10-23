@@ -272,7 +272,7 @@ public final class DataScan {
     private static final com.fasterxml.jackson.databind.ObjectMapper JSON = new com.fasterxml.jackson.databind.ObjectMapper();
 
     /** A JSON object or array (not a bare string or number: plain text would count). */
-    static boolean isJson(String value) {
+    public static boolean isJson(String value) {
         if (value == null) return true;
         String t = value.strip();
         if (!(t.startsWith("{") || t.startsWith("["))) return false;
