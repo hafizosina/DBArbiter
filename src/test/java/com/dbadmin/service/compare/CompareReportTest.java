@@ -136,6 +136,12 @@ class CompareReportTest {
         assertTrue(html.contains("Differences (3)"));
         assertTrue(html.contains("1 identical rows are not listed"));
         assertTrue(html.contains("<span class=old>2</span><br><span class=new>3</span>"));
+        // sort, search and filter: the rows carry what the filters read, and the page its own script
+        assertTrue(html.contains("<table class=rows data-filters=\"status verdict\"><thead>"), html);
+        assertTrue(html.contains("data-verdict=\"INSERT\""));
+        assertTrue(html.contains("data-verdict=\"undecided\""));
+        assertTrue(html.contains("<script>") && html.endsWith("</script></body></html>"));
+        assertFalse(html.contains("src=\"http"), "no external files");
     }
 
     /** A report from a newer app version is refused with a clear message; one without a version opens as version 1. */

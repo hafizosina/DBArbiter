@@ -9,8 +9,9 @@ import java.util.List;
 import java.util.Objects;
 
 /**
- * A compare report as one self-contained HTML page (no scripts, no external files), for people who
- * do not use the app: summary first, then only the differences. Prints well.
+ * A compare report as one self-contained HTML page (no external files), for people who do not use the app: summary
+ * first, then only the differences. A small inline script lets the reader sort any table by a column, and search and
+ * filter the main one (by status, verdict, kind); without scripts the page still reads and prints in full.
  */
 public final class CompareHtml {
 
@@ -41,7 +42,92 @@ public final class CompareHtml {
             .verdict { font-weight: 600; white-space: nowrap; } .none { color: #8c959f; }
             pre { white-space: pre-wrap; margin: 0; font: 12px/1.4 ui-monospace, Consolas, monospace; }
             footer { margin-top: 28px; color: #8c959f; font-size: 12px; }
-            @media print { body { padding: 0; } table.rows th { position: static; } }
+            .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 8px 0; font-size: 12.5px; }
+            .tools input[type=search] { font: inherit; padding: 4px 8px; border: 1px solid #d1d9e0; border-radius: 6px; min-width: 240px; }
+            .tools .group { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+            .tools label { white-space: nowrap; cursor: pointer; }
+            .tools .count { color: #59636e; }
+            th.sortable { cursor: pointer; user-select: none; }
+            th.sortable:hover { background: #eaeef2; }
+            th[data-sort=asc]::after { content: " ▲"; } th[data-sort=desc]::after { content: " ▼"; }
+            @media print { body { padding: 0; } table.rows th { position: static; } .tools { display: none; } }
+            """;
+
+    /**
+     * Sorting (every table.rows: click a header) and, for a table with data-filters="status verdict", a search box and
+     * a checkbox per value of each data-* attribute of its rows, with how many rows have it.
+     */
+    private static final String SCRIPT = """
+            (function () {
+              function text(cell) { return cell ? (cell.textContent || '').trim() : ''; }
+              function num(s) { var t = s.replace(/,/g, ''); return /^-?[0-9]+([.][0-9]+)?$/.test(t) ? parseFloat(t) : null; }
+              var list = function (x) { return Array.prototype.slice.call(x); };
+              list(document.querySelectorAll('table.rows')).forEach(function (table) {
+                var body = table.tBodies[0];
+                if (!body || !table.tHead) return;
+                var heads = list(table.tHead.rows[0].cells);
+                heads.forEach(function (th, col) {
+                  th.classList.add('sortable');
+                  th.title = 'Sort by this column';
+                  th.addEventListener('click', function () {
+                    var asc = th.getAttribute('data-sort') !== 'asc';
+                    heads.forEach(function (h) { h.removeAttribute('data-sort'); });
+                    th.setAttribute('data-sort', asc ? 'asc' : 'desc');
+                    list(body.rows).sort(function (a, b) {
+                      var x = text(a.cells[col]), y = text(b.cells[col]), nx = num(x), ny = num(y);
+                      var c = nx !== null && ny !== null ? nx - ny : x.localeCompare(y, undefined, {numeric: true, sensitivity: 'base'});
+                      return asc ? c : -c;
+                    }).forEach(function (r) { body.appendChild(r); });
+                  });
+                });
+                var filters = (table.getAttribute('data-filters') || '').split(' ').filter(Boolean);
+                if (!filters.length) return;
+                var rows = list(body.rows);
+                var bar = document.createElement('div');
+                bar.className = 'tools';
+                var search = document.createElement('input');
+                search.type = 'search';
+                search.placeholder = 'Search the rows…';
+                bar.appendChild(search);
+                var boxes = {};
+                filters.forEach(function (f) {
+                  boxes[f] = {};
+                  var group = document.createElement('span');
+                  group.className = 'group';
+                  var values = [];
+                  rows.forEach(function (r) { var v = r.getAttribute('data-' + f); if (values.indexOf(v) < 0) values.push(v); });
+                  values.forEach(function (v) {
+                    var n = rows.filter(function (r) { return r.getAttribute('data-' + f) === v; }).length;
+                    var label = document.createElement('label');
+                    var box = document.createElement('input');
+                    box.type = 'checkbox';
+                    box.checked = true;
+                    box.addEventListener('change', apply);
+                    boxes[f][v] = box;
+                    label.appendChild(box);
+                    label.appendChild(document.createTextNode(' ' + v + ' (' + n + ')'));
+                    group.appendChild(label);
+                  });
+                  bar.appendChild(group);
+                });
+                var count = document.createElement('span');
+                count.className = 'count';
+                bar.appendChild(count);
+                table.parentNode.insertBefore(bar, table);
+                function apply() {
+                  var q = search.value.trim().toLowerCase(), shown = 0;
+                  rows.forEach(function (r) {
+                    var ok = (!q || r.textContent.toLowerCase().indexOf(q) >= 0)
+                        && filters.every(function (f) { return boxes[f][r.getAttribute('data-' + f)].checked; });
+                    r.style.display = ok ? '' : 'none';
+                    if (ok) shown++;
+                  });
+                  count.textContent = shown + ' of ' + rows.length + ' rows';
+                }
+                search.addEventListener('input', apply);
+                apply();
+              });
+            })();
             """;
 
     private CompareHtml() {
@@ -93,11 +179,14 @@ public final class CompareHtml {
         if (listed.isEmpty()) {
             h.append("<p>No differences.</p>");
         } else {
-            h.append("<table class=rows><tr><th>Status</th><th>Verdict</th>");
+            h.append("<table class=rows data-filters=\"status verdict\"><thead><tr><th>Status</th><th>Verdict</th>");
             for (String c : r.shownColumns) h.append("<th>").append(esc(c)).append("</th>");
-            h.append("<th>Note</th></tr>");
+            h.append("<th>Note</th></tr></thead><tbody>");
             for (DataCompareReport.Row row : listed) {
-                h.append("<tr><td><span class=\"st s-").append(row.status.name().toLowerCase()).append("\">")
+                String verdict = row.verdict != null ? row.verdict.name() : Verdict.allowed(row.status).isEmpty() ? "none needed" : "undecided";
+                h.append("<tr data-status=\"").append(statusText(row.status, r.source.label(), r.target.label()))
+                        .append("\" data-verdict=\"").append(esc(verdict)).append("\"><td><span class=\"st s-")
+                        .append(row.status.name().toLowerCase()).append("\">")
                         .append(statusText(row.status, r.source.label(), r.target.label())).append("</span></td>");
                 h.append("<td class=verdict>").append(row.verdict == null
                         ? (Verdict.allowed(row.status).isEmpty() ? "" : "<span class=none>–</span>")
@@ -115,7 +204,7 @@ public final class CompareHtml {
                 }
                 h.append("<td>").append(esc(row.status == RowStatus.CHANGED ? "" : row.note)).append("</td></tr>");
             }
-            h.append("</table>");
+            h.append("</tbody></table>");
         }
         if (r.same > 0) h.append("<p class=sub>").append(r.same).append(" identical rows are not listed.</p>");
         return footer(h, r.appVersion);
@@ -138,13 +227,15 @@ public final class CompareHtml {
         if (differing.isEmpty()) {
             h.append("<p>No differences.</p>");
         } else {
-            h.append("<table class=rows><tr><th>Name</th><th>Kind</th><th>Status</th><th>Differences</th></tr>");
+            h.append("<table class=rows data-filters=\"status kind\"><thead><tr><th>Name</th><th>Kind</th><th>Status</th>"
+                    + "<th>Differences</th></tr></thead><tbody>");
             for (SchemaCompare.TableDiff t : differing) {
-                h.append("<tr><td><a href=\"#t-").append(esc(t.name())).append("\">").append(esc(t.name())).append("</a></td><td>")
+                h.append("<tr data-status=\"").append(esc(tableStatusText(t.status(), r))).append("\" data-kind=\"")
+                        .append(esc(t.kind().toLowerCase())).append("\"><td><a href=\"#t-").append(esc(t.name())).append("\">").append(esc(t.name())).append("</a></td><td>")
                         .append(esc(t.kind().toLowerCase())).append("</td><td>").append(tableStatus(t.status(), r))
                         .append("</td><td>").append(t.status() == Status.CHANGED ? t.differences() : "").append("</td></tr>");
             }
-            h.append("</table>");
+            h.append("</tbody></table>");
             for (SchemaCompare.TableDiff t : differing) {
                 h.append("<h2 id=\"t-").append(esc(t.name())).append("\">").append(esc(t.name())).append(" · ")
                         .append(tableStatus(t.status(), r)).append("</h2>");
@@ -153,8 +244,8 @@ public final class CompareHtml {
                             .append(esc(t.status() == Status.ONLY_SOURCE ? r.sourceLabel : r.targetLabel)).append(".</p>");
                     continue;
                 }
-                h.append("<table class=rows><tr><th>Category</th><th>Name</th><th>Status</th><th>")
-                        .append(esc(r.sourceLabel)).append("</th><th>").append(esc(r.targetLabel)).append("</th></tr>");
+                h.append("<table class=rows><thead><tr><th>Category</th><th>Name</th><th>Status</th><th>")
+                        .append(esc(r.sourceLabel)).append("</th><th>").append(esc(r.targetLabel)).append("</th></tr></thead><tbody>");
                 for (SchemaCompare.Item i : t.items()) {
                     if (i.status() == Status.SAME) continue;
                     boolean sql = i.category().equals("Definition");
@@ -162,7 +253,7 @@ public final class CompareHtml {
                             .append(tableStatus(i.status(), r)).append("</td><td>").append(sql ? "<pre>" + esc(i.source()) + "</pre>" : esc(i.source()))
                             .append("</td><td>").append(sql ? "<pre>" + esc(i.target()) + "</pre>" : esc(i.target())).append("</td></tr>");
                 }
-                h.append("</table>");
+                h.append("</tbody></table>");
             }
         }
         long same = r.count(Status.SAME);
@@ -176,7 +267,8 @@ public final class CompareHtml {
     }
 
     private static String footer(StringBuilder h, String appVersion) {
-        h.append("<footer>Generated by DBArbiter").append(appVersion == null ? "" : " " + esc(appVersion)).append("</footer></body></html>");
+        h.append("<footer>Generated by DBArbiter").append(appVersion == null ? "" : " " + esc(appVersion)).append("</footer>")
+                .append("<script>").append(SCRIPT).append("</script></body></html>");
         return h.toString();
     }
 
@@ -205,13 +297,16 @@ public final class CompareHtml {
             case ONLY_SOURCE -> "only_source";
             case ONLY_TARGET -> "only_target";
         };
-        String text = switch (s) {
+        return "<span class=\"st s-" + css + "\">" + esc(tableStatusText(s, r)) + "</span>";
+    }
+
+    private static String tableStatusText(Status s, SchemaCompareReport r) {
+        return switch (s) {
             case SAME -> "Same";
             case CHANGED -> "Changed";
             case ONLY_SOURCE -> "Only in " + r.sourceLabel;
             case ONLY_TARGET -> "Only in " + r.targetLabel;
         };
-        return "<span class=\"st s-" + css + "\">" + esc(text) + "</span>";
     }
 
     private static String value(String v) {
