@@ -173,3 +173,12 @@
 .preview-label { -fx-fill: #777777; }
 .preview-old { -rtfx-background-color: #ffcdd2; }
 .preview-new { -rtfx-background-color: #c8e6c9; }
+
+/* the kind of a tab (TabBadge) */
+.tab-badge { -fx-font-size: 9px; -fx-font-weight: bold; -fx-padding: 0 4 0 4; -fx-background-radius: 3; -fx-text-fill: white; }
+.tab-badge-table { -fx-background-color: #1e88e5; }
+.tab-badge-view { -fx-background-color: #00897b; }
+.tab-badge-script { -fx-background-color: #8e24aa; }
+.tab-badge-compare { -fx-background-color: #ef6c00; }
+.tab-badge-scan { -fx-background-color: #2e7d32; }
+.tab-badge-connection { -fx-background-color: #757575; }

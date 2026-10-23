@@ -97,6 +97,7 @@ class ScanTab extends Tab {
 
     ScanTab(ObservableList<ConnectionConfig> connections, SessionProvider sessions, ConnectionConfig initial) {
         super("Scan Data");
+        setGraphic(TabBadge.of(TabBadge.Kind.SCAN));
         this.sessions = sessions;
         connection.setItems(connections);
         connection.setPromptText("connection…");

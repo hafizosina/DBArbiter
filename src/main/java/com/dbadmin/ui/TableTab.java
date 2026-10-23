@@ -82,6 +82,7 @@ class TableTab extends Tab implements UnsavedWork {
     TableTab(DatabaseSession session, TableRef table, SessionProvider sessions, SqlCompleter completer, TableTransfer.Host transferHost,
              TableActions.Host tableActions) {
         super(table.name());
+        setGraphic(TabBadge.of(table.isView() ? TabBadge.Kind.VIEW : TabBadge.Kind.TABLE));
         this.tableActions = tableActions;
         this.session = session;
         this.table = table;

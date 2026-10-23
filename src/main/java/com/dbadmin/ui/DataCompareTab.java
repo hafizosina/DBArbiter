@@ -104,6 +104,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
 
     DataCompareTab(ObservableList<ConnectionConfig> connections, SessionProvider sessions, ConnectionConfig initial) {
         super("Data Compare");
+        setGraphic(TabBadge.of(TabBadge.Kind.COMPARE));
         this.connections = connections;
         this.sessions = sessions;
         dataSource = new CompareSide("Source", true, connections, sessions, dataStatus::setText);

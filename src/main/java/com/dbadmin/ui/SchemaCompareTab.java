@@ -87,6 +87,7 @@ class SchemaCompareTab extends Tab implements UnsavedWork {
     SchemaCompareTab(ObservableList<ConnectionConfig> connections, SessionProvider sessions, ConnectionConfig initial,
                      Consumer<Tab> openTab) {
         super("Table Compare");
+        setGraphic(TabBadge.of(TabBadge.Kind.COMPARE));
         this.connections = connections;
         this.sessions = sessions;
         this.openTab = openTab;

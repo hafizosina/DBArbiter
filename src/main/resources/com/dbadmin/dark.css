@@ -105,3 +105,10 @@
 .preview-label { -fx-fill: #9e9e9e; }
 .preview-old { -rtfx-background-color: #5c2b2b; }
 .preview-new { -rtfx-background-color: #2e5a33; }
+
+.tab-badge-table { -fx-background-color: #1565c0; }
+.tab-badge-view { -fx-background-color: #00695c; }
+.tab-badge-script { -fx-background-color: #7b1fa2; }
+.tab-badge-compare { -fx-background-color: #e65100; }
+.tab-badge-scan { -fx-background-color: #1b5e20; }
+.tab-badge-connection { -fx-background-color: #616161; }

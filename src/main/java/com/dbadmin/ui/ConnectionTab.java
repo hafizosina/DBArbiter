@@ -52,6 +52,7 @@ class ConnectionTab extends Tab {
     ConnectionTab(ConnectionConfig existing, Consumer<ConnectionConfig> onSave) {
         editedId = existing == null ? null : existing.getId();
         setText(existing == null ? "New Connection" : "Edit: " + existing.getName());
+        setGraphic(TabBadge.of(TabBadge.Kind.CONNECTION));
         Label title = new Label(existing == null ? "Connect to a database" : "Edit \"" + existing.getName() + "\"");
         title.getStyleClass().add("form-title");
 
