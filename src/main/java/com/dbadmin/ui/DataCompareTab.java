@@ -100,7 +100,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
     private final JoinEditor joins;
     /** Several rows per key: a key's rows are matched by their compared values (see DataCompare). */
     private final CheckBox oneToMany = new CheckBox("One-to-many");
-    private final CheckBox ignoreLineEndings = new CheckBox("Ignore line endings & empty");
+    private final CheckBox ignoreLineEndings = new CheckBox("Loose match");
 
     private final ObservableList<ConnectionConfig> connections;
     private final SessionProvider sessions;
@@ -340,7 +340,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
         HBox.setHgrow(where, Priority.ALWAYS);
         oneToMany.setTooltip(new Tooltip("For a key with several rows (e.g. the images of a tier code): each row is matched by the "
                 + "compared columns.\nOn both sides: MATCH · only in the source: new, to add · only in the target: old, to remove."));
-        ignoreLineEndings.setTooltip(new Tooltip("Text that differs only in its line endings (Windows CRLF ␍ or LF) counts as the same,"
+        ignoreLineEndings.setTooltip(new Tooltip("Loose match: text that differs only in its line endings (Windows CRLF ␍ or LF) counts as the same,"
                 + "\nand so do NULL, an empty text '' and a text of only spaces.\nApplies from the next Compare."));
         saveButton.setTooltip(new Tooltip("Save this compare to its file (Ctrl+S); the first time, asks where and what"));
         saveButton.setOnAction(e -> save());

@@ -257,7 +257,7 @@ public final class DataCompare {
     }
 
     /**
-     * As {@link #normalize(Object)}; with {@code ignoreLineEndings} (the "Ignore line endings & empty" option), CRLF and
+     * As {@link #normalize(Object)}; with {@code ignoreLineEndings} (the "Loose match" option), CRLF and
      * CR in text count as LF, and an empty or blank text counts as NULL.
      */
     public static String normalize(Object v, boolean ignoreLineEndings) {
