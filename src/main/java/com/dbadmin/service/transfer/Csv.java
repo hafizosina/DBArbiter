@@ -117,15 +117,29 @@ public final class Csv {
         records.add(record);
     }
 
-    /** The likely delimiter of a CSV text: the one of , ; tab | found most often in its first line. */
+    /**
+     * The likely delimiter of a CSV text, from its first line (the header): the symbol found most often there, outside
+     * quotes. , ; tab and | win a tie; any other symbol counts too (e.g. §), but not letters, digits, spaces, quotes or
+     * what is common inside names and values (_ . - : /).
+     */
     public static char guessDelimiter(String firstLine) {
+        java.util.Map<Character, Integer> counts = new java.util.LinkedHashMap<>();
+        for (char d : new char[]{',', ';', '\t', '|'}) counts.put(d, 0); // first: they win a tie
+        boolean quoted = false;
+        for (char ch : firstLine.toCharArray()) {
+            if (ch == '"') {
+                quoted = !quoted;
+                continue;
+            }
+            if (quoted || Character.isLetterOrDigit(ch) || (Character.isWhitespace(ch) && ch != '\t') || "'_.-:/\\".indexOf(ch) >= 0) continue;
+            counts.merge(ch, 1, Integer::sum);
+        }
         char best = ',';
-        long most = 0;
-        for (char d : new char[]{',', ';', '\t', '|'}) {
-            long n = firstLine.chars().filter(ch -> ch == d).count();
-            if (n > most) {
-                most = n;
-                best = d;
+        int most = 0;
+        for (var e : counts.entrySet()) {
+            if (e.getValue() > most) {
+                most = e.getValue();
+                best = e.getKey();
             }
         }
         return best;

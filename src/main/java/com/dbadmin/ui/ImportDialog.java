@@ -9,6 +9,8 @@ import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
+import javafx.scene.control.Tooltip;
+import javafx.scene.control.TextField;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
@@ -42,6 +44,8 @@ class ImportDialog extends Dialog<ImportDialog.Plan> {
     private final String text;
     private final List<String> tableColumns;
     private final ComboBox<String> delimiter = new ComboBox<>();
+    /** The character for "Other…", e.g. § from an export that uses it. */
+    private final TextField otherDelimiter = new TextField();
     private final CheckBox header = new CheckBox("First row has the column names");
     private final CheckBox emptyIsNull = new CheckBox("Empty values become NULL");
     private final GridPane mapping = new GridPane();
@@ -59,18 +63,30 @@ class ImportDialog extends Dialog<ImportDialog.Plan> {
         setResizable(true);
 
         String firstLine = text.lines().findFirst().orElse("");
-        delimiter.getItems().addAll("Comma  ,", "Semicolon  ;", "Tab", "Pipe  |");
-        delimiter.setValue(switch (Csv.guessDelimiter(firstLine)) {
+        delimiter.getItems().addAll("Comma  ,", "Semicolon  ;", "Tab", "Pipe  |", OTHER);
+        char guessed = Csv.guessDelimiter(firstLine);
+        delimiter.setValue(switch (guessed) {
+            case ',' -> "Comma  ,";
             case ';' -> "Semicolon  ;";
             case '\t' -> "Tab";
             case '|' -> "Pipe  |";
-            default -> "Comma  ,";
+            default -> OTHER;
+        });
+        otherDelimiter.setText(delimiter.getValue().equals(OTHER) ? String.valueOf(guessed) : "");
+        otherDelimiter.setPrefColumnCount(2);
+        otherDelimiter.setPromptText("§");
+        otherDelimiter.setTooltip(new Tooltip("The character between the values"));
+        otherDelimiter.visibleProperty().bind(delimiter.valueProperty().isEqualTo(OTHER));
+        otherDelimiter.managedProperty().bind(otherDelimiter.visibleProperty());
+        otherDelimiter.textProperty().addListener((o, a, b) -> {
+            if (b.length() > 1) otherDelimiter.setText(b.substring(b.length() - 1)); // one character: the last typed
+            else reload();
         });
         header.setSelected(true);
         emptyIsNull.setSelected(true);
         delimiter.valueProperty().addListener((o, a, b) -> reload());
         header.selectedProperty().addListener((o, a, b) -> reload());
-        HBox options = new HBox(12, new Label("Delimiter:"), delimiter, header, emptyIsNull);
+        HBox options = new HBox(12, new Label("Delimiter:"), delimiter, otherDelimiter, header, emptyIsNull);
         options.setAlignment(Pos.CENTER_LEFT);
 
         mapping.setHgap(10);
@@ -106,7 +122,10 @@ class ImportDialog extends Dialog<ImportDialog.Plan> {
         reload();
     }
 
+    private static final String OTHER = "Other…";
+
     private char delimiterChar() {
+        if (OTHER.equals(delimiter.getValue())) return otherDelimiter.getText().isEmpty() ? ',' : otherDelimiter.getText().charAt(0);
         return switch (delimiter.getValue().charAt(0)) {
             case 'S' -> ';';
             case 'T' -> '\t';

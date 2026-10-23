@@ -55,6 +55,11 @@ class TransferTest {
         assertEquals(';', Csv.guessDelimiter("id;name;price"));
         assertEquals('\t', Csv.guessDelimiter("id\tname"));
         assertEquals(',', Csv.guessDelimiter("id,name"));
+        // any symbol between the names, quoted or not (an export with § as the delimiter)
+        assertEquals('§', Csv.guessDelimiter("id§\"created_date\"§\"created_by\"§\"module\""));
+        assertEquals(',', Csv.guessDelimiter("\"a§b\",\"c§d\""), "inside quotes it is part of a name");
+        assertEquals(',', Csv.guessDelimiter("created_at,modified-by,schema.table"), "_ - . are parts of names");
+        assertEquals(',', Csv.guessDelimiter("single"));
     }
 
     @Test
