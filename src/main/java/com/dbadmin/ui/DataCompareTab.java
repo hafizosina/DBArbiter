@@ -6,6 +6,7 @@ import com.dbadmin.model.TableData;
 import com.dbadmin.model.TableRef;
 import com.dbadmin.service.DatabaseSession;
 import com.dbadmin.service.SqlSplitter;
+import com.dbadmin.service.compare.CompareExcel;
 import com.dbadmin.service.compare.CompareHtml;
 import com.dbadmin.service.compare.CompareReportFiles;
 import com.dbadmin.service.compare.DataCompare;
@@ -36,6 +37,7 @@ import javafx.scene.control.Spinner;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TableColumn;
+import javafx.scene.control.TextArea;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
@@ -338,10 +340,17 @@ class DataCompareTab extends Tab implements UnsavedWork {
         MenuItem html = new MenuItem("Export HTML…");
         html.setOnAction(e -> exportHtml());
         html.disableProperty().bind(reportShown.not());
+        MenuItem excel = new MenuItem("Export Excel…");
+        excel.setOnAction(e -> exportExcel());
+        excel.disableProperty().bind(reportShown.not());
+        MenuItem importExcel = new MenuItem("Import Verdicts from Excel…");
+        importExcel.setOnAction(e -> importExcel());
+        importExcel.disableProperty().bind(reportShown.not());
         MenuItem sql = new MenuItem("Show queries…");
         sql.setOnAction(e -> showQueries());
-        MenuButton more = new MenuButton("⋯", null, saveAs, html, new SeparatorMenuItem(), sql);
-        more.setTooltip(new Tooltip("Save As, Export HTML, the queries each side runs"));
+        MenuButton more = new MenuButton("⋯", null, saveAs, html, new SeparatorMenuItem(), excel, importExcel,
+                new SeparatorMenuItem(), sql);
+        more.setTooltip(new Tooltip("Save As, Export HTML, Excel to decide verdicts in, the queries each side runs"));
 
         // the sides on the left, the options and actions beside them
         Label rowsLabel = new Label("Rows");
@@ -908,6 +917,50 @@ class DataCompareTab extends Tab implements UnsavedWork {
     }
 
     // ---- saving --------------------------------------------------------------
+
+    /** The rows as an Excel sheet whose Verdict column offers the verdicts that fit each row (see CompareExcel). */
+    private void exportExcel() {
+        if (report == null) return;
+        Path file = CompareReportChooser.saveExcel(getTabPane().getScene().getWindow(), compareFile.file(), CompareReportChooser.defaultName(
+                "DataCompare-" + report.source.table(), report.source.label(), report.target.label()));
+        if (file == null) return;
+        try (var out = Files.newOutputStream(file)) {
+            CompareExcel.write(report, out);
+            dataStatus.setText("Excel saved as " + file + " · pick verdicts in its Verdict column, then Import Verdicts from Excel");
+        } catch (IOException e) {
+            error("Could not save the Excel file", e);
+        }
+    }
+
+    /** Verdicts from a sheet made by Export Excel: by key and status; what could not be used is listed. */
+    private void importExcel() {
+        if (report == null) return;
+        Path file = CompareReportChooser.openExcel(getTabPane().getScene().getWindow(), compareFile.file());
+        if (file == null) return;
+        CompareExcel.Imported done;
+        try (var in = Files.newInputStream(file)) {
+            done = CompareExcel.read(report, com.dbadmin.service.transfer.Xlsx.read(in));
+        } catch (IOException | IllegalArgumentException e) {
+            error("Could not read " + file.getFileName(), e instanceof IOException io ? io : new IOException(e.getMessage(), e));
+            return;
+        }
+        verdictsChanged(done.changed());
+        String summary = done.changed() + " verdict(s) set or cleared, " + done.unchanged() + " already so"
+                + (done.problems().isEmpty() ? "" : ", " + done.problems().size() + " row(s) left alone");
+        dataStatus.setText(summary + (compareFile.hasUnsavedEdits() ? " · not saved" : ""));
+        if (!done.problems().isEmpty()) {
+            TextArea list = new TextArea(String.join("\n", done.problems()));
+            list.setEditable(false);
+            list.setWrapText(true);
+            list.setPrefRowCount(Math.min(12, done.problems().size() + 1));
+            Alert alert = new Alert(Alert.AlertType.INFORMATION, "", ButtonType.OK);
+            alert.initOwner(getTabPane().getScene().getWindow());
+            alert.setHeaderText(summary);
+            alert.getDialogPane().setContent(list);
+            alert.getDialogPane().setPrefWidth(620);
+            InAppDialogs.showAndWait(alert);
+        }
+    }
 
     private void exportHtml() {
         if (report == null) return;

@@ -61,6 +61,20 @@ final class CompareReportChooser {
         return save(owner, report, base, ".html", "Export HTML", "HTML pages");
     }
 
+    /** Where to save the compare as an Excel sheet to decide verdicts in. */
+    static Path saveExcel(Window owner, Path report, String name) {
+        String base = report != null ? report.getFileName().toString().replaceFirst("\\.dbcompare$", "") : name;
+        return save(owner, report, base, ".xlsx", "Export Excel", "Excel workbooks");
+    }
+
+    /** An Excel sheet exported from a compare, to read its verdicts back; null if cancelled. */
+    static Path openExcel(Window owner, Path near) {
+        Path home = reportDir();
+        Path start = near != null && near.getParent() != null ? near.getParent() : home;
+        return InAppDialogs.showAndWait(new FileDialog(owner, FileDialog.Mode.OPEN, "Import Verdicts from Excel", home, "Reports", start,
+                ".xlsx", "Excel workbooks", null)).orElse(null);
+    }
+
     /** Asks for a report to open; null if cancelled. */
     static Path open(Window owner) {
         Path home = reportDir();
