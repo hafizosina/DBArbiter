@@ -212,6 +212,36 @@ public class DatabaseSession implements AutoCloseable {
         return metadata.generatedColumns(t);
     }
 
+    public List<com.dbadmin.model.CatalogColumn> namespaceColumns(Namespace ns) throws SQLException {
+        return metadata.namespaceColumns(ns);
+    }
+
+    /** Each table's row count as the catalog estimates it, by name; tables without an estimate are left out. */
+    public Map<String, Long> estimatedRows(Namespace ns) throws SQLException {
+        return metadata.estimatedRows(ns);
+    }
+
+    /**
+     * Runs a query that returns one row of numbers (e.g. counts), with text parameters, stopped after
+     * {@code timeoutSeconds} (0: no limit). Cancellable with {@link #cancelRunning()}. Nulls read as 0.
+     */
+    public List<Long> countRow(String sql, List<String> params, int timeoutSeconds) throws SQLException {
+        try (PreparedStatement ps = connection.prepareStatement(sql)) {
+            running = ps;
+            for (int i = 0; i < params.size(); i++) ps.setString(i + 1, params.get(i));
+            if (timeoutSeconds > 0) ps.setQueryTimeout(timeoutSeconds);
+            try (ResultSet rs = ps.executeQuery()) {
+                List<Long> row = new ArrayList<>();
+                if (rs.next()) {
+                    for (int i = 1; i <= rs.getMetaData().getColumnCount(); i++) row.add(rs.getLong(i));
+                }
+                return row;
+            }
+        } finally {
+            running = null;
+        }
+    }
+
     /** The columns exactly as defined, for editing them (see {@link ColumnSpec}). */
     public List<ColumnSpec> columnSpecs(TableRef t) throws SQLException {
         return metadata.columnSpecs(t);

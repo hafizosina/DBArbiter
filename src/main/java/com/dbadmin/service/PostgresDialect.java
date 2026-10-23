@@ -192,4 +192,19 @@ final class PostgresDialect implements Dialect {
         }
         return result;
     }
+
+    /** pg_class.reltuples, kept by ANALYZE / autovacuum; -1 (never analyzed) means no estimate. */
+    @Override
+    public java.util.Map<String, Long> estimatedRows(Metadata m, Namespace ns) throws SQLException {
+        java.util.Map<String, Long> result = new java.util.HashMap<>();
+        for (List<Object> r : m.query("""
+                select c.relname, c.reltuples::bigint
+                from pg_class c join pg_namespace n on n.oid = c.relnamespace
+                where n.nspname = ? and c.relkind in ('r', 'p', 'm')
+                """, ns.schema())) {
+            long rows = ((Number) r.get(1)).longValue();
+            if (rows >= 0) result.put(String.valueOf(r.get(0)), rows);
+        }
+        return result;
+    }
 }

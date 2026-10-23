@@ -134,6 +134,22 @@ final class Metadata {
         return result;
     }
 
+    /** Every column of every table and view in the namespace, in one call, in table and column order. */
+    public List<com.dbadmin.model.CatalogColumn> namespaceColumns(Namespace ns) throws SQLException {
+        List<com.dbadmin.model.CatalogColumn> result = new ArrayList<>();
+        try (ResultSet rs = connection().getMetaData().getColumns(ns.catalog(), ns.schema(), "%", "%")) {
+            while (rs.next()) {
+                result.add(new com.dbadmin.model.CatalogColumn(rs.getString("TABLE_NAME"), rs.getString("COLUMN_NAME"),
+                        nullToEmpty(rs.getString("TYPE_NAME")), rs.getInt("DATA_TYPE")));
+            }
+        }
+        return result;
+    }
+
+    public java.util.Map<String, Long> estimatedRows(Namespace ns) throws SQLException {
+        return dialect.estimatedRows(this, ns);
+    }
+
     /** The columns exactly as defined, for editing them (see {@link ColumnSpec}). */
     public List<ColumnSpec> columnSpecs(TableRef t) throws SQLException {
         return dialect.columns(this, t);

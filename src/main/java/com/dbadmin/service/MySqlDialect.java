@@ -110,4 +110,15 @@ final class MySqlDialect implements Dialect {
         }
         return result;
     }
+
+    /** information_schema.TABLES.TABLE_ROWS: InnoDB's estimate. */
+    @Override
+    public java.util.Map<String, Long> estimatedRows(Metadata m, Namespace ns) throws SQLException {
+        java.util.Map<String, Long> result = new java.util.HashMap<>();
+        for (List<Object> r : m.query("select TABLE_NAME, TABLE_ROWS from information_schema.TABLES "
+                + "where TABLE_SCHEMA = ? and TABLE_ROWS is not null", ns.catalog())) {
+            result.put(String.valueOf(r.get(0)), ((Number) r.get(1)).longValue());
+        }
+        return result;
+    }
 }

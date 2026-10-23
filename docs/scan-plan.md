@@ -158,6 +158,11 @@ takes too long and lists it as "not scanned".
 
 **Phases** (each one usable and committed on its own):
 
+_Status:_ phase 1 done (2026-10-23): `service/scan` (`DataScan`, `ScanRequest`, `ScanTable`, `ScanColumn`,
+`ScanFinding`, `TableResult`), row estimates per `Dialect`, `DatabaseSession.countRow`. Tried on PostgreSQL 16 and
+MySQL 8.4 (text, varchar, char, enum, json, jsonb; ignore case and exact; whole value; `%`, `_`, `\` typed; a 3-million
+row table: the timeout leaves it out after 1 s, Cancel stops it in milliseconds) and tested on SQLite.
+
 1. Scan engine and tests (no UI).
 2. Scan tab: `CheckList` first (the tables picker and `ColumnPicker` moved onto it, their shift-click tried again),
    then the form with the table and column lists, progress, Cancel, findings, CSV export.

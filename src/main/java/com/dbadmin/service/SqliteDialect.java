@@ -113,4 +113,10 @@ final class SqliteDialect implements Dialect {
         }
         return result;
     }
+
+    /** SQLite keeps no row estimate (sqlite_stat1 only after ANALYZE, and not for every table): none. */
+    @Override
+    public java.util.Map<String, Long> estimatedRows(Metadata m, Namespace ns) {
+        return java.util.Map.of();
+    }
 }

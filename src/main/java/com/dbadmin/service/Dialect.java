@@ -43,6 +43,12 @@ interface Dialect {
     /** The table's columns in order, exactly as defined (see {@link ColumnSpec}), for editing them. */
     List<ColumnSpec> columns(Metadata m, TableRef t) throws SQLException;
 
+    /**
+     * Each table's row count as the catalog estimates it (by table name), without reading the tables; a table the
+     * catalog has no estimate for is left out.
+     */
+    java.util.Map<String, Long> estimatedRows(Metadata m, Namespace ns) throws SQLException;
+
     /** Triggers as rows of (name, timing, event, level, definition). */
     List<List<Object>> triggers(Metadata m, TableRef t) throws SQLException;
 }
