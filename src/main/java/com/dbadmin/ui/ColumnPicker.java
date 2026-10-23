@@ -60,8 +60,8 @@ class ColumnPicker extends VBox {
 
     private final ObservableList<Choice> choices = FXCollections.observableArrayList();
     private final TableView<Choice> table = new TableView<>(choices);
-    /** The last checkbox clicked: a shift-click sets every row between it and the clicked one. */
-    private int anchorRow = -1;
+    /** Shift-click ranges, within the checkbox column last clicked. */
+    private final RangeTicks ticks = new RangeTicks();
     private TableColumn<Choice, ?> anchorColumn;
 
     ColumnPicker() {
@@ -190,50 +190,24 @@ class ColumnPicker extends VBox {
      * clicked one in the same column. Disabled for a column that is not on both sides.
      */
     private class CheckCell extends javafx.scene.control.cell.CheckBoxTableCell<Choice, Boolean> {
-        /** The press of a shift-click was a range: its release and click do nothing more. */
-        private boolean range;
 
         CheckCell() {
-            // before the box sees it: a shift-click is a range, not a toggle of this one box
+            // a click anywhere in the cell, the box included, goes through RangeTicks (the box would toggle on its own)
             addEventFilter(javafx.scene.input.MouseEvent.MOUSE_PRESSED, e -> {
-                range = e.isShiftDown() && e.getButton() == javafx.scene.input.MouseButton.PRIMARY && !isEmpty() && !isDisabled()
-                        && anchorRow >= 0 && anchorColumn == getTableColumn();
-                if (range) {
-                    setRange(!value(getIndex()).get());
-                    e.consume();
-                }
+                if (e.getButton() != javafx.scene.input.MouseButton.PRIMARY || isEmpty() || isDisabled()) return;
+                e.consume();
+                if (anchorColumn != getTableColumn()) ticks.reset(); // a range stays within one checkbox column
+                anchorColumn = getTableColumn();
+                List<Choice> rows = getTableView().getItems();
+                ticks.click(getIndex(), e.isShiftDown(), rows.size(), this::value, i -> rows.get(i).onBothSides());
             });
             addEventFilter(javafx.scene.input.MouseEvent.MOUSE_RELEASED, e -> {
-                if (range) e.consume();
-            });
-            setOnMouseClicked(e -> {
-                if (e.getButton() != javafx.scene.input.MouseButton.PRIMARY || isEmpty() || isDisabled()) return;
-                if (range) {
-                    range = false;
-                    return;
-                }
-                anchorRow = getIndex();
-                anchorColumn = getTableColumn();
-                for (Node n = e.getPickResult().getIntersectedNode(); n != null && n != this; n = n.getParent()) {
-                    if (n == getGraphic()) return; // on the box itself: it toggles on its own
-                }
-                BooleanProperty p = value(getIndex());
-                p.set(!p.get());
+                if (e.getButton() == javafx.scene.input.MouseButton.PRIMARY) e.consume();
             });
         }
 
         private BooleanProperty value(int row) {
             return (BooleanProperty) getTableColumn().getCellObservableValue(row);
-        }
-
-        /** Sets this column for every row from the anchor to this one (rows not on both sides are left alone). */
-        private void setRange(boolean on) {
-            int from = Math.min(anchorRow, getIndex());
-            int to = Math.max(anchorRow, getIndex());
-            for (int i = from; i <= to && i < getTableView().getItems().size(); i++) {
-                if (getTableView().getItems().get(i).onBothSides()) value(i).set(on);
-            }
-            anchorRow = getIndex();
         }
 
         @Override

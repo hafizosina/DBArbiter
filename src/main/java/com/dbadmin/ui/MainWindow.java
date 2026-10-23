@@ -349,7 +349,12 @@ public class MainWindow implements SessionProvider {
         openReport.setOnAction(e -> {
             if (license.allows("Compare Table and Compare Data")) openCompareReport();
         });
-        Menu tools = new Menu("Tools", null, compareSchema, compareData, new SeparatorMenuItem(), openReport);
+        MenuItem scanData = new MenuItem("Scan Data…");
+        scanData.setOnAction(e -> {
+            if (license.allows("Scan Data")) showTab(new ScanTab(connections, this, selectedConnection().orElse(null)));
+        });
+        Menu tools = new Menu("Tools", null, compareSchema, compareData, new SeparatorMenuItem(), openReport,
+                new SeparatorMenuItem(), scanData);
         return new MenuBar(connection, script, tools);
     }
 

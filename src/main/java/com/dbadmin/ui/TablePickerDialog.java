@@ -4,17 +4,12 @@ import javafx.beans.property.BooleanProperty;
 import javafx.beans.property.SimpleBooleanProperty;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
-import javafx.collections.transformation.FilteredList;
 import javafx.geometry.Insets;
 import javafx.scene.control.Button;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.Dialog;
 import javafx.scene.control.Label;
-import javafx.scene.control.ListView;
 import javafx.scene.control.TextField;
-import javafx.scene.control.cell.CheckBoxListCell;
-import javafx.scene.input.MouseButton;
-import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
@@ -56,39 +51,11 @@ class TablePickerDialog extends Dialog<Set<String>> {
             String where = !target.contains(key) ? "only in " + sourceName : !source.contains(key) ? "only in " + targetName : "";
             choices.add(new Choice(name, where, new SimpleBooleanProperty(picked.contains(key))));
         }
-        FilteredList<Choice> shown = new FilteredList<>(choices);
-
-        TextField search = new TextField();
-        search.setPromptText("search…");
-        search.textProperty().addListener((o, a, text) -> {
-            String q = text.trim().toLowerCase(Locale.ROOT);
-            shown.setPredicate(c -> q.isEmpty() || c.name().toLowerCase(Locale.ROOT).contains(q));
-        });
-        ListView<Choice> list = new ListView<>(shown);
-        // a click anywhere on a row ticks or unticks it; a shift-click does the same to every row from the last clicked one
-        int[] anchor = {-1};
-        search.textProperty().addListener((o, a, b) -> anchor[0] = -1); // other rows shown: the anchor's row is gone
-        list.setCellFactory(lv -> {
-            CheckBoxListCell<Choice> cell = new CheckBoxListCell<>(Choice::picked);
-            cell.addEventFilter(MouseEvent.MOUSE_PRESSED, e -> {
-                if (cell.isEmpty() || e.getButton() != MouseButton.PRIMARY) return;
-                e.consume(); // handled here, not by the box (it would toggle once more on release)
-                boolean on = !cell.getItem().picked().get();
-                int at = cell.getIndex();
-                if (e.isShiftDown() && anchor[0] >= 0 && anchor[0] < shown.size()) {
-                    for (int i = Math.min(anchor[0], at); i <= Math.max(anchor[0], at); i++) shown.get(i).picked().set(on);
-                } else {
-                    cell.getItem().picked().set(on);
-                }
-                anchor[0] = at;
-            });
-            cell.addEventFilter(MouseEvent.MOUSE_RELEASED, e -> {
-                if (e.getButton() == MouseButton.PRIMARY) e.consume();
-            });
-            return cell;
-        });
-        list.setTooltip(new javafx.scene.control.Tooltip("Click a row to tick or untick it; shift-click for every row from the last clicked one"));
-        list.setPrefSize(420, 360);
+        CheckList<Choice> list = new CheckList<>(Choice::picked, Choice::toString);
+        list.setItems(choices);
+        List<Choice> shown = list.shown();
+        TextField search = list.searchField();
+        list.listView().setPrefSize(420, 360);
 
         Label count = new Label();
         count.getStyleClass().add("hint-small");
@@ -106,7 +73,7 @@ class TablePickerDialog extends Dialog<Set<String>> {
         HBox buttons = new HBox(6, selectShown, clear, count);
         buttons.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
 
-        VBox content = new VBox(8, search, list, buttons);
+        VBox content = new VBox(8, list, buttons);
         content.setPadding(new Insets(10));
         VBox.setVgrow(list, Priority.ALWAYS);
         getDialogPane().setContent(content);

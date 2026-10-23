@@ -192,4 +192,30 @@ class ScreenPiecesTest {
             assertTrue(view.hasEdits());
         });
     }
+
+    /** The shared checkbox list: a range is taken among the rows shown, and the search starts a new one. */
+    @Test
+    void checkListRangesFollowTheSearch() throws Exception {
+        Fx.run(() -> {
+            record Item(String name, javafx.beans.property.BooleanProperty on) {
+            }
+            List<Item> items = new java.util.ArrayList<>();
+            for (String n : List.of("orders", "order_lines", "shops", "users", "order_log")) {
+                items.add(new Item(n, new javafx.beans.property.SimpleBooleanProperty()));
+            }
+            CheckList<Item> list = new CheckList<>(Item::on, Item::name);
+            list.setItems(items);
+            list.searchField().setText("order");
+            assertEquals(List.of("orders", "order_lines", "order_log"), list.shown().stream().map(Item::name).toList());
+            list.click(0, false);
+            list.click(2, true);
+            assertEquals(List.of(true, true, false, false, true), items.stream().map(i -> i.on().get()).toList(),
+                    "shops and users were not shown, so not in the range");
+            list.searchField().setText("");
+            list.click(3, true); // the search changed: a plain click
+            assertEquals(List.of(true, true, false, true, true), items.stream().map(i -> i.on().get()).toList());
+            list.setVisible(i -> !i.name().equals("users"));
+            assertEquals(4, list.shown().size());
+        });
+    }
 }

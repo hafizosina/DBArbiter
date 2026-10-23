@@ -162,6 +162,11 @@ _Status:_ phase 1 done (2026-10-23): `service/scan` (`DataScan`, `ScanRequest`, 
 `ScanFinding`, `TableResult`), row estimates per `Dialect`, `DatabaseSession.countRow`. Tried on PostgreSQL 16 and
 MySQL 8.4 (text, varchar, char, enum, json, jsonb; ignore case and exact; whole value; `%`, `_`, `\` typed; a 3-million
 row table: the timeout leaves it out after 1 s, Cancel stops it in milliseconds) and tested on SQLite.
+Phase 2 done (2026-10-23): **Tools → Scan Data…** (`ScanTab`): connection, values, match / case, timeout, big-table
+limit; Schemas, Tables and Columns lists (`CheckList`; big tables ⚠ and left out of All); Scan / Cancel with progress;
+Findings (rows per value, "other case only") and Coverage (not scanned, left out, not text); Export CSV. Shift-click
+lives in `RangeTicks`, now used by the tables picker, the compare's `ColumnPicker` and the scan's lists. Tried against
+PostgreSQL with real mouse events (click, shift-click range tick and untick).
 
 1. Scan engine and tests (no UI).
 2. Scan tab: `CheckList` first (the tables picker and `ColumnPicker` moved onto it, their shift-click tried again),
