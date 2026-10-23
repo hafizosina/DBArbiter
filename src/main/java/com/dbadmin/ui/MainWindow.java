@@ -146,21 +146,8 @@ public class MainWindow implements SessionProvider {
         tabs.getSelectionModel().selectedItemProperty().addListener((o, a, b) -> updateScriptItems());
 
         navigator = new TableSearch(tree, sessions::all, this::openTable);
-        navigator.setMenus((session, t) -> {
-            MenuItem open = new MenuItem("Open");
-            open.setOnAction(e -> openTable(session, t));
-            MenuItem exportData = new MenuItem("Export Data…");
-            exportData.setOnAction(e -> TableTransfer.export(stage, session, t, null, transferHost));
-            if (t.isView()) return List.of(open, exportData);
-            MenuItem importData = new MenuItem("Import Data…");
-            importData.setOnAction(e -> TableTransfer.importData(stage, session, t, transferHost));
-            importData.setDisable(session.getConfig().isReadOnly());
-            return List.of(open, exportData, importData);
-        }, session -> {
-            MenuItem script = new MenuItem("New Script");
-            script.setOnAction(e -> newScript(session.getConfig()));
-            return List.of(script);
-        });
+        navigator.setMenus((session, t) -> withRefresh(tableMenu(session, t), session),
+                session -> withRefresh(connectionMenu(session.getConfig()), session));
         completer.setOnInvalidate(navigator::invalidate); // DDL and refresh also reload the search
         mainSplit = new SplitPane(navigator, center);
         mainSplit.setDividerPositions(0.25);
@@ -358,66 +345,101 @@ public class MainWindow implements SessionProvider {
         return new MenuBar(connection, script, tools);
     }
 
+    /**
+     * The tree's right-click menu, made each time from the same pieces as the search results' menu (see
+     * {@link #tableMenu}, {@link #connectionMenu}), so both offer the same actions.
+     */
     private ContextMenu buildContextMenu() {
-        MenuItem open = new MenuItem("Open");
-        open.setOnAction(e -> openSelectedTable());
-        MenuItem exportData = new MenuItem("Export Data…");
-        exportData.setOnAction(e -> withSelectedTable((session, t) -> TableTransfer.export(stage, session, t, null, transferHost)));
-        MenuItem importData = new MenuItem("Import Data…");
-        importData.setOnAction(e -> withSelectedTable((session, t) -> TableTransfer.importData(stage, session, t, transferHost)));
-        MenuItem edit = new MenuItem("Edit Connection");
-        edit.setOnAction(e -> editConnection());
-        MenuItem delete = new MenuItem("Delete Connection");
-        delete.setOnAction(e -> deleteConnection());
-        MenuItem disconnect = new MenuItem("Disconnect");
-        disconnect.setOnAction(e -> selectedConnection().ifPresent(this::disconnect));
-        MenuItem refresh = new MenuItem("Refresh (F5)");
-        refresh.setOnAction(e -> refreshSelected());
-        MenuItem reconnect = new MenuItem("Reconnect");
-        reconnect.setOnAction(e -> selectedConnection().ifPresent(this::reconnect));
-        // scripts for the right-clicked connection (the tree selects the row on right-click)
-        MenuItem newScript = new MenuItem("New Script");
-        newScript.setOnAction(e -> newScript(selectedConnection().orElse(null)));
-        MenuItem openScript = new MenuItem("Open Script…");
-        openScript.setOnAction(e -> openScript());
-        MenuItem openLastScript = new MenuItem("Open Last Script");
-        SeparatorMenuItem scriptSeparator = new SeparatorMenuItem();
-        SeparatorMenuItem dataSeparator = new SeparatorMenuItem();
-        TableActions.Items tableItems = TableActions.items(() -> stage, () -> {
-            NavNode n = selectedNode();
-            if (n == null || n.kind() != NavNode.Kind.TABLE) return null;
-            return sessions.get(n.connection().getId()).map(s -> new TableActions.Target(s, n.table())).orElse(null);
-        }, tableActionsHost);
-        ContextMenu menu = new ContextMenu(open, exportData, importData);
-        menu.getItems().addAll(tableItems.all());
-        menu.getItems().addAll(dataSeparator, newScript, openScript, openLastScript,
-                scriptSeparator, edit, delete, disconnect, reconnect, new SeparatorMenuItem(), refresh);
+        ContextMenu menu = new ContextMenu();
         menu.setOnShowing(e -> {
             NavNode n = selectedNode();
-            boolean hasConnection = n != null && n.connection() != null;
-            newScript.setVisible(hasConnection);
-            openScript.setVisible(hasConnection);
-            openLastScript.setVisible(hasConnection);
-            Optional<Path> last = hasConnection ? lastScriptFor(n.connection()) : Optional.empty();
-            openLastScript.setText(last.map(p -> "Open Last Script (" + p.getFileName() + ")").orElse("Open Last Script"));
-            openLastScript.setDisable(last.isEmpty());
-            openLastScript.setOnAction(ev -> last.ifPresent(p -> openScripts(List.of(p))));
-            scriptSeparator.setVisible(hasConnection);
-            boolean onTable = n != null && n.kind() == NavNode.Kind.TABLE;
-            open.setVisible(onTable);
-            exportData.setVisible(onTable);
-            importData.setVisible(onTable && !n.table().isView());
-            importData.setDisable(onTable && n.connection().isReadOnly());
-            tableItems.showFor(onTable ? n.connection() : null, onTable ? n.table() : null);
-            dataSeparator.setVisible(onTable);
-            boolean onConnection = n != null && n.kind() == NavNode.Kind.CONNECTION;
-            edit.setVisible(onConnection);
-            delete.setVisible(onConnection);
-            disconnect.setVisible(n != null && sessions.isOpen(idOf(n)));
-            reconnect.setVisible(n != null && sessions.isOpen(idOf(n)));
-            refresh.setDisable(n == null);
+            MenuItem refresh = new MenuItem("Refresh (F5)");
+            refresh.setOnAction(ev -> refreshSelected());
+            List<MenuItem> items = new ArrayList<>();
+            if (n == null || n.kind() == NavNode.Kind.MESSAGE) {
+                refresh.setDisable(true);
+            } else if (n.kind() == NavNode.Kind.TABLE) {
+                sessions.get(n.connection().getId()).ifPresent(s -> items.addAll(tableMenu(s, n.table())));
+            } else if (n.kind() == NavNode.Kind.CONNECTION) {
+                items.addAll(connectionMenu(n.connection()));
+            } else {
+                items.addAll(scriptMenu(n.connection()));
+            }
+            if (!items.isEmpty()) items.add(new SeparatorMenuItem());
+            items.add(refresh);
+            menu.getItems().setAll(items);
         });
+        menu.getItems().add(new MenuItem("…")); // a menu with no items is never shown; filled when showing
         return menu;
+    }
+
+    /** A table's right-click items, in the tree and in the search results: open, data, the table's own, scripts. */
+    private List<MenuItem> tableMenu(DatabaseSession session, TableRef t) {
+        List<MenuItem> items = new ArrayList<>();
+        MenuItem open = new MenuItem("Open");
+        open.setOnAction(e -> openTable(session, t));
+        MenuItem exportData = new MenuItem("Export Data…");
+        exportData.setOnAction(e -> TableTransfer.export(stage, session, t, null, transferHost));
+        items.addAll(List.of(open, exportData));
+        if (!t.isView()) {
+            MenuItem importData = new MenuItem("Import Data…");
+            importData.setOnAction(e -> TableTransfer.importData(stage, session, t, transferHost));
+            importData.setDisable(session.getConfig().isReadOnly());
+            items.add(importData);
+        }
+        TableActions.Items actions = TableActions.items(() -> stage, () -> new TableActions.Target(session, t), tableActionsHost);
+        actions.showFor(session.getConfig(), t);
+        if (actions.anyShown()) {
+            items.add(new SeparatorMenuItem());
+            actions.all().stream().filter(MenuItem::isVisible).forEach(items::add);
+        }
+        items.add(new SeparatorMenuItem());
+        items.addAll(scriptMenu(session.getConfig()));
+        return items;
+    }
+
+    /** Search results: the items and Refresh, which reads the connection's tables again (the search too). */
+    private List<MenuItem> withRefresh(List<MenuItem> items, DatabaseSession session) {
+        MenuItem refresh = new MenuItem("Refresh");
+        refresh.setOnAction(e -> {
+            completer.invalidate(session); // also drops the session's tables from the search index
+            navigator.refresh();
+        });
+        List<MenuItem> all = new ArrayList<>(items);
+        all.add(new SeparatorMenuItem());
+        all.add(refresh);
+        return all;
+    }
+
+    /** A connection's right-click items, in the tree and in the search results. */
+    private List<MenuItem> connectionMenu(ConnectionConfig c) {
+        List<MenuItem> items = new ArrayList<>(scriptMenu(c));
+        MenuItem edit = new MenuItem("Edit Connection");
+        edit.setOnAction(e -> editConnection(c));
+        MenuItem delete = new MenuItem("Delete Connection");
+        delete.setOnAction(e -> deleteConnection(c));
+        items.addAll(List.of(new SeparatorMenuItem(), edit, delete));
+        if (sessions.isOpen(c.getId())) {
+            MenuItem disconnect = new MenuItem("Disconnect");
+            disconnect.setOnAction(e -> disconnect(c));
+            MenuItem reconnect = new MenuItem("Reconnect");
+            reconnect.setOnAction(e -> reconnect(c));
+            items.addAll(List.of(disconnect, reconnect));
+        }
+        return items;
+    }
+
+    /** New Script, Open Script…, Open Last Script for a connection. */
+    private List<MenuItem> scriptMenu(ConnectionConfig c) {
+        MenuItem newScript = new MenuItem("New Script");
+        newScript.setOnAction(e -> newScript(c));
+        MenuItem openScript = new MenuItem("Open Script…");
+        openScript.setOnAction(e -> openScript(c));
+        Optional<Path> last = lastScriptFor(c);
+        MenuItem openLast = new MenuItem(last.map(p -> "Open Last Script (" + p.getFileName() + ")").orElse("Open Last Script"));
+        openLast.setDisable(last.isEmpty());
+        openLast.setOnAction(e -> last.ifPresent(p -> openScripts(List.of(p))));
+        return List.of(newScript, openScript, openLast);
     }
 
     private void updateScriptItems() {
@@ -472,8 +494,10 @@ public class MainWindow implements SessionProvider {
 
     private void editConnection() {
         TreeItem<NavNode> selected = connectionItem(tree.getSelectionModel().getSelectedItem());
-        if (selected == null) return;
-        ConnectionConfig edited = selected.getValue().connection();
+        if (selected != null) editConnection(selected.getValue().connection());
+    }
+
+    private void editConnection(ConnectionConfig edited) {
         for (Tab t : tabs.getTabs()) {
             if (t instanceof ConnectionTab ct && edited.getId().equals(ct.editedId())) {
                 tabs.getSelectionModel().select(t);
@@ -517,8 +541,10 @@ public class MainWindow implements SessionProvider {
 
     private void deleteConnection() {
         TreeItem<NavNode> item = connectionItem(tree.getSelectionModel().getSelectedItem());
-        if (item == null) return;
-        ConnectionConfig c = item.getValue().connection();
+        if (item != null) deleteConnection(item.getValue().connection());
+    }
+
+    private void deleteConnection(ConnectionConfig c) {
         Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
                 "Delete connection \"" + c.getName() + "\"? The database itself is not touched.",
                 ButtonType.OK, ButtonType.CANCEL);
@@ -529,7 +555,7 @@ public class MainWindow implements SessionProvider {
         tabs.getTabs().removeIf(t -> t instanceof ConnectionTab ct && c.getId().equals(ct.editedId()));
         connections.remove(c);
         saveConnections();
-        treeRoot.getChildren().remove(item);
+        treeRoot.getChildren().removeIf(i -> i.getValue().connection() == c);
     }
 
     /**
@@ -815,8 +841,12 @@ public class MainWindow implements SessionProvider {
     }
 
     private void openScript() {
+        openScript(selectedConnection().orElse(null));
+    }
+
+    private void openScript(ConnectionConfig c) {
         openScripts(InAppDialogs.showAndWait(new OpenScriptDialog(stage, connections, scriptBindings.all(),
-                scriptDir(), selectedConnection().orElse(null))).orElse(List.of()));
+                scriptDir(), c)).orElse(List.of()));
     }
 
     /** The most recently saved script linked to a connection that still exists on disk, if any. */
