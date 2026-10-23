@@ -34,6 +34,8 @@ class StructureDialog extends Dialog<List<String>> {
     private final TextArea preview = new TextArea();
     private final Label problem = new Label();
     private final ButtonType apply = new ButtonType("Apply", ButtonBar.ButtonData.OK_DONE);
+    /** Kept: while the dialog is shown inside the main window, getDialogPane() is a placeholder (see InAppDialogs). */
+    private final Button applyButton;
     private Supplier<List<String>> statements = List::of;
     private List<String> current = List.of();
     private int rows;
@@ -61,6 +63,7 @@ class StructureDialog extends Dialog<List<String>> {
         content.setPrefWidth(620);
         getDialogPane().setContent(content);
         getDialogPane().getButtonTypes().addAll(apply, ButtonType.CANCEL);
+        applyButton = (Button) getDialogPane().lookupButton(apply);
         setResultConverter(b -> b == apply ? current : null);
     }
 
@@ -99,7 +102,6 @@ class StructureDialog extends Dialog<List<String>> {
         preview.setVisible(!current.isEmpty());
         problem.setText(error == null ? "" : error);
         problem.setVisible(error != null);
-        Button applyButton = (Button) getDialogPane().lookupButton(apply);
         applyButton.setDisable(current.isEmpty());
     }
 

@@ -63,8 +63,9 @@ final class RunWarning {
         return ask;
     }
 
+    /** The statement's first line of code (comment lines above it skipped), shortened. */
     private static String firstLine(String sql) {
-        String line = sql.strip().lines().findFirst().orElse("").strip();
+        String line = sql.strip().lines().map(String::strip).filter(l -> !l.isEmpty() && !l.startsWith("--")).findFirst().orElse("");
         return line.length() > 90 ? line.substring(0, 89) + "…" : line;
     }
 }

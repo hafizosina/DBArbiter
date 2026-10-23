@@ -395,6 +395,16 @@ exactly the ones that moved out of the screens (`PendingEdits`, `SessionManager`
 **For each new tool, keep the screen thin:** a plain class with the state and rules (tested), and a view that only
 binds widgets to it. Existing screens move over as they are touched (#12).
 
+**Found (2026-10-23): a dialog shown inside the main window is not the dialog it was built as.** `InAppDialogs`
+swaps the dialog's pane for an empty placeholder while the card is shown (so the pane does not size itself against
+a hidden window). Code that calls `getDialogPane().lookupButton(…)` *while the dialog is shown* (on every keystroke,
+say) gets null. The structure forms of todo #6 did that: typing in Add Column threw a NullPointerException on every
+key in the app, and Apply never enabled; their screen tests built the forms directly and so did not see it. **Fixed:**
+`StructureDialog` and `ReplaceDialog` look their button up once, when it is added, as `OpenScriptDialog` already did,
+and a screen test now opens a form through `InAppDialogs` and types into it. **Rule for new dialogs:** keep the
+`Button` (or the pane) in a field; never look it up from a listener. A test that only builds a dialog does not cover
+how the app shows it.
+
 ### G8. The download is heavy for what it uses — low
 
 The jar is 74 MB, and the WebKit library inside JavaFX's `javafx-web` is 112 MB unpacked, about half of the download.

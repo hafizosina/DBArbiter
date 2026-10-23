@@ -129,4 +129,36 @@ class StructureFormsTest {
             assertEquals(List.of(), d.current());
         });
     }
+
+    /**
+     * Shown as the app shows it (inside the main window, where getDialogPane() is a placeholder): typing updates the
+     * SQL and enables Apply, without an error.
+     */
+    @Test
+    void aFormShownInTheMainWindowStillUpdates() throws Exception {
+        Fx.run(() -> {
+            javafx.scene.layout.StackPane host = new javafx.scene.layout.StackPane();
+            javafx.stage.Stage stage = new javafx.stage.Stage();
+            stage.setScene(new javafx.scene.Scene(host, 900, 700));
+            stage.show();
+            InAppDialogs.install(host);
+            try {
+                StructureDialog d = editing(DbType.POSTGRESQL).columnForm(null, null);
+                List<TextField> f = fields(d);
+                @SuppressWarnings("unchecked")
+                ComboBox<String> type = all(d.getDialogPane().getContent(), ComboBox.class).get(0);
+                InAppDialogs.show(d);
+                javafx.scene.control.Button apply = all(host, javafx.scene.control.Button.class).stream()
+                        .filter(b -> "Apply".equals(b.getText())).findFirst().orElseThrow();
+                assertTrue(apply.isDisabled());
+                f.get(0).setText("note");
+                type.getEditor().setText("text");
+                assertEquals(List.of("ALTER TABLE \"app\".\"orders\" ADD COLUMN \"note\" text"), d.current());
+                assertTrue(!apply.isDisabled(), "Apply is enabled on the pane that is shown");
+            } finally {
+                InAppDialogs.install(null);
+                stage.close();
+            }
+        });
+    }
 }

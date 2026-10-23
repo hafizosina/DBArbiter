@@ -34,4 +34,10 @@ class RunWarningTest {
     void aReadOnlyConnectionNeedsNoWarning() {
         assertEquals(List.of(), RunWarning.warned(connection(true, 3), SCRIPT));
     }
+
+    @Test
+    void namesTheStatementNotTheCommentAboveIt() {
+        assertEquals(List.of("may change data (DO):  DO $$ BEGIN UPDATE t SET a = 1 WHERE id = 1; END $$"), RunWarning.warned(connection(false, 2),
+                List.of("-- Replace found values\n--   a  →  b\nDO $$ BEGIN UPDATE t SET a = 1 WHERE id = 1; END $$")));
+    }
 }
