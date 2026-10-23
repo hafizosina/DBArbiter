@@ -130,6 +130,24 @@ class DataGrid extends TableView<List<Object>> {
 
     /** The focused cell, outlined (app.css) even while the focus is elsewhere, e.g. typing in the value panel. */
     private static final javafx.css.PseudoClass CURRENT = javafx.css.PseudoClass.getPseudoClass("current-cell");
+    /** A cell holding the text of the find bar (GridFind), marked (app.css). */
+    private static final javafx.css.PseudoClass FIND_HIT = javafx.css.PseudoClass.getPseudoClass("find-hit");
+    private String findText = "";
+    private boolean findMatchCase;
+
+    /** Marks the cells that hold {@code text} (empty: none). */
+    void setFind(String text, boolean matchCase) {
+        findText = text == null ? "" : text;
+        findMatchCase = matchCase;
+        refresh();
+    }
+
+    /** True if the cell value holds {@code text}: its whole value, both sides of a compared value. */
+    static boolean holds(Object value, String text, boolean matchCase) {
+        if (text.isEmpty() || value == null) return false;
+        String s = value instanceof ComparedValue cv ? String.valueOf(cv.source()) + "\n" + cv.target() : value.toString();
+        return matchCase ? s.contains(text) : s.toLowerCase(Locale.ROOT).contains(text.toLowerCase(Locale.ROOT));
+    }
 
     private void markCurrentCell() {
         for (javafx.scene.Node n : lookupAll(".table-cell")) {
@@ -433,6 +451,7 @@ class DataGrid extends TableView<List<Object>> {
         protected void updateItem(Object value, boolean empty) {
             super.updateItem(value, empty);
             markCurrent();
+            pseudoClassStateChanged(FIND_HIT, !empty && holds(value, findText, findMatchCase));
             getStyleClass().removeAll("null-value", "cmp-cell-changed", "cell-edited");
             setStyle(null);
             if (isEditing()) return;

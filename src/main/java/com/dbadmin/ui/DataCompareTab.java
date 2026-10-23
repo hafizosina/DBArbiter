@@ -86,6 +86,8 @@ class DataCompareTab extends Tab implements UnsavedWork {
     private final javafx.scene.layout.FlowPane statusBar = new javafx.scene.layout.FlowPane(10, 4);
     private final DataView dataView = new DataView();
     private final DataGrid dataGrid = dataView.grid();
+    /** Ctrl+F over the result rows. */
+    private final GridFind find = new GridFind(dataGrid);
     /** The report shown now (a compare just run, or one opened from a file); null before the first. */
     private DataCompareReport report;
     /** The compare's file and whether the tab differs from it (verdicts not saved, results newer than the file). */
@@ -127,6 +129,9 @@ class DataCompareTab extends Tab implements UnsavedWork {
             } else if (SchemaCompareTab.COMPARE_KEY.match(e)) {
                 e.consume();
                 runDataCompare();
+            } else if (FIND_KEY.match(e) && report != null) {
+                e.consume();
+                find.open();
             }
         });
         if (initial != null) dataSource.connection.setValue(initial);
@@ -136,6 +141,13 @@ class DataCompareTab extends Tab implements UnsavedWork {
         setOnClosed(e -> {
             if (running != null) running.cancel(); // its connections close with it
         });
+    }
+
+    private static final javafx.scene.input.KeyCombination FIND_KEY = javafx.scene.input.KeyCombination.keyCombination("Shortcut+F");
+
+    /** The find bar over the results (for tests). */
+    GridFind findBar() {
+        return find;
     }
 
     /** The results shown now, null before a compare (for tests). */
@@ -429,7 +441,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
         // status cells take their colors from the theme settings
         Themes.shownSettings().addListener((o, a, b) -> dataGrid.refresh());
         BorderPane report = new BorderPane(dataView);
-        report.setTop(statusBar);
+        report.setTop(new VBox(statusBar, find));
         Node columns = picker;
         SplitPane split = new SplitPane(columns, report);
         CompareSide.fixedFirstPane(split, 300); // a wider window widens the report, not the picker
