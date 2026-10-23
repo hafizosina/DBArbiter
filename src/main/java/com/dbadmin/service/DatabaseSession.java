@@ -520,13 +520,26 @@ public class DatabaseSession implements AutoCloseable {
                     }
                     TableData data = readRows(rs, maxRows);
                     boolean truncated = rs.next();
-                    return new StatementResult(sql, params, data, -1, elapsedMillis(start), truncated);
+                    return new StatementResult(sql, params, data, -1, elapsedMillis(start), truncated, messages(st));
                 }
             }
-            return new StatementResult(sql, params, null, st.getUpdateCount(), elapsedMillis(start), false);
+            return new StatementResult(sql, params, null, st.getUpdateCount(), elapsedMillis(start), false, messages(st));
         } finally {
             running = null;
         }
+    }
+
+    /** The server's messages for a statement: PostgreSQL notices (RAISE NOTICE) and warnings, in order. */
+    private static List<String> messages(Statement st) {
+        List<String> messages = new ArrayList<>();
+        try {
+            for (java.sql.SQLWarning w = st.getWarnings(); w != null && messages.size() < 1000; w = w.getNextWarning()) {
+                if (w.getMessage() != null) messages.add(w.getMessage());
+            }
+        } catch (SQLException ignored) {
+            // the statement ran; its messages are only extra
+        }
+        return messages;
     }
 
     /**

@@ -277,6 +277,7 @@ class ScriptTab extends Tab implements UnsavedWork {
     }
 
     private void showResult(int number, StatementResult r, DatabaseSession session) {
+        r.messages().forEach(m -> log("    " + m)); // RAISE NOTICE and other server messages
         if (r.data() == null) {
             String what = r.updateCount() >= 0 ? r.updateCount() + " row(s) affected" : "OK";
             log("Statement " + number + ": " + what + " (" + r.millis() + " ms)");
