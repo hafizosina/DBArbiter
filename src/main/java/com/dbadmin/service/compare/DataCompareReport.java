@@ -65,7 +65,7 @@ public final class DataCompareReport {
     /** A key may have several rows (e.g. a product's images): its rows were matched by their compared values. */
     public boolean oneToMany;
     /** Text that differed only in its line endings (CRLF / LF) counted as the same. */
-    public boolean ignoreLineEndings;
+    public boolean ignoreLineEndings; // also: NULL, '' and blank text compared as the same (the name kept for saved files)
     public int rowsPerSide;
     /** A side had more rows than {@link #rowsPerSide}: only the first ones were compared. */
     public boolean truncated;

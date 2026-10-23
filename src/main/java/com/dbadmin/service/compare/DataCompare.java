@@ -65,7 +65,8 @@ public final class DataCompare {
 
     /**
      * @param ignoreLineEndings text that differs only in its line endings (Windows CRLF, old Mac CR, Unix LF) is the
-     *                          same: e.g. a JSON template saved from a Windows editor on one side
+     *                          same: e.g. a JSON template saved from a Windows editor on one side; and NULL, '' and a
+     *                          text of spaces are the same (one side left a value empty, the other NULL)
      */
     public static Result compare(TableData source, TableData target, List<String> keyColumns, List<String> compareColumns,
                                  List<String> showColumns, int maxRows, boolean oneToMany, boolean ignoreLineEndings) {
@@ -255,8 +256,12 @@ public final class DataCompare {
         return v.toString();
     }
 
-    /** As {@link #normalize(Object)}; with {@code ignoreLineEndings}, CRLF and CR in text count as LF. */
+    /**
+     * As {@link #normalize(Object)}; with {@code ignoreLineEndings} (the "Ignore line endings & empty" option), CRLF and
+     * CR in text count as LF, and an empty or blank text counts as NULL.
+     */
     public static String normalize(Object v, boolean ignoreLineEndings) {
+        if (ignoreLineEndings && v instanceof CharSequence text && text.toString().isBlank()) return normalize(null); // '' and '  ' = NULL
         String n = normalize(v);
         return ignoreLineEndings && v instanceof CharSequence ? n.replace("\r\n", "\n").replace('\r', '\n') : n;
     }

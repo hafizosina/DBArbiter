@@ -160,4 +160,17 @@ class DataCompareTest {
         assertEquals(1, ignoring.changed(), "a real difference still counts");
         assertEquals(DataCompare.normalize("a\nb", true), DataCompare.normalize("a\rb", true));
     }
+
+    /** The same option: NULL, '' and blank text are the same value; a real value still differs from them. */
+    @Test
+    void emptyAndNullCanBeTheSame() {
+        List<String> cols = List.of("id", "note");
+        TableData source = table(cols, new Object[]{1, null}, new Object[]{2, ""}, new Object[]{3, "  "}, new Object[]{4, "x"});
+        TableData target = table(cols, new Object[]{1, ""}, new Object[]{2, null}, new Object[]{3, null}, new Object[]{4, null});
+        assertEquals(4, DataCompare.compare(source, target, List.of("id"), List.of("note"), List.of(), 100, false, false).changed());
+        Result loose = DataCompare.compare(source, target, List.of("id"), List.of("note"), List.of(), 100, false, true);
+        assertEquals(3, loose.same());
+        assertEquals(1, loose.changed(), "x vs NULL still differs");
+        assertEquals(DataCompare.normalize(null, true), DataCompare.normalize(" \t", true));
+    }
 }
