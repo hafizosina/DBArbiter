@@ -56,8 +56,9 @@ class CellInspector extends VBox {
     private static final Pattern META_REFRESH = Pattern.compile("<meta[^>]*http-equiv\\s*=\\s*[\"']?refresh[^>]*>",
             Pattern.CASE_INSENSITIVE);
 
-    private static final Pattern JSON_TOKENS = Pattern.compile(
-            "(?<KEY>\"(?:[^\"\\\\]|\\\\.)*\"(?=\\s*:))|(?<STRING>\"(?:[^\"\\\\]|\\\\.)*\")"
+    static final Pattern JSON_TOKENS = Pattern.compile(
+            // plain characters in one step, repeated only per escape: one repetition per character overflows on long values
+            "(?<KEY>\"[^\"\\\\]*+(?:\\\\.[^\"\\\\]*+)*+\"(?=\\s*:))|(?<STRING>\"[^\"\\\\]*+(?:\\\\.[^\"\\\\]*+)*+\")"
                     + "|(?<NUMBER>-?\\b\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?\\b)|(?<LITERAL>\\b(?:true|false|null)\\b)");
     private static final Pattern XML_TOKENS = Pattern.compile(
             "(?<COMMENT><!--(?s:.*?)-->)|(?<TAG></?[\\w:.-]+|/?>|<\\?[\\w:.-]+|\\?>)"
@@ -323,7 +324,7 @@ class CellInspector extends VBox {
         }
     }
 
-    private static StyleSpans<Collection<String>> highlight(String content, Pattern tokens) {
+    static StyleSpans<Collection<String>> highlight(String content, Pattern tokens) {
         Matcher m = tokens.matcher(content);
         StyleSpansBuilder<Collection<String>> spans = new StyleSpansBuilder<>();
         int last = 0;

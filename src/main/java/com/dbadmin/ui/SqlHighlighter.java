@@ -49,8 +49,10 @@ final class SqlHighlighter {
         return Pattern.compile(
             "(?<COMMENT>--[^\\n]*|" + (hashComments ? "#[^\\n]*|" : "") + "/\\*(?s:.*?)(?:\\*/|\\z))"
                     + "|(?<DOLLAR>(?<open>\\$(?<tag>[A-Za-z_]*)\\$)(?<body>(?s:.*?))(?:\\$\\k<tag>\\$|\\z))"
-                    + "|(?<STRING>'(?:[^'\\\\]|''|\\\\.)*(?:'|\\z))"
-                    + "|(?<IDENT>\"(?:[^\"]|\"\")*(?:\"|\\z)|`[^`]*(?:`|\\z))"
+                    // a run of plain characters in one step, repeated only per escape ('' or \x): a group
+                    // repeated per character recurses once per character and overflows on long text (a big JSON value)
+                    + "|(?<STRING>'[^'\\\\]*+(?:(?:''|\\\\(?s:.))[^'\\\\]*+)*+(?:'|\\z))"
+                    + "|(?<IDENT>\"[^\"]*+(?:\"\"[^\"]*+)*+(?:\"|\\z)|`[^`]*+(?:`|\\z))"
                     + "|(?<NUMBER>\\b\\d+(?:\\.\\d+)?(?:[eE][+-]?\\d+)?\\b)"
                     + "|(?<KEYWORD>\\b(?:" + String.join("|", KEYWORDS) + ")\\b)"
                     + "|(?<TYPE>\\b(?:" + String.join("|", TYPES) + ")\\b)"
