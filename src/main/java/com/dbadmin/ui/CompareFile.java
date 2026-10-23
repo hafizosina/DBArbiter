@@ -75,10 +75,14 @@ final class CompareFile {
         refresh();
     }
 
-    /** "*" before the tab's name while there are unsaved changes; Save clickable when there is something to save. */
+    /**
+     * The tab's name: the file's name without its extension once it has one (the tab's badge says what it is), else the
+     * kind; "*" before it while there are unsaved changes. Save is clickable when there is something to save.
+     */
     void refresh() {
-        String name = file == null ? kind : kind + ": " + file.getFileName();
+        String name = file == null ? kind : file.getFileName().toString().replaceFirst("\\.[^.]+$", "");
         tab.setText((isDirty() ? "*" : "") + name);
+        tab.setTooltip(file == null ? null : new javafx.scene.control.Tooltip(kind + " · " + file));
         saveButton.setDisable(file != null && !isDirty());
     }
 

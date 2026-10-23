@@ -88,22 +88,22 @@ class ScreenPiecesTest {
             assertFalse(save.isDisabled(), "no file yet: Save asks where");
 
             file.at(Path.of("/tmp/x.dbcompare"), false);
-            assertEquals("Data Compare: x.dbcompare", tab.getText());
+            assertEquals("x", tab.getText());
             assertTrue(save.isDisabled());
 
             file.edited(true);
-            assertEquals("*Data Compare: x.dbcompare", tab.getText());
+            assertEquals("*x", tab.getText());
             assertFalse(save.isDisabled());
             assertTrue(file.hasUnsavedEdits());
 
             file.at(Path.of("/tmp/x.dbcompare"), false); // saved
             file.compared(); // results newer than the results file
-            assertEquals("*Data Compare: x.dbcompare", tab.getText());
+            assertEquals("*x", tab.getText());
             assertFalse(file.hasUnsavedEdits());
 
             file.at(Path.of("/tmp/s.dbcompare"), true); // a settings file
             file.compared();
-            assertEquals("Data Compare: s.dbcompare", tab.getText(), "a settings file is not out of date after a compare");
+            assertEquals("s", tab.getText(), "a settings file is not out of date after a compare");
         });
     }
 
