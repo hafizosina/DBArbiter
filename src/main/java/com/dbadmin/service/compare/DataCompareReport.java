@@ -32,6 +32,11 @@ public final class DataCompareReport {
         /** All source columns ({@link #sourceColumns}); only for rows that are in the source and differ. */
         public List<String> sourceRow;
         public Verdict verdict;
+        /**
+         * Set when a verdict from an earlier compare of this row needs a look: it no longer fits (then the row has none),
+         * or the values changed since it was set. Cleared when the user sets the row's verdict. Null: nothing to check.
+         */
+        public String warning;
 
         public Row() {
         }
@@ -113,6 +118,11 @@ public final class DataCompareReport {
     /** Rows without a verdict that could have one. */
     public long undecided() {
         return rows.stream().filter(r -> r.verdict == null && !Verdict.allowed(r.status).isEmpty()).count();
+    }
+
+    /** Rows whose verdict from an earlier compare needs a look (see {@link Row#warning}). */
+    public long toCheck() {
+        return rows.stream().filter(r -> r.warning != null).count();
     }
 
     public long count(Verdict v) {

@@ -26,8 +26,9 @@ public final class Verdicts {
         for (DataCompareReport.Row r : rows) {
             if (v != null && !Verdict.allowed(r.status).contains(v)) {
                 skipped++;
-            } else if (r.verdict != v) {
+            } else if (r.verdict != v || r.warning != null) {
                 r.verdict = v;
+                r.warning = null; // decided again: nothing left to check
                 changed++;
             }
         }
@@ -50,6 +51,7 @@ public final class Verdicts {
             };
             if (v == null) continue;
             r.verdict = v;
+            r.warning = null;
             set++;
         }
         return set;
@@ -93,6 +95,60 @@ public final class Verdicts {
         return new Applied(changed, skipped);
     }
 
+    /** What {@link #carryOver} did. */
+    public record Carried(int kept, int toCheck, int notFitting, int gone) {
+        public boolean any() {
+            return kept + toCheck + notFitting + gone > 0;
+        }
+    }
+
+    /**
+     * After comparing again: each row of the new results takes the verdict its row (same key) had in the earlier
+     * results. A verdict that still fits the row's status is kept; if the values changed since, it is kept with a
+     * warning to check it. One that no longer fits (e.g. INSERT on a row that is now CHANGED, or any verdict on a row
+     * that now matches) is not applied: the row gets a warning saying what it was. With several rows of a key
+     * (one-to-many), rows are matched by their values first, then in order. Verdicts whose key is gone are counted.
+     */
+    public static Carried carryOver(DataCompareReport earlier, DataCompareReport fresh) {
+        java.util.Map<String, List<DataCompareReport.Row>> decided = new java.util.LinkedHashMap<>();
+        for (DataCompareReport.Row r : earlier.rows) {
+            if (r.verdict != null) decided.computeIfAbsent(r.key, k -> new ArrayList<>()).add(r);
+        }
+        int kept = 0;
+        int toCheck = 0;
+        int notFitting = 0;
+        for (DataCompareReport.Row row : fresh.rows) {
+            List<DataCompareReport.Row> candidates = decided.get(row.key);
+            if (candidates == null || candidates.isEmpty()) continue;
+            DataCompareReport.Row old = candidates.stream().filter(o -> sameValues(o, row)).findFirst()
+                    .orElse(candidates.stream().filter(o -> o.status == row.status).findFirst().orElse(candidates.get(0)));
+            candidates.remove(old);
+            if (Verdict.allowed(row.status).contains(old.verdict)) {
+                row.verdict = old.verdict;
+                if (old.status == row.status && sameValues(old, row)) {
+                    row.warning = null;
+                    kept++;
+                } else {
+                    row.warning = old.status != row.status
+                            ? "was " + old.verdict.name() + " when " + old.status.name() + "; now " + row.status.name() + ": check it"
+                            : "values changed since " + old.verdict.name() + " was set: check it";
+                    toCheck++;
+                }
+            } else {
+                row.verdict = null;
+                row.warning = "was " + old.verdict.name() + " when " + old.status.name() + "; now " + row.status.name()
+                        + (Verdict.allowed(row.status).isEmpty() ? ": nothing to decide" : ": decide again");
+                notFitting++;
+            }
+        }
+        int gone = decided.values().stream().mapToInt(List::size).sum();
+        return new Carried(kept, toCheck, notFitting, gone);
+    }
+
+    private static boolean sameValues(DataCompareReport.Row a, DataCompareReport.Row b) {
+        return java.util.Objects.equals(a.source, b.source) && java.util.Objects.equals(a.target, b.target);
+    }
+
     /** "4 insert · 1 update · 12 to decide": the verdicts in use, then what is left to decide. */
     public static String summary(DataCompareReport report) {
         List<String> parts = new ArrayList<>();
@@ -102,6 +158,8 @@ public final class Verdicts {
         }
         long open = report.undecided();
         if (open > 0 || parts.isEmpty()) parts.add(open + " to decide");
+        long check = report.toCheck();
+        if (check > 0) parts.add("⚠ " + check + " to check");
         return String.join(" · ", parts);
     }
 

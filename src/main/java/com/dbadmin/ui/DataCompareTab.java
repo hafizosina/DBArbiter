@@ -138,6 +138,16 @@ class DataCompareTab extends Tab implements UnsavedWork {
         });
     }
 
+    /** The results shown now, null before a compare (for tests). */
+    DataCompareReport report() {
+        return report;
+    }
+
+    /** Runs Compare as the button does (for tests). */
+    void compareNow() {
+        compareOrCancel();
+    }
+
     /** Shows a report opened from a file; a new compare can still be run from the form above. */
     void showSaved(DataCompareReport saved, Path file) {
         compareFile.at(file, saved.settingsOnly);
@@ -566,13 +576,16 @@ class DataCompareTab extends Tab implements UnsavedWork {
                     @Override
                     public void done(DataCompareReport r) {
                         jobEnded();
-                        if (!confirmDiscardVerdicts()) return;
+                        // the verdicts of the results shown so far go on the same rows of the new ones
+                        DataCompareReport earlier = report != null && !report.settingsOnly ? report : null;
+                        Verdicts.Carried carried = earlier == null ? null : Verdicts.carryOver(earlier, r);
                         r.oneToMany = p.oneToMany();
                         r.ignoreLineEndings = p.ignoreLineEndings();
                         r.mainAlias = p.joins().isEmpty() ? null : p.alias();
                         r.joins = p.joins();
                         compareFile.compared();
                         showReport(r);
+                        if (carried != null && carried.any()) dataStatus.setText(carriedText(carried));
                     }
 
                     @Override
@@ -680,7 +693,8 @@ class DataCompareTab extends Tab implements UnsavedWork {
         for (DataCompareReport.Row row : r.rows) {
             if (row.verdict == null && !Verdict.allowed(row.status).isEmpty()) open.merge(row.status, 1L, Long::sum);
         }
-        if (open.isEmpty()) return true;
+        long check = r.rows.stream().filter(row -> row.warning != null && row.verdict != null).count();
+        if (open.isEmpty() && check == 0) return true;
         long total = open.values().stream().mapToLong(Long::longValue).sum();
         StringBuilder text = new StringBuilder();
         open.forEach((status, n) -> text.append("• ").append(n).append(switch (status) {
@@ -689,18 +703,25 @@ class DataCompareTab extends Tab implements UnsavedWork {
             case ONLY_TARGET -> " only in " + r.target.label() + " (DELETE or SKIP)";
             default -> " " + status.name();
         }).append('\n'));
-        text.append("\nThey are left out of the script, as if they had SKIP.");
+        if (!open.isEmpty()) text.append("\nThey are left out of the script, as if they had SKIP.");
+        if (check > 0) {
+            text.append(open.isEmpty() ? "" : "\n\n").append("⚠ ").append(check)
+                    .append(" verdict(s) kept from an earlier compare whose values or status changed: check them (Note column).");
+        }
         ButtonType review = new ButtonType("Review first", ButtonBar.ButtonData.CANCEL_CLOSE);
         ButtonType generate = new ButtonType("Generate anyway", ButtonBar.ButtonData.OK_DONE);
         Alert ask = new Alert(Alert.AlertType.WARNING, text.toString(), generate, review);
         ask.initOwner(getTabPane().getScene().getWindow());
-        ask.setHeaderText(total + " row(s) have no verdict yet");
+        ask.setHeaderText(total > 0 ? total + " row(s) have no verdict yet" : check + " verdict(s) to check");
         ((Button) ask.getDialogPane().lookupButton(generate)).setDefaultButton(false);
         ((Button) ask.getDialogPane().lookupButton(review)).setDefaultButton(true);
         if (InAppDialogs.showAndWait(ask).orElse(review) == generate) return true;
         // review: only the statuses that still have rows to decide
-        statusFilters.forEach((status, box) -> box.setSelected(open.containsKey(status)));
-        dataStatus.setText(total + " row(s) to decide: set their verdict (SKIP to leave one as it is), then Generate SQL again");
+        java.util.Set<DataCompare.RowStatus> shown = new java.util.HashSet<>(open.keySet());
+        r.rows.stream().filter(row -> row.warning != null).forEach(row -> shown.add(row.status));
+        statusFilters.forEach((status, box) -> box.setSelected(shown.contains(status)));
+        dataStatus.setText((total > 0 ? total + " row(s) to decide" : "") + (total > 0 && check > 0 ? " · " : "")
+                + (check > 0 ? "⚠ " + check + " to check" : "") + ": set their verdict (SKIP to leave one as it is), then Generate SQL again");
         return false;
     }
 
@@ -749,8 +770,10 @@ class DataCompareTab extends Tab implements UnsavedWork {
                 boolean isCompared = r.comparedColumns.contains(r.shownColumns.get(c));
                 row.add(new ComparedValue(a, b, d.source != null, d.target != null, src, dst, isCompared, r.ignoreLineEndings));
             }
-            row.add(d.status == DataCompare.RowStatus.CHANGED || d.status == DataCompare.RowStatus.MATCH ? ""
-                    : d.note.replace("in source", "in " + src).replace("in target", "in " + dst));
+            String note = d.status == DataCompare.RowStatus.CHANGED || d.status == DataCompare.RowStatus.MATCH ? ""
+                    : d.note.replace("in source", "in " + src).replace("in target", "in " + dst);
+            // a verdict from the earlier compare that needs a look comes first
+            row.add(d.warning == null ? note : "⚠ " + d.warning + (note.isEmpty() ? "" : " · " + note));
             reportRows.add(Map.entry(d.status, row));
         }
         statusFilters.forEach((status, box) -> {
@@ -1020,18 +1043,14 @@ class DataCompareTab extends Tab implements UnsavedWork {
     }
 
     /** Asks before unsaved verdicts are lost (closing, or a new compare replacing the report). */
-    private boolean confirmDiscardVerdicts() {
-        if (!compareFile.hasUnsavedEdits()) return true;
-        if (getTabPane() != null) getTabPane().getSelectionModel().select(this);
-        ButtonType save = new ButtonType("Save", ButtonBar.ButtonData.YES);
-        ButtonType discard = new ButtonType("Don't Save", ButtonBar.ButtonData.NO);
-        Alert alert = new Alert(Alert.AlertType.CONFIRMATION, "The verdicts of this compare are not saved.", save, discard, ButtonType.CANCEL);
-        alert.initOwner(getTabPane().getScene().getWindow());
-        alert.setHeaderText("Save the report?");
-        ButtonType answer = InAppDialogs.showAndWait(alert).orElse(ButtonType.CANCEL);
-        if (answer == save) return save();
-        if (answer == discard) compareFile.edited(false);
-        return answer == discard;
+    /** "8 verdicts kept · ⚠ 2 to check · ⚠ 1 no longer fit · 1 row gone": what a new compare did to the verdicts. */
+    private static String carriedText(Verdicts.Carried c) {
+        List<String> parts = new ArrayList<>();
+        if (c.kept() > 0) parts.add(c.kept() + " verdict(s) kept");
+        if (c.toCheck() > 0) parts.add("⚠ " + c.toCheck() + " kept, to check (values or status changed)");
+        if (c.notFitting() > 0) parts.add("⚠ " + c.notFitting() + " no longer fit: see the Note column");
+        if (c.gone() > 0) parts.add(c.gone() + " decided row(s) no longer listed");
+        return "Compared again · " + String.join(" · ", parts);
     }
 
     private void error(String header, Exception e) {

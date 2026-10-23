@@ -78,7 +78,8 @@ public final class CompareExcel {
                 cells.add(row.source == null ? null : row.source.get(c));
                 cells.add(row.target == null ? null : row.target.get(c));
             }
-            cells.add(row.note == null || row.note.isEmpty() ? null : row.note);
+            String note = row.warning != null ? "⚠ " + row.warning + (row.note == null || row.note.isEmpty() ? "" : " · " + row.note) : row.note;
+            cells.add(note == null || note.isEmpty() ? null : note);
             sheet.row(cells);
         }
         sheet.end();
@@ -165,10 +166,11 @@ public final class CompareExcel {
                 continue;
             }
             if (Verdict.allowed(row.status).isEmpty()) continue; // MATCH, duplicate keys: nothing to decide
-            if (row.verdict == v) {
+            if (row.verdict == v && row.warning == null) {
                 unchanged++;
             } else {
                 row.verdict = v;
+                row.warning = null; // decided again in the sheet
                 changed++;
             }
         }
