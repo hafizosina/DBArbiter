@@ -181,4 +181,33 @@ class DataScanTest {
         assertEquals(2, split.size());
         assertEquals(300, split.stream().mapToInt(x -> x.columns().size()).sum());
     }
+
+    @Test
+    void matchesAreFoundAsTheScanFindsThem() {
+        List<int[]> m = DataScan.matches("a Facebook.png b facebook.PNG", List.of("facebook.png", "book"), false, true);
+        assertEquals(List.of("2-14", "17-29"), m.stream().map(r -> r[0] + "-" + r[1]).toList(), "overlaps merged");
+        assertEquals(1, DataScan.matches("a Facebook.png b facebook.PNG", List.of("Facebook.png"), false, false).size());
+        assertEquals(List.of(), DataScan.matches("abc", List.of("ab"), true, true));
+        assertEquals(1, DataScan.matches("AB", List.of("ab"), true, true).size());
+    }
+
+    @Test
+    void readsTheRowsBehindAFindingByKey() throws Exception {
+        try (var c = DriverManager.getConnection("jdbc:sqlite:" + tmp.resolve("shop.db")); var st = c.createStatement()) {
+            st.execute("insert into template (body) values ('{\"a\": \"Facebook.png\"}')");
+        }
+        TableRef template = session.resolveTable(null, "template");
+        ScanColumn body = new ScanColumn("body", "text", ScanColumn.Kind.TEXT);
+        ScanRequest r = new ScanRequest(List.of("facebook.png"), false, true, List.of(), 30);
+        DataScan.MatchRows rows = DataScan.matchingRows(session, r, template, body, 1);
+        assertEquals(List.of("id"), rows.keyColumns());
+        assertEquals(List.of(List.of(1)), rows.keys());
+        assertTrue(rows.more(), "a second row holds it too");
+        assertFalse(rows.holdsJson(), "HTML is not JSON");
+        DataScan.MatchRows both = DataScan.matchingRows(session, r, template, body, 10);
+        assertEquals(2, both.values().size());
+        assertFalse(both.more());
+        assertTrue(DataScan.isJson(both.values().get(1)));
+        assertFalse(DataScan.isJson("\"just text\""));
+    }
 }

@@ -99,3 +99,6 @@
 .sql-diff .diff-word-added { -rtfx-background-color: #2e7d3e; }
 .sql-diff .diff-folded { -fx-fill: #7a7e85; -fx-font-style: italic; }
 .sql-diff .diff-gutter { -fx-text-fill: #6f737a; -fx-font-family: "JetBrains Mono", "Monospaced"; -fx-font-size: 11px; -fx-padding: 0 6 0 2; }
+
+.scan-match { -rtfx-background-color: #6d5a12; }
+.scan-match-label { -fx-background-color: #6d5a12; -fx-text-fill: #fff8e1; }

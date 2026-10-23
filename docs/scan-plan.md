@@ -167,6 +167,10 @@ limit; Schemas, Tables and Columns lists (`CheckList`; big tables ⚠ and left o
 Findings (rows per value, "other case only") and Coverage (not scanned, left out, not text); Export CSV. Shift-click
 lives in `RangeTicks`, now used by the tables picker, the compare's `ColumnPicker` and the scan's lists. Tried against
 PostgreSQL with real mouse events (click, shift-click range tick and untick).
+Phase 3 done (2026-10-23): double-click a finding → **Rows** tab (`MatchRowsView`): the first 100 rows by primary key,
+one line around the first match with the match highlighted and the number of matches, the selected row's whole value
+below with every match highlighted, and "values are JSON" when the column holds JSON (`DataScan.matchingRows`,
+`matches`, `isJson`).
 
 1. Scan engine and tests (no UI).
 2. Scan tab: `CheckList` first (the tables picker and `ColumnPicker` moved onto it, their shift-click tried again),

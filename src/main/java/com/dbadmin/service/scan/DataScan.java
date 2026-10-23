@@ -192,4 +192,95 @@ public final class DataScan {
         return e instanceof SQLTimeoutException || state.equals("57014") // PostgreSQL: canceled (by the timeout here)
                 || e.getErrorCode() == 3024 || e.getErrorCode() == 1317; // MySQL: max execution time / interrupted
     }
+
+    // ---- the rows behind a finding ----
+
+    /**
+     * The first rows of a column that hold a value: their primary key ({@code keyColumns}, empty if the table has
+     * none), the column's value as text, and whether more rows match ({@code more}).
+     */
+    public record MatchRows(List<String> keyColumns, List<List<Object>> keys, List<String> values, boolean more) {
+
+        /** Every value parses as a JSON object or array: the column holds JSON (e.g. a template stored as text). */
+        public boolean holdsJson() {
+            return values.stream().anyMatch(java.util.Objects::nonNull) && values.stream().allMatch(DataScan::isJson);
+        }
+    }
+
+    /** The first {@code limit} rows of {@code column} that hold one of the request's values, by primary key. */
+    public static MatchRows matchingRows(DatabaseSession session, ScanRequest request, TableRef table, ScanColumn column, int limit)
+            throws SQLException {
+        DbType type = session.getConfig().getType();
+        List<String> key = session.primaryKey(table);
+        String e = expression(type, column);
+        List<String> any = new ArrayList<>();
+        List<String> params = new ArrayList<>();
+        for (String v : request.values()) {
+            any.add(predicate(type, e, request.wholeValue(), request.ignoreCase()));
+            params.add(param(v, request.wholeValue(), request.ignoreCase()));
+        }
+        List<String> select = new ArrayList<>();
+        key.forEach(k -> select.add(type.quote(k)));
+        select.add(e);
+        String sql = "SELECT " + String.join(", ", select) + " FROM " + SchemaChange.table(type, table)
+                + " WHERE " + String.join(" OR ", any)
+                + (key.isEmpty() ? "" : " ORDER BY " + String.join(", ", key.stream().map(type::quote).toList()))
+                + " LIMIT " + (limit + 1);
+        List<List<Object>> rows = session.execute(sql, params, limit + 1).data().rows();
+        List<List<Object>> keys = new ArrayList<>();
+        List<String> values = new ArrayList<>();
+        for (List<Object> row : rows.subList(0, Math.min(limit, rows.size()))) {
+            keys.add(new ArrayList<>(row.subList(0, key.size())));
+            Object v = row.get(key.size());
+            values.add(v == null ? null : v.toString());
+        }
+        return new MatchRows(key, keys, values, rows.size() > limit);
+    }
+
+    /**
+     * Where the values are in {@code text}, as [start, end) ranges in order, overlaps merged; matched as the scan
+     * matched them (whole value: the whole text or nothing).
+     */
+    public static List<int[]> matches(String text, List<String> values, boolean wholeValue, boolean ignoreCase) {
+        List<int[]> ranges = new ArrayList<>();
+        if (text == null) return ranges;
+        for (String v : values) {
+            if (v.isEmpty()) continue;
+            if (wholeValue) {
+                if (ignoreCase ? text.equalsIgnoreCase(v) : text.equals(v)) ranges.add(new int[]{0, text.length()});
+                continue;
+            }
+            for (int at = 0; at <= text.length() - v.length(); at++) {
+                if (text.regionMatches(ignoreCase, at, v, 0, v.length())) {
+                    ranges.add(new int[]{at, at + v.length()});
+                    at += v.length() - 1;
+                }
+            }
+        }
+        ranges.sort(java.util.Comparator.comparingInt(r -> r[0]));
+        List<int[]> merged = new ArrayList<>();
+        for (int[] r : ranges) {
+            if (!merged.isEmpty() && r[0] <= merged.get(merged.size() - 1)[1]) {
+                merged.get(merged.size() - 1)[1] = Math.max(merged.get(merged.size() - 1)[1], r[1]);
+            } else {
+                merged.add(r);
+            }
+        }
+        return merged;
+    }
+
+    private static final com.fasterxml.jackson.databind.ObjectMapper JSON = new com.fasterxml.jackson.databind.ObjectMapper();
+
+    /** A JSON object or array (not a bare string or number: plain text would count). */
+    static boolean isJson(String value) {
+        if (value == null) return true;
+        String t = value.strip();
+        if (!(t.startsWith("{") || t.startsWith("["))) return false;
+        try {
+            JSON.readTree(t);
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
 }

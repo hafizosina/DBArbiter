@@ -99,5 +99,8 @@ class ScanTabTest {
             assertTrue(why.contains("logs/(table): left out by you"), why.toString());
             assertTrue(why.contains("template/price: not searched: REAL is not text"), why.toString());
         });
+        Fx.run(() -> t.showRows(t.findingsGridFindings().get(0)));
+        await(() -> !t.matchRowsView().shownValues().isEmpty());
+        Fx.run(() -> assertEquals(List.of("see https://cdn/Facebook.png"), t.matchRowsView().shownValues()));
     }
 }

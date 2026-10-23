@@ -82,6 +82,12 @@ class ScanTab extends Tab {
     private final DataGrid findings = new DataGrid();
     private final DataGrid coverage = new DataGrid();
     private final Tab coverageTab = new Tab("Coverage");
+    private final MatchRowsView matchRows = new MatchRowsView();
+    private final Tab rowsTab = new Tab("Rows", matchRows);
+    /** The findings in the order the grid lists them. */
+    private final List<ScanFinding> listed = new ArrayList<>();
+    /** Rows shown per finding. */
+    static final int ROWS_SHOWN = 100;
     private final Button export = new Button("Export CSV…");
     private Job<List<TableResult>> running;
     /** The request of the last scan, for the findings' value headers and the coverage. */
@@ -160,7 +166,15 @@ class ScanTab extends Tab {
         coverage.setPlaceholder(new Label("After a scan: what was not searched, and why."));
         Tab findingsTab = new Tab("Findings", findings);
         coverageTab.setContent(coverage);
-        TabPane bottom = new TabPane(findingsTab, coverageTab);
+        TabPane bottom = new TabPane(findingsTab, coverageTab, rowsTab);
+        findings.setOnMouseClicked(e -> {
+            int i = findings.getSelectionModel().getSelectedIndex();
+            if (e.getClickCount() == 2 && i >= 0 && i < listed.size()) {
+                bottom.getSelectionModel().select(rowsTab);
+                showRows(listed.get(i));
+            }
+        });
+        findings.setTooltip(new Tooltip("Double-click a finding to see its rows"));
         bottom.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
         bottom.getStyleClass().add("sub-tabs");
         SplitPane split = new SplitPane(form, bottom);
@@ -377,8 +391,10 @@ class ScanTab extends Tab {
         for (int i = 0; i < vals.size(); i++) headers.add(valueHeader(i, vals.get(i)));
         if (ic) headers.add("Other case only");
         List<List<Object>> rows = new ArrayList<>();
+        listed.clear();
         for (TableResult r : results) {
             for (ScanFinding f : r.findings()) {
+                listed.add(f);
                 List<Object> row = new ArrayList<>(List.of(f.table().displayName(), f.column().name(), f.column().type(), f.rows()));
                 row.addAll(f.valueRows());
                 if (ic) {
@@ -395,6 +411,28 @@ class ScanTab extends Tab {
     private static String valueHeader(int i, String v) {
         String shortV = v.length() > 28 ? "…" + v.substring(v.length() - 27) : v;
         return (i + 1) + ": " + shortV;
+    }
+
+    /** The first rows of a finding, read on the tab's connection. */
+    void showRows(ScanFinding f) {
+        ConnectionConfig c = connection.getValue();
+        ScanRequest request = lastRequest;
+        if (c == null || request == null) return;
+        String what = f.table().displayName() + "." + f.column().name();
+        matchRows.loading(what);
+        rowsTab.setText("Rows · " + f.column().name());
+        sessions.withSession(c, s -> Async.run(s, () -> DataScan.matchingRows(s, request, f.table(), f.column(), ROWS_SHOWN),
+                found -> matchRows.show(what, found, request.values(), request.wholeValue(), request.ignoreCase()),
+                ex -> matchRows.failed("Could not read the rows: " + ex.getMessage())), ex -> matchRows.failed("Could not connect: " + ex.getMessage()));
+    }
+
+    /** The findings as the grid lists them (for tests). */
+    List<ScanFinding> findingsGridFindings() {
+        return listed;
+    }
+
+    MatchRowsView matchRowsView() {
+        return matchRows;
     }
 
     private void showFindings() {
