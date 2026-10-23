@@ -8,7 +8,12 @@ import com.dbadmin.service.compare.DataCompare;
  * {@code compared} column's difference is a change (highlighted); a "show" column just displays.
  */
 record ComparedValue(Object source, Object target, boolean inSource, boolean inTarget,
-                     String sourceName, String targetName, boolean compared) {
+                     String sourceName, String targetName, boolean compared, boolean ignoreLineEndings) {
+
+    ComparedValue(Object source, Object target, boolean inSource, boolean inTarget, String sourceName, String targetName,
+                  boolean compared) {
+        this(source, target, inSource, inTarget, sourceName, targetName, compared, false);
+    }
 
     /** A difference that counts: highlighted in the grid. */
     boolean differs() {
@@ -17,7 +22,8 @@ record ComparedValue(Object source, Object target, boolean inSource, boolean inT
 
     /** Both sides have the row and their values differ (whether or not the column is compared). */
     boolean valuesDiffer() {
-        return inSource && inTarget && !DataCompare.normalize(source).equals(DataCompare.normalize(target));
+        return inSource && inTarget
+                && !DataCompare.normalize(source, ignoreLineEndings).equals(DataCompare.normalize(target, ignoreLineEndings));
     }
 
     @Override

@@ -146,4 +146,18 @@ class DataCompareTest {
                 table(cols, new Object[]{"A02", "y.jpg"}, new Object[]{"A02", "z.jpg"}), List.of("code"), List.of("image_path"), List.of(), 100)
                 .duplicateKeys());
     }
+
+    /** A JSON template saved from Windows on one side: the same text with CRLF; only the option makes it a MATCH. */
+    @Test
+    void lineEndingsCanBeIgnored() {
+        List<String> cols = List.of("id", "body");
+        TableData windows = table(cols, new Object[]{1, "{\r\n  \"a\": 1\r\n}"}, new Object[]{2, "x\r\ny"});
+        TableData unix = table(cols, new Object[]{1, "{\n  \"a\": 1\n}"}, new Object[]{2, "x\nz"});
+        Result strict = DataCompare.compare(windows, unix, List.of("id"), List.of("body"), List.of(), 100, false, false);
+        assertEquals(2, strict.changed());
+        Result ignoring = DataCompare.compare(windows, unix, List.of("id"), List.of("body"), List.of(), 100, false, true);
+        assertEquals(1, ignoring.same());
+        assertEquals(1, ignoring.changed(), "a real difference still counts");
+        assertEquals(DataCompare.normalize("a\nb", true), DataCompare.normalize("a\rb", true));
+    }
 }

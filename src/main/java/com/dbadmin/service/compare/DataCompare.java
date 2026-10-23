@@ -60,6 +60,15 @@ public final class DataCompare {
      */
     public static Result compare(TableData source, TableData target, List<String> keyColumns,
                                  List<String> compareColumns, List<String> showColumns, int maxRows, boolean oneToMany) {
+        return compare(source, target, keyColumns, compareColumns, showColumns, maxRows, oneToMany, false);
+    }
+
+    /**
+     * @param ignoreLineEndings text that differs only in its line endings (Windows CRLF, old Mac CR, Unix LF) is the
+     *                          same: e.g. a JSON template saved from a Windows editor on one side
+     */
+    public static Result compare(TableData source, TableData target, List<String> keyColumns, List<String> compareColumns,
+                                 List<String> showColumns, int maxRows, boolean oneToMany, boolean ignoreLineEndings) {
         for (String k : keyColumns) {
             if (index(source, k) < 0 || index(target, k) < 0) {
                 throw new IllegalArgumentException("Key column \"" + k + "\" is not in both tables");
@@ -109,7 +118,7 @@ public final class DataCompare {
                 for (int i = 0; i < compared.size(); i++) {
                     Object a = srcRows.get(0).get(srcCols[i]);
                     Object b = dstRows.get(0).get(dstCols[i]);
-                    if (!normalize(a).equals(normalize(b))) changes.add(compared.get(i) + ": " + show(a) + " → " + show(b));
+                    if (!normalize(a, ignoreLineEndings).equals(normalize(b, ignoreLineEndings))) changes.add(compared.get(i) + ": " + show(a) + " → " + show(b));
                 }
                 if (changes.isEmpty()) {
                     same++;
@@ -126,8 +135,8 @@ public final class DataCompare {
                 // each row of the key: the same on both sides (compared values), new in the source, or only in the target
                 List<List<Object>> leftTarget = new ArrayList<>(dstRows);
                 for (List<Object> row : srcRows) {
-                    String sig = signature(row, srcCols);
-                    List<Object> twin = leftTarget.stream().filter(t -> signature(t, dstCols).equals(sig)).findFirst().orElse(null);
+                    String sig = signature(row, srcCols, ignoreLineEndings);
+                    List<Object> twin = leftTarget.stream().filter(t -> signature(t, dstCols, ignoreLineEndings).equals(sig)).findFirst().orElse(null);
                     if (twin != null) {
                         leftTarget.remove(twin);
                         same++;
@@ -146,10 +155,10 @@ public final class DataCompare {
             // duplicate key: pair up rows with identical compared values; what is left over differs
             duplicateKeys++;
             List<String> unmatched = new ArrayList<>();
-            for (List<Object> row : dstRows) unmatched.add(signature(row, dstCols));
+            for (List<Object> row : dstRows) unmatched.add(signature(row, dstCols, ignoreLineEndings));
             int matched = 0;
             for (List<Object> row : srcRows) {
-                if (unmatched.remove(signature(row, srcCols))) matched++;
+                if (unmatched.remove(signature(row, srcCols, ignoreLineEndings))) matched++;
             }
             int leftSource = srcRows.size() - matched;
             int leftTarget = unmatched.size();
@@ -222,9 +231,9 @@ public final class DataCompare {
         return map;
     }
 
-    private static String signature(List<Object> row, int[] columns) {
+    private static String signature(List<Object> row, int[] columns, boolean ignoreLineEndings) {
         StringBuilder sb = new StringBuilder();
-        for (int c : columns) sb.append(normalize(row.get(c))).append('\u0001');
+        for (int c : columns) sb.append(normalize(row.get(c), ignoreLineEndings)).append('\u0001');
         return sb.toString();
     }
 
@@ -244,6 +253,12 @@ public final class DataCompare {
         if (v instanceof BlobValue b) return "blob:" + b.length() + ":" + Arrays.hashCode(b.head());
         if (v instanceof Boolean bool) return bool ? "true" : "false";
         return v.toString();
+    }
+
+    /** As {@link #normalize(Object)}; with {@code ignoreLineEndings}, CRLF and CR in text count as LF. */
+    public static String normalize(Object v, boolean ignoreLineEndings) {
+        String n = normalize(v);
+        return ignoreLineEndings && v instanceof CharSequence ? n.replace("\r\n", "\n").replace('\r', '\n') : n;
     }
 
     private static String show(Object v) {

@@ -98,6 +98,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
     private final JoinEditor joins;
     /** Several rows per key: a key's rows are matched by their compared values (see DataCompare). */
     private final CheckBox oneToMany = new CheckBox("One-to-many");
+    private final CheckBox ignoreLineEndings = new CheckBox("Ignore line endings");
 
     private final ObservableList<ConnectionConfig> connections;
     private final SessionProvider sessions;
@@ -190,6 +191,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
         r.where = where.getText() == null ? "" : where.getText().trim();
         r.rowsPerSide = rowLimit.getValue();
         r.oneToMany = oneToMany.isSelected();
+        r.ignoreLineEndings = ignoreLineEndings.isSelected();
         if (!joins.isEmpty()) {
             r.mainAlias = joins.mainAlias();
             r.joins = joins.joins();
@@ -273,6 +275,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
         where.setText(r.where == null ? "" : r.where);
         if (r.rowsPerSide > 0) rowLimit.getValueFactory().setValue(r.rowsPerSide);
         oneToMany.setSelected(r.oneToMany);
+        ignoreLineEndings.setSelected(r.ignoreLineEndings);
         // the ticks: kept by name when the tables' columns arrive (see setColumns)
         picker.restore(r.shownColumns, r.keyColumns, r.comparedColumns);
         joins.restore(r.mainAlias, r.joins);
@@ -325,6 +328,8 @@ class DataCompareTab extends Tab implements UnsavedWork {
         HBox.setHgrow(where, Priority.ALWAYS);
         oneToMany.setTooltip(new Tooltip("For a key with several rows (e.g. the images of a tier code): each row is matched by the "
                 + "compared columns.\nOn both sides: MATCH · only in the source: new, to add · only in the target: old, to remove."));
+        ignoreLineEndings.setTooltip(new Tooltip("Text that differs only in its line endings (Windows CRLF ␍ or LF) counts as the same."
+                + "\nApplies from the next Compare."));
         saveButton.setTooltip(new Tooltip("Save this compare to its file (Ctrl+S); the first time, asks where and what"));
         saveButton.setOnAction(e -> save());
         MenuItem saveAs = new MenuItem("Save As…");
@@ -344,8 +349,8 @@ class DataCompareTab extends Tab implements UnsavedWork {
         optionsTop.setAlignment(Pos.CENTER_LEFT);
         Region gap = new Region();
         HBox.setHgrow(gap, Priority.ALWAYS);
-        HBox optionsBottom = new HBox(6, oneToMany, addJoin, gap, compare, saveButton, more);
-        CompareSide.keepWidth(rowsLabel, rowLimit, oneToMany, addJoin, compare, saveButton, more);
+        HBox optionsBottom = new HBox(6, oneToMany, ignoreLineEndings, addJoin, gap, compare, saveButton, more);
+        CompareSide.keepWidth(rowsLabel, rowLimit, oneToMany, ignoreLineEndings, addJoin, compare, saveButton, more);
         optionsBottom.setAlignment(Pos.CENTER_LEFT);
         VBox sideBoxes = new VBox(4, dataSource, dataTarget);
         VBox options = new VBox(4, optionsTop, optionsBottom);
@@ -466,7 +471,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
     /** What a compare reads, taken from the form. */
     private record Plan(List<String> keys, List<String> compared, List<String> shownOnly, String filter,
                         List<String> joinedColumns, List<KeyJoins.Join> joins, String alias,
-                        List<TableRef> srcJoins, List<TableRef> dstJoins, int limit, boolean oneToMany) {
+                        List<TableRef> srcJoins, List<TableRef> dstJoins, int limit, boolean oneToMany, boolean ignoreLineEndings) {
     }
 
     /** The form as a {@link Plan}; null (with the reason in the status line) when something is missing. */
@@ -508,7 +513,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
             dstJoins.add(t);
         }
         return new Plan(keys, compared, shownOnly, filter, joinedColumns, joinList, alias, srcJoins, dstJoins, rowLimit.getValue(),
-                oneToMany.isSelected());
+                oneToMany.isSelected(), ignoreLineEndings.isSelected());
     }
 
     /**
@@ -541,7 +546,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
                     job.checkCancelled();
                     job.progress("Comparing " + ra.data().rows().size() + " and " + rb.data().rows().size() + " rows…");
                     return DataCompareReport.of(DataCompare.compare(ra.data(), rb.data(), p.keys(), p.compared(), p.shownOnly(),
-                                    MAX_LISTED_ROWS, p.oneToMany()), srcSide, dstSide, p.keys(), p.filter(), p.limit(),
+                                    MAX_LISTED_ROWS, p.oneToMany(), p.ignoreLineEndings()), srcSide, dstSide, p.keys(), p.filter(), p.limit(),
                             ra.truncated() || rb.truncated(), "v" + AppFooter.version());
                 }, new Job.Listener<>() {
                     @Override
@@ -554,6 +559,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
                         jobEnded();
                         if (!confirmDiscardVerdicts()) return;
                         r.oneToMany = p.oneToMany();
+                        r.ignoreLineEndings = p.ignoreLineEndings();
                         r.mainAlias = p.joins().isEmpty() ? null : p.alias();
                         r.joins = p.joins();
                         compareFile.compared();
@@ -694,7 +700,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
                 Object a = d.source == null ? null : d.source.get(c);
                 Object b = d.target == null ? null : d.target.get(c);
                 boolean isCompared = r.comparedColumns.contains(r.shownColumns.get(c));
-                row.add(new ComparedValue(a, b, d.source != null, d.target != null, src, dst, isCompared));
+                row.add(new ComparedValue(a, b, d.source != null, d.target != null, src, dst, isCompared, r.ignoreLineEndings));
             }
             row.add(d.status == DataCompare.RowStatus.CHANGED || d.status == DataCompare.RowStatus.MATCH ? ""
                     : d.note.replace("in source", "in " + src).replace("in target", "in " + dst));
