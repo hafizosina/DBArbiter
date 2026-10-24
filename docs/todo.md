@@ -11,4 +11,10 @@
 6. [x] in table detail tab: add, delete and alter columns; the same for constraints, indexes and foreign keys. (changes the schema, so it goes through the warning level of #4)
    - done: Properties → Columns / Constraints / Foreign Keys / Indexes have Add…, Edit…, Drop (buttons, right-click, double-click to edit). Each form shows the SQL it makes as you type; Apply runs it as the connection's warning level says, Drop always asks. PostgreSQL and SQLite run a change in one transaction; MySQL makes each statement at once and says which ones were made if a later one fails. Constraints, indexes and foreign keys are edited by drop + create. SQLite can only add, rename and drop columns and create / drop indexes; the form says so for the rest.
 7. small hideable panel that shows all background processes (running queries, compares, exports / imports, …).
-8. 
+8. export sql. custom key to check if exist.
+![img.png](img.png)
+9. setting. close or force close app. maintain open tabs.  toggle able in setting
+10. scan feature with save and reopen setting and report
+11. tab name for script query, show what connection this script use.
+![img_1.png](img_1.png)
+12. compare data. add options to do not include primary key.
