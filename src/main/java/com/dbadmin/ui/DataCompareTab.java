@@ -83,6 +83,10 @@ class DataCompareTab extends Tab implements UnsavedWork {
     private final List<Map.Entry<DataCompare.RowStatus, List<Object>>> reportRows = new ArrayList<>();
     private List<String> reportHeader = List.of();
     private final Map<DataCompare.RowStatus, CheckBox> statusFilters = new java.util.EnumMap<>(DataCompare.RowStatus.class);
+    /** Compared columns where no row differs are hidden (on by default); the box says how many. */
+    private final CheckBox hideUnchanged = new CheckBox();
+    /** The report's compared columns where no row differs, by index in its shown columns. */
+    private final java.util.Set<Integer> unchangedColumns = new java.util.HashSet<>();
     private final javafx.scene.layout.FlowPane statusBar = new javafx.scene.layout.FlowPane(10, 4);
     private final DataView dataView = new DataView();
     private final DataGrid dataGrid = dataView.grid();
@@ -417,6 +421,11 @@ class DataCompareTab extends Tab implements UnsavedWork {
             statusFilters.put(status, box);
             statusBar.getChildren().add(box);
         }
+        hideUnchanged.setSelected(true);
+        hideUnchanged.setMnemonicParsing(false);
+        hideUnchanged.setTooltip(new Tooltip("Hide the compared columns where no row has a difference; untick to show them"));
+        hideUnchanged.selectedProperty().addListener((o, a, b) -> showUnchangedColumns());
+        statusBar.getChildren().addAll(new javafx.scene.control.Separator(javafx.geometry.Orientation.VERTICAL), hideUnchanged);
         // with rows selected: I U D S set a verdict, Backspace clears it, Ctrl+V pastes a copied one
         dataGrid.addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, this::verdictKeys);
         verdictForShown.setText("Verdict");
@@ -771,6 +780,10 @@ class DataCompareTab extends Tab implements UnsavedWork {
         reportHeader.addAll(r.shownColumns);
         reportHeader.add("Note");
         reportRows.clear();
+        unchangedColumns.clear();
+        for (int c = 0; c < r.shownColumns.size(); c++) {
+            if (r.comparedColumns.contains(r.shownColumns.get(c))) unchangedColumns.add(c);
+        }
         Map<DataCompare.RowStatus, Integer> counts = new java.util.EnumMap<>(DataCompare.RowStatus.class);
         for (DataCompareReport.Row d : r.rows) {
             counts.merge(d.status, 1, Integer::sum);
@@ -781,7 +794,9 @@ class DataCompareTab extends Tab implements UnsavedWork {
                 Object a = d.source == null ? null : d.source.get(c);
                 Object b = d.target == null ? null : d.target.get(c);
                 boolean isCompared = r.comparedColumns.contains(r.shownColumns.get(c));
-                row.add(new ComparedValue(a, b, d.source != null, d.target != null, src, dst, isCompared, r.ignoreLineEndings));
+                ComparedValue value = new ComparedValue(a, b, d.source != null, d.target != null, src, dst, isCompared, r.ignoreLineEndings);
+                if (value.differs()) unchangedColumns.remove(c);
+                row.add(value);
             }
             String note = d.status == DataCompare.RowStatus.CHANGED || d.status == DataCompare.RowStatus.MATCH ? ""
                     : d.note.replace("in source", "in " + src).replace("in target", "in " + dst);
@@ -797,6 +812,9 @@ class DataCompareTab extends Tab implements UnsavedWork {
             box.setVisible(listed);
             box.setManaged(listed);
         });
+        hideUnchanged.setText("Hide " + unchangedColumns.size() + " unchanged column" + (unchangedColumns.size() == 1 ? "" : "s"));
+        hideUnchanged.setVisible(!unchangedColumns.isEmpty());
+        hideUnchanged.setManaged(!unchangedColumns.isEmpty());
         MenuItem suggest = new MenuItem("Suggest verdicts");
         suggest.setOnAction(e -> suggestVerdicts());
         javafx.scene.control.Menu forShown = new javafx.scene.control.Menu("Set on all shown rows");
@@ -821,6 +839,15 @@ class DataCompareTab extends Tab implements UnsavedWork {
         @SuppressWarnings("unchecked")
         TableColumn<List<Object>, Object> verdictColumn = (TableColumn<List<Object>, Object>) dataGrid.column(1);
         if (verdictColumn != null) verdictColumn.setCellFactory(c -> new VerdictDropdownCell());
+        showUnchangedColumns();
+    }
+
+    /** Hides (or shows again) the compared columns where no row differs; the report's columns start after Status and Verdict. */
+    private void showUnchangedColumns() {
+        for (int c : unchangedColumns) {
+            TableColumn<List<Object>, ?> column = dataGrid.column(c + 2);
+            if (column != null) column.setVisible(!hideUnchanged.isSelected());
+        }
     }
 
     /** The Verdict cell: its text and a ▾; a click opens the verdicts that fit the row's status. */
