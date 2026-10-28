@@ -103,6 +103,8 @@ class TableTab extends Tab implements UnsavedWork {
         addSection("Foreign Keys", () -> session.listForeignKeys(table));
         addSection("Indexes", () -> session.listIndexes(table));
         addSection("Triggers", () -> session.listTriggers(table));
+        // the sequences its columns use (serial, identity; MySQL AUTO_INCREMENT, SQLite AUTOINCREMENT), with their values
+        addSection("Sequences", () -> session.listSequences(new com.dbadmin.model.Namespace(table.catalog(), table.schema(), ""), table.name()));
         // DDL is not a grid: see showDdl
 
         Tab properties = new Tab("Properties", buildPropertiesPane());

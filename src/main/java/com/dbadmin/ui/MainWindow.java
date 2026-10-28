@@ -380,6 +380,8 @@ public class MainWindow implements SessionProvider {
                 refresh.setDisable(true);
             } else if (n.kind() == NavNode.Kind.TABLE) {
                 sessions.get(n.connection().getId()).ifPresent(s -> items.addAll(tableMenu(s, n.table())));
+            } else if (n.kind() == NavNode.Kind.SEQUENCE) {
+                sessions.get(n.connection().getId()).ifPresent(s -> items.addAll(sequenceMenu(s, n)));
             } else if (n.kind() == NavNode.Kind.CONNECTION) {
                 items.addAll(connectionMenu(n.connection()));
             } else {
@@ -391,6 +393,30 @@ public class MainWindow implements SessionProvider {
         });
         menu.getItems().add(new MenuItem("…")); // a menu with no items is never shown; filled when showing
         return menu;
+    }
+
+    /** A sequence's right-click items: copy its name (PostgreSQL: its nextval), Reset Sequence… where allowed. */
+    private List<MenuItem> sequenceMenu(DatabaseSession session, NavNode n) {
+        String name = String.valueOf(n.sequence().get(0));
+        List<MenuItem> items = new ArrayList<>();
+        MenuItem copyName = new MenuItem("Copy Name");
+        copyName.setOnAction(e -> CopyText.toClipboard(name));
+        items.add(copyName);
+        if (n.connection().getType() == com.dbadmin.model.DbType.POSTGRESQL) {
+            MenuItem copyNext = new MenuItem("Copy nextval(…)");
+            copyNext.setOnAction(e -> CopyText.toClipboard("SELECT nextval('" + n.namespace().schema() + "." + name + "')"));
+            items.add(copyNext);
+        }
+        if (TableActions.canResetSequence(session.getConfig())) {
+            MenuItem reset = new MenuItem("Reset Sequence…");
+            reset.setOnAction(e -> TableActions.resetSequence(stage, session, n.namespace(), n.sequence(), () -> {
+                status.setText("Sequence " + name + " reset");
+                refreshSelected();
+            }));
+            items.add(new SeparatorMenuItem());
+            items.add(reset);
+        }
+        return items;
     }
 
     /** A table's right-click items, in the tree and in the search results: open, data, the table's own, scripts. */
@@ -644,7 +670,9 @@ public class MainWindow implements SessionProvider {
             }, ex -> loadFailed(item, ex));
             case NAMESPACE -> {
                 Namespace ns = node.namespace();
-                Async.run(session, () -> session.listTables(ns), tables -> {
+                Async.run(session, () -> List.of(session.listTables(ns), session.listSequences(ns, null).rows()), found -> {
+                    @SuppressWarnings("unchecked") List<TableRef> tables = (List<TableRef>) found.get(0);
+                    @SuppressWarnings("unchecked") List<List<Object>> sequences = (List<List<Object>>) found.get(1);
                     TreeItem<NavNode> tablesFolder = folder(c, "Tables", tables.stream().filter(t -> !t.isView()).toList());
                     TreeItem<NavNode> viewsFolder = folder(c, "Views",
                             tables.stream().filter(t -> t.isView() && !t.isMaterializedView()).toList());
@@ -654,6 +682,10 @@ public class MainWindow implements SessionProvider {
                     if (c.getType().hasMaterializedViews() || !materialized.isEmpty()) {
                         item.getChildren().add(folder(c, "Materialized Views", materialized));
                     }
+                    // PostgreSQL's sequences; MySQL's AUTO_INCREMENT and SQLite's AUTOINCREMENT counters
+                    TreeItem<NavNode> sequencesFolder = new TreeItem<>(NavNode.folder(c, "Sequences (" + sequences.size() + ")"));
+                    sequences.forEach(r -> sequencesFolder.getChildren().add(new TreeItem<>(NavNode.sequence(c, ns, r))));
+                    item.getChildren().add(sequencesFolder);
                     tablesFolder.setExpanded(true);
                     status.setText(ns.label() + ": " + tables.size() + " tables/views");
                 }, ex -> loadFailed(item, ex));
@@ -1185,6 +1217,7 @@ public class MainWindow implements SessionProvider {
                     icon.setText(t.isMaterializedView() ? "◩" : t.isView() ? "◫" : "▦");
                     icon.getStyleClass().add(t.isMaterializedView() ? "matview" : t.isView() ? "view" : "table");
                 }
+                case SEQUENCE -> icon.setText("#");
                 case MESSAGE -> icon.setText("");
             }
             setGraphic(icon);

@@ -70,6 +70,39 @@ final class MySqlDialect implements Dialect {
         return result;
     }
 
+    /**
+     * The AUTO_INCREMENT counters: (table.column, last value given, increment, offset, table, column). MySQL 8 caches
+     * information_schema's AUTO_INCREMENT for a day; the cache is turned off for this session first.
+     */
+    @Override
+    public List<List<Object>> sequences(Metadata m, Namespace ns, String table) throws SQLException {
+        try (java.sql.Statement st = m.connection().createStatement()) {
+            st.execute("set session information_schema_stats_expiry = 0");
+        } catch (SQLException noSuchVariable) {
+            // MariaDB and MySQL 5.7 have no such cache
+        }
+        String only = table == null ? "" : table;
+        List<List<Object>> rows = new ArrayList<>();
+        for (List<Object> r : m.query("""
+                select t.TABLE_NAME, c.COLUMN_NAME, t.AUTO_INCREMENT, @@auto_increment_increment, @@auto_increment_offset
+                from information_schema.TABLES t
+                join information_schema.COLUMNS c on c.TABLE_SCHEMA = t.TABLE_SCHEMA and c.TABLE_NAME = t.TABLE_NAME
+                     and c.EXTRA like '%auto_increment%'
+                where t.TABLE_SCHEMA = ? and (? = '' or t.TABLE_NAME = ?)
+                order by t.TABLE_NAME
+                """, ns.catalog(), only, only)) {
+            Object next = r.get(2);
+            Object last = next instanceof Number n ? (Object) (n.longValue() - 1) : "";
+            rows.add(List.of(r.get(0) + "." + r.get(1), last, r.get(3), r.get(4), r.get(0), r.get(1)));
+        }
+        return rows;
+    }
+
+    @Override
+    public String restartSequence(Metadata m, Namespace ns, String sequence, String table, long next) throws SQLException {
+        return "ALTER TABLE " + m.qualifiedName(new TableRef(ns.catalog(), null, table, "TABLE")) + " AUTO_INCREMENT = " + next;
+    }
+
     @Override
     public List<List<Object>> triggers(Metadata m, TableRef t) throws SQLException {
         return m.query("""

@@ -318,6 +318,14 @@ final class Metadata {
         return new TableData(List.of("Trigger", "Timing", "Event", "Level", "Definition"), dialect.triggers(this, t));
     }
 
+    public TableData listSequences(Namespace ns, String table) throws SQLException {
+        return new TableData(List.of("Sequence", "Last value", "Increment", "Start", "Table", "Column"), dialect.sequences(this, ns, table));
+    }
+
+    public String restartSequence(Namespace ns, String sequence, String table, long next) throws SQLException {
+        return dialect.restartSequence(this, ns, sequence, table, next);
+    }
+
     /** Runs a metadata query with string parameters; nulls become empty strings. */
     List<List<Object>> query(String sql, String... params) throws SQLException {
         try (PreparedStatement ps = connection().prepareStatement(sql)) {

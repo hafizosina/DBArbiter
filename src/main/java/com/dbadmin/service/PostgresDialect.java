@@ -165,6 +165,29 @@ final class PostgresDialect implements Dialect {
                 """, t.schema(), t.name());
     }
 
+    /** From pg_sequences, with the column that owns the sequence (serial / identity) from pg_depend. */
+    @Override
+    public List<List<Object>> sequences(Metadata m, Namespace ns, String table) throws SQLException {
+        String only = table == null ? "" : table;
+        return m.query("""
+                select c.relname, s.last_value, s.increment_by, s.start_value, coalesce(t.relname, ''), coalesce(a.attname, '')
+                from pg_class c
+                join pg_namespace n on n.oid = c.relnamespace
+                join pg_sequences s on s.schemaname = n.nspname and s.sequencename = c.relname
+                left join pg_depend d on d.objid = c.oid and d.classid = 'pg_class'::regclass
+                     and d.refclassid = 'pg_class'::regclass and d.deptype in ('a', 'i')
+                left join pg_class t on t.oid = d.refobjid
+                left join pg_attribute a on a.attrelid = d.refobjid and a.attnum = d.refobjsubid
+                where c.relkind = 'S' and n.nspname = ? and (? = '' or t.relname = ?)
+                order by c.relname
+                """, ns.schema(), only, only);
+    }
+
+    @Override
+    public String restartSequence(Metadata m, Namespace ns, String sequence, String table, long next) throws SQLException {
+        return "ALTER SEQUENCE " + m.qualifiedName(new TableRef(null, ns.schema(), sequence, "SEQUENCE")) + " RESTART WITH " + next;
+    }
+
     /** From pg_attribute: format_type writes the type with its length or precision; identity and generated columns marked. */
     @Override
     public List<ColumnSpec> columns(Metadata m, TableRef t) throws SQLException {

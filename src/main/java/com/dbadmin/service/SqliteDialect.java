@@ -86,6 +86,23 @@ final class SqliteDialect implements Dialect {
     }
 
     /** From the stored CREATE TRIGGER: timing and event come before "ON <table>". */
+    /** sqlite_sequence: one counter per AUTOINCREMENT table (there is none before the first such table gets a row). */
+    @Override
+    public List<List<Object>> sequences(Metadata m, Namespace ns, String table) throws SQLException {
+        if (m.query("select 1 from sqlite_master where type = 'table' and name = 'sqlite_sequence'").isEmpty()) return List.of();
+        String only = table == null ? "" : table;
+        List<List<Object>> rows = new ArrayList<>();
+        for (List<Object> r : m.query("select name, seq from sqlite_sequence where ? = '' or name = ? order by name", only, only)) {
+            rows.add(List.of(r.get(0), r.get(1), 1, 1, r.get(0), ""));
+        }
+        return rows;
+    }
+
+    @Override
+    public String restartSequence(Metadata m, Namespace ns, String sequence, String table, long next) throws SQLException {
+        return "UPDATE sqlite_sequence SET seq = " + (next - 1) + " WHERE name = '" + table.replace("'", "''") + "'";
+    }
+
     @Override
     public List<List<Object>> triggers(Metadata m, TableRef t) throws SQLException {
         List<List<Object>> result = new ArrayList<>();

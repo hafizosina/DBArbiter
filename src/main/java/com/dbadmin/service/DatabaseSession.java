@@ -454,6 +454,29 @@ public class DatabaseSession implements AutoCloseable {
         return metadata.listForeignKeys(t);
     }
 
+    /**
+     * The namespace's sequences (MySQL: AUTO_INCREMENT counters, SQLite: sqlite_sequence), or only those of
+     * {@code table}: (Sequence, Last value, Increment, Start, Table, Column).
+     */
+    public TableData listSequences(Namespace ns, String table) throws SQLException {
+        return metadata.listSequences(ns, table);
+    }
+
+    /** One more than the column's highest value (1 for an empty table): where a sequence should go on from. */
+    public long nextFree(TableRef t, String column) throws SQLException {
+        String q = connection.getMetaData().getIdentifierQuoteString().trim();
+        try (Statement st = connection.createStatement();
+             ResultSet rs = st.executeQuery("SELECT COALESCE(MAX(" + quote(column, q) + "), 0) + 1 FROM " + qualifiedName(t))) {
+            rs.next();
+            return rs.getLong(1);
+        }
+    }
+
+    /** The statement that makes a sequence give {@code next} next (not run). */
+    public String restartSequenceSql(Namespace ns, String sequence, String table, long next) throws SQLException {
+        return metadata.restartSequence(ns, sequence, table, next);
+    }
+
     public TableData listTriggers(TableRef t) throws SQLException {
         return metadata.listTriggers(t);
     }

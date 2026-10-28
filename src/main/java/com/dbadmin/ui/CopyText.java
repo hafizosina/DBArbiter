@@ -8,6 +8,13 @@ final class CopyText {
     private CopyText() {
     }
 
+    /** Puts the text on the clipboard. */
+    static void toClipboard(String text) {
+        javafx.scene.input.ClipboardContent content = new javafx.scene.input.ClipboardContent();
+        content.putString(text);
+        javafx.scene.input.Clipboard.getSystemClipboard().setContent(content);
+    }
+
     /**
      * Tab-separated text: one line per row, NULL as empty. One value alone is copied as it is; in a grid,
      * a value with a tab, line break or quote is quoted ("..." with "" inside), as spreadsheets expect.

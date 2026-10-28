@@ -51,4 +51,14 @@ interface Dialect {
 
     /** Triggers as rows of (name, timing, event, level, definition). */
     List<List<Object>> triggers(Metadata m, TableRef t) throws SQLException;
+
+    /**
+     * The namespace's sequences (MySQL: AUTO_INCREMENT counters, SQLite: sqlite_sequence) as rows of (name, last value,
+     * increment, start, table, column); only those of {@code table} when it is not null. Last value is "" before the
+     * first use.
+     */
+    List<List<Object>> sequences(Metadata m, Namespace ns, String table) throws SQLException;
+
+    /** The statement that makes the sequence give {@code next} next. */
+    String restartSequence(Metadata m, Namespace ns, String sequence, String table, long next) throws SQLException;
 }

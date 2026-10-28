@@ -5,7 +5,6 @@
 7. [ ] **Background tasks panel**: a small panel you can hide that lists everything running in the background (queries, compares, scans, exports / imports), with a way to stop each one.
 10. [ ] **Scan: save and reopen** a scan's settings and its report as a .dbscan file (phase 5 of #1, see docs/scan-plan.md).
 20. [ ] **Data grid: preview the row a foreign key points to.** In the value panel, a cell in a foreign key column shows the referenced row from the related table.
-23. [ ] **Sequences.** (a) A Sequences folder per schema in the navigator: name, current value, increment; right-click to copy or reset. (b) In a table's Properties, the sequences its columns use (e.g. a serial id) with their current value.
 
 ## Done
 
@@ -28,3 +27,4 @@
 17. [x] **Ctrl+Shift+T reopens the last closed tab** (also "Reopen <name>" in a tab's right-click menu), newest first, for 10 minutes: a script with its text, connection and unsaved state (a saved, unchanged file is read again), a table tab, a Table / Data Compare that has a file. Other tabs (Scan, connection forms) are not kept.
 9. [x] **Settings: on exit** (Settings → Exit & startup, both off by default): "Ask 'Close DBArbiter?' before the window closes" (Cancel the default; unsaved work is asked about either way), and "Open the tabs that were open last time": saved scripts (with their connection), tables (their connection connects again) and saved compares, written to ~/.dbadmin/open-tabs.json on exit; the tab in front stays in front.
 21. [x] **Data Compare: record mode and boolean check boxes**: the results bar has the Record toggle: one compared row at a time, its shown columns down the page, changed values marked. Boolean columns (from the database type, kept in the report) show check boxes, "☑ → ☐" when the sides differ, in the grid and in record mode; reports saved before show text as before.
+23. [x] **Sequences**: (a) a Sequences folder per schema in the navigator ("name · last value"; MySQL: the AUTO_INCREMENT counters, read without the 24 h cache; SQLite: sqlite_sequence). Right-click: Copy Name, Copy nextval(…) on PostgreSQL, and Reset Sequence… where Truncate / Reset are offered (writable, warning level 0): it suggests the column's highest value + 1 and shows the statement, Cancel the default. (b) Properties → Sequences: the ones the table's columns use, with last value, increment, start. Checked on PostgreSQL 16, MySQL 8.4 and SQLite.

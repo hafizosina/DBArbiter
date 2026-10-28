@@ -156,6 +156,56 @@ final class TableActions {
         }, ex -> error(owner, "Could not prepare it", ex.getMessage()));
     }
 
+    /** Reset Sequence… is offered where Truncate / Reset / Drop are: a writable connection whose warning level is 0. */
+    static boolean canResetSequence(ConnectionConfig c) {
+        return c != null && !c.isReadOnly() && c.getWarningLevel() == 0;
+    }
+
+    /**
+     * Asks for the value the sequence gives next (its column's highest + 1 when it belongs to one, else its start),
+     * then shows the statement; runs it only on Reset Sequence (Cancel the default). {@code done} runs after.
+     * {@code row}: the sequence's row of {@link DatabaseSession#listSequences}.
+     */
+    static void resetSequence(Window owner, DatabaseSession s, com.dbadmin.model.Namespace ns, List<Object> row, Runnable done) {
+        String name = String.valueOf(row.get(0));
+        String table = String.valueOf(row.get(4));
+        String column = String.valueOf(row.get(5));
+        Async.run(s, () -> {
+            TableRef t = table.isEmpty() ? null : new TableRef(ns.catalog(), ns.schema(), table, "TABLE");
+            String col = column;
+            if (t != null && col.isEmpty()) {
+                List<String> key = s.primaryKey(t); // SQLite's sqlite_sequence names only the table
+                if (key.size() == 1) col = key.get(0);
+            }
+            long next = t != null && !col.isEmpty() ? s.nextFree(t, col) : Long.parseLong(String.valueOf(row.get(3)));
+            return next;
+        }, suggested -> {
+            javafx.scene.control.TextInputDialog ask = new javafx.scene.control.TextInputDialog(String.valueOf(suggested));
+            if (owner != null) ask.initOwner(owner);
+            ask.setTitle("Reset Sequence");
+            ask.setHeaderText("Reset sequence " + name + " on " + s.getConfig().getName());
+            ask.setContentText("Next value:");
+            String typed = InAppDialogs.showAndWait(ask).orElse(null);
+            if (typed == null) return;
+            long next;
+            try {
+                next = Long.parseLong(typed.strip());
+            } catch (NumberFormatException e) {
+                error(owner, "Not a number", typed);
+                return;
+            }
+            Async.run(s, () -> s.restartSequenceSql(ns, name, table, next), sql -> {
+                String what = "The next new row" + (table.isEmpty() ? "" : " of " + table) + " gets " + next
+                        + (table.isEmpty() ? "" : "; if that value is taken already, inserts fail until it is passed") + ".";
+                if (!confirm(owner, "Reset sequence " + name + " on " + s.getConfig().getName(), what, List.of(sql), "Reset Sequence")) return;
+                Async.run(s, () -> {
+                    s.applySchemaChange(List.of(sql));
+                    return null;
+                }, x -> done.run(), ex -> error(owner, "Nothing was changed", ex.getMessage()));
+            }, ex -> error(owner, "Could not prepare it", ex.getMessage()));
+        }, ex -> error(owner, "Could not prepare it", ex.getMessage()));
+    }
+
     /** A warning with the SQL; true only if the user picks {@code action} (Cancel is the default). */
     private static boolean confirm(Window owner, String header, String what, List<String> sql, String action) {
         ButtonType go = new ButtonType(action, ButtonBar.ButtonData.OK_DONE);
