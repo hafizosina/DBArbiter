@@ -189,6 +189,10 @@
 .table-row-cell .table-cell:current-cell { -fx-border-color: #1565c0; -fx-border-width: 2; -fx-padding: 0 1 0 1; }
 /* inside a selected block it keeps the normal background, as a spreadsheet shows the active cell of a range */
 .table-row-cell .table-cell:current-cell:selected { -fx-background-color: -fx-control-inner-background; -fx-text-fill: #1a1a1a; }
+/* the row of the focused cell (DataGrid), tinted; new and deleted rows keep their color, a shade darker */
+.table-row-cell:current-row { -fx-background: #d9e7fa; }
+.table-row-cell.row-new:current-row { -fx-background-color: #d3ecd5; }
+.table-row-cell.row-deleted:current-row { -fx-background-color: #fbd9de; }
 
 /* a cell holding the find bar's text (GridFind) */
 .table-row-cell .table-cell:find-hit { -fx-background-color: #fff176; -fx-text-fill: #1a1a1a; }

@@ -72,17 +72,7 @@ class DataGrid extends TableView<List<Object>> {
     DataGrid() {
         setPlaceholder(new Label("No rows"));
         setFixedCellSize(ROW_HEIGHT);
-        setRowFactory(t -> new javafx.scene.control.TableRow<>() {
-            @Override
-            protected void updateItem(List<Object> row, boolean empty) {
-                super.updateItem(row, empty);
-                getStyleClass().removeAll("row-new", "row-deleted");
-                if (empty || row == null || editor == null) return;
-                RowState state = editor.state(row);
-                if (state == RowState.NEW) getStyleClass().add("row-new");
-                else if (state == RowState.DELETED) getStyleClass().add("row-deleted");
-            }
-        });
+        setRowFactory(t -> new GridRow());
         getSelectionModel().setSelectionMode(SelectionMode.MULTIPLE);
         getSelectionModel().setCellSelectionEnabled(true);
         getFocusModel().focusedCellProperty().addListener((o, a, pos) -> {
@@ -130,6 +120,8 @@ class DataGrid extends TableView<List<Object>> {
 
     /** The focused cell, outlined (app.css) even while the focus is elsewhere, e.g. typing in the value panel. */
     private static final javafx.css.PseudoClass CURRENT = javafx.css.PseudoClass.getPseudoClass("current-cell");
+    /** The row of the focused cell, tinted (app.css) so the whole row is easy to follow. */
+    private static final javafx.css.PseudoClass CURRENT_ROW = javafx.css.PseudoClass.getPseudoClass("current-row");
     /** A cell holding the text of the find bar (GridFind), marked (app.css). */
     private static final javafx.css.PseudoClass FIND_HIT = javafx.css.PseudoClass.getPseudoClass("find-hit");
     private String findText = "";
@@ -152,6 +144,34 @@ class DataGrid extends TableView<List<Object>> {
     private void markCurrentCell() {
         for (javafx.scene.Node n : lookupAll(".table-cell")) {
             if (n instanceof ValueCell cell) cell.markCurrent();
+        }
+        for (javafx.scene.Node n : lookupAll(".table-row-cell")) {
+            if (n instanceof GridRow row) row.markCurrent();
+        }
+    }
+
+    /** A row: green when new, red when deleted (app.css), and tinted while it holds the focused cell. */
+    private class GridRow extends javafx.scene.control.TableRow<List<Object>> {
+        @Override
+        protected void updateItem(List<Object> row, boolean empty) {
+            super.updateItem(row, empty);
+            getStyleClass().removeAll("row-new", "row-deleted");
+            markCurrent();
+            if (empty || row == null || editor == null) return;
+            RowState state = editor.state(row);
+            if (state == RowState.NEW) getStyleClass().add("row-new");
+            else if (state == RowState.DELETED) getStyleClass().add("row-deleted");
+        }
+
+        @Override
+        public void updateIndex(int i) {
+            super.updateIndex(i);
+            markCurrent(); // rows are reused for other items while scrolling
+        }
+
+        void markCurrent() {
+            TablePosition<List<Object>, ?> pos = getFocusModel().getFocusedCell();
+            pseudoClassStateChanged(CURRENT_ROW, !isEmpty() && getIndex() >= 0 && pos != null && pos.getRow() == getIndex());
         }
     }
 

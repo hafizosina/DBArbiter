@@ -116,5 +116,8 @@
 
 .table-row-cell .table-cell:current-cell { -fx-border-color: #64b5f6; }
 .table-row-cell .table-cell:current-cell:selected { -fx-text-fill: #f0f0f0; }
+.table-row-cell:current-row { -fx-background: #34465e; }
+.table-row-cell.row-new:current-row { -fx-background-color: #28492e; }
+.table-row-cell.row-deleted:current-row { -fx-background-color: #5a2626; }
 
 .table-row-cell .table-cell:find-hit { -fx-background-color: #6d5a12; -fx-text-fill: #fff8e1; }

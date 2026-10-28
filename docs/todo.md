@@ -12,7 +12,6 @@
 15. [ ] **Ctrl+F in every text view.** It already works in the SQL editor, the data grid, Data Compare and Scan. Still missing: the value panel, the diff view, the match rows view, and the read-only SQL previews (Generate SQL, Replace, Compare queries).
 16. [ ] **Wrap a selection in brackets**: select text and type `(`, `[`, `{` (or a quote) to put the text inside them instead of replacing it.
 17. [ ] **Ctrl+Shift+T reopens the last closed tab**, with its content. Closed tabs are kept for 10 minutes.
-18. [ ] **Highlight the row of the selected cell** in the data grid, so the whole row is easy to follow.
 19. [ ] **Data grid: copy rows as SQL.** Right-click selected rows → Copy as INSERT / UPDATE / DELETE, without running anything. (Adding, editing, duplicating and deleting rows is done, see #3.)
 20. [ ] **Data grid: preview the row a foreign key points to.** In the value panel, a cell in a foreign key column shows the referenced row from the related table.
 21. [ ] **Data Compare: record mode.** Show one compared row as a list of columns (source and target side by side), for tables with many columns. Boolean columns show as check boxes.
@@ -30,3 +29,4 @@
 13. [x] **Open .dbcompare files by drag and drop**: drop one or more on the window and each opens in its own Table or Data Compare tab, like .sql files (and with the same license check as Open Compare Report…).
 14. [x] **Table tab: the connection name stands out**: it now sits on its own line above the table name, in bold with its database icon and read-only / read-write (read-write in orange, like the script toolbar).
 11. [x] **Script tab title shows its connection**: `*Untitled-4 · 03 Antam PreProd` (nothing after the name while no connection is picked); it follows a change of connection and a rename, and the tooltip names the connection too.
+18. [x] **Highlight the row of the selected cell**: in the table tab and script results, the row of the focused cell is tinted blue (new and deleted rows keep their green / red, a shade darker); the tint moves with the focus and follows the row when scrolling.
