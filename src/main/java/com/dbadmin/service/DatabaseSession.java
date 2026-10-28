@@ -454,6 +454,56 @@ public class DatabaseSession implements AutoCloseable {
         return metadata.listForeignKeys(t);
     }
 
+    /** A foreign key of a table: its columns point to {@code targetColumns} of {@code target}. */
+    public record ForeignKey(List<String> columns, TableRef target, List<String> targetColumns) {
+    }
+
+    /** The table's foreign keys (none for a view), each with its columns in order. */
+    public List<ForeignKey> foreignKeys(TableRef t) throws SQLException {
+        List<ForeignKey> keys = new ArrayList<>();
+        if (t.isView()) return keys;
+        try (ResultSet rs = connection.getMetaData().getImportedKeys(t.catalog(), t.schema(), t.name())) {
+            List<String> from = new ArrayList<>();
+            List<String> to = new ArrayList<>();
+            TableRef target = null;
+            while (rs.next()) {
+                if (rs.getShort("KEY_SEQ") == 1 && !from.isEmpty()) {
+                    keys.add(new ForeignKey(from, target, to));
+                    from = new ArrayList<>();
+                    to = new ArrayList<>();
+                }
+                target = new TableRef(rs.getString("PKTABLE_CAT"), rs.getString("PKTABLE_SCHEM"), rs.getString("PKTABLE_NAME"), "TABLE");
+                from.add(rs.getString("FKCOLUMN_NAME"));
+                to.add(rs.getString("PKCOLUMN_NAME"));
+            }
+            if (!from.isEmpty()) keys.add(new ForeignKey(from, target, to));
+        }
+        return keys;
+    }
+
+    /** The row of {@code fk}'s table that the values point to (the first, if several), or no rows. */
+    public TableData referencedRow(ForeignKey fk, List<Object> values) throws SQLException {
+        String q = connection.getMetaData().getIdentifierQuoteString().trim();
+        List<String> where = fk.targetColumns().stream().map(c -> quote(c, q) + " = ?").toList();
+        try (PreparedStatement ps = connection.prepareStatement("SELECT * FROM " + qualifiedName(fk.target())
+                + " WHERE " + String.join(" AND ", where))) {
+            ps.setMaxRows(1);
+            for (int i = 0; i < values.size(); i++) ps.setObject(i + 1, values.get(i));
+            try (ResultSet rs = ps.executeQuery()) {
+                ResultSetMetaData md = rs.getMetaData();
+                List<String> columns = new ArrayList<>();
+                for (int i = 1; i <= md.getColumnCount(); i++) columns.add(md.getColumnLabel(i));
+                List<List<Object>> rows = new ArrayList<>();
+                if (rs.next()) {
+                    List<Object> row = new ArrayList<>();
+                    for (int i = 1; i <= columns.size(); i++) row.add(rs.getObject(i));
+                    rows.add(row);
+                }
+                return new TableData(columns, rows);
+            }
+        }
+    }
+
     /**
      * The namespace's sequences (MySQL: AUTO_INCREMENT counters, SQLite: sqlite_sequence), or only those of
      * {@code table}: (Sequence, Last value, Increment, Start, Table, Column).

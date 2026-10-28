@@ -4,7 +4,6 @@
 
 7. [ ] **Background tasks panel**: a small panel you can hide that lists everything running in the background (queries, compares, scans, exports / imports), with a way to stop each one.
 10. [ ] **Scan: save and reopen** a scan's settings and its report as a .dbscan file (phase 5 of #1, see docs/scan-plan.md).
-20. [ ] **Data grid: preview the row a foreign key points to.** In the value panel, a cell in a foreign key column shows the referenced row from the related table.
 
 ## Done
 
@@ -28,3 +27,4 @@
 9. [x] **Settings: on exit** (Settings → Exit & startup, both off by default): "Ask 'Close DBArbiter?' before the window closes" (Cancel the default; unsaved work is asked about either way), and "Open the tabs that were open last time": saved scripts (with their connection), tables (their connection connects again) and saved compares, written to ~/.dbadmin/open-tabs.json on exit; the tab in front stays in front.
 21. [x] **Data Compare: record mode and boolean check boxes**: the results bar has the Record toggle: one compared row at a time, its shown columns down the page, changed values marked. Boolean columns (from the database type, kept in the report) show check boxes, "☑ → ☐" when the sides differ, in the grid and in record mode; reports saved before show text as before.
 23. [x] **Sequences**: (a) a Sequences folder per schema in the navigator ("name · last value"; MySQL: the AUTO_INCREMENT counters, read without the 24 h cache; SQLite: sqlite_sequence). Right-click: Copy Name, Copy nextval(…) on PostgreSQL, and Reset Sequence… where Truncate / Reset are offered (writable, warning level 0): it suggests the column's highest value + 1 and shows the statement, Cancel the default. (b) Properties → Sequences: the ones the table's columns use, with last value, increment, start. Checked on PostgreSQL 16, MySQL 8.4 and SQLite.
+20. [x] **Data grid: preview the row a foreign key points to**: for a cell of a foreign key column (rows of one table: the table tab, and script results of one table), the value panel shows "→ m_product (id = 7)" and that row as column / value pairs underneath; the key's other columns come from the same row; NULL and a missing row are said so. Checked on PostgreSQL.

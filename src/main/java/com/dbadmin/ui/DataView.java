@@ -48,7 +48,13 @@ class DataView extends BorderPane {
     /** For a compare result: the source value above, the target value below. */
     private final CellInspector targetInspector = new CellInspector();
     private final SplitPane pairPanel = new SplitPane();
-    private final javafx.scene.layout.StackPane inspectorHost = new javafx.scene.layout.StackPane(inspector);
+    /** Under the value panel: the row a foreign key cell points to. */
+    private final ReferencedRowView referenced = new ReferencedRowView();
+    private final VBox plainPanel = new VBox(inspector, referenced);
+    private final javafx.scene.layout.StackPane inspectorHost = new javafx.scene.layout.StackPane(plainPanel);
+    /** The foreign keys of the table the rows are from (see {@link #enableEditing}); empty otherwise. */
+    private List<DatabaseSession.ForeignKey> foreignKeys = List.of();
+    private int referencedRequest;
     /** For a compare result: a bar (legend, Line diff toggle) above the diff or the two values. */
     private final DiffView diffView = new DiffView();
     private final Label compareLegend = new Label();
@@ -60,6 +66,7 @@ class DataView extends BorderPane {
     private final RecordView record = new RecordView(grid, () -> this.canFetchMore, this::fetchMore);
 
     DataView() {
+        VBox.setVgrow(inspector, javafx.scene.layout.Priority.ALWAYS); // the referenced row takes what it needs below
         grid.selectedCellProperty().addListener((o, a, cell) -> showCell(cell));
         // Ctrl+S here saves the rows' unsaved changes; without any it is left to the window (e.g. Save Script)
         addEventFilter(javafx.scene.input.KeyEvent.KEY_PRESSED, e -> {
@@ -117,6 +124,8 @@ class DataView extends BorderPane {
             inserted.clear();
             editTarget = null;
             grid.setSqlCopier(null);
+            foreignKeys = List.of();
+            referenced.hide();
             notEditable = false;
             editInfo.setText("");
             updateEditBar();
@@ -174,6 +183,7 @@ class DataView extends BorderPane {
             if (pairPanel.getItems().isEmpty()) {
                 pairPanel.getItems().setAll(inspector, targetInspector);
                 inspectorHost.getChildren().setAll(comparePanel);
+                referenced.hide();
             }
             boolean differs = cv.valuesDiffer() || cv.inSource() != cv.inTarget();
             diffToggle.setDisable(!differs);
@@ -197,10 +207,50 @@ class DataView extends BorderPane {
         } else {
             if (!pairPanel.getItems().isEmpty()) {
                 pairPanel.getItems().clear();
-                inspectorHost.getChildren().setAll(inspector);
+                inspectorHost.getChildren().setAll(plainPanel);
             }
             inspector.show(cell, cell == null ? null : cellEdits());
+            showReferenced(cell);
         }
+    }
+
+    /**
+     * For a cell of a foreign key column: looks up the row it points to and shows it under the value panel (the
+     * key's other columns taken from the same row). Hidden for other cells.
+     */
+    private void showReferenced(DataGrid.CellValue cell) {
+        int request = ++referencedRequest;
+        var focused = grid.getFocusModel().getFocusedCell();
+        DatabaseSession.ForeignKey fk = cell == null || focused == null || focused.getRow() < 0 || focused.getRow() >= grid.getItems().size()
+                ? null : foreignKeys.stream().filter(k -> k.columns().stream().anyMatch(c -> c.equalsIgnoreCase(cell.column()))).findFirst().orElse(null);
+        TableEditing.Target target = editTarget;
+        if (fk == null || target == null) {
+            referenced.hide();
+            return;
+        }
+        List<Object> row = grid.getItems().get(focused.getRow());
+        List<String> names = grid.columnNames();
+        List<Object> values = new ArrayList<>();
+        List<String> shown = new ArrayList<>();
+        for (int i = 0; i < fk.columns().size(); i++) {
+            String c = fk.columns().get(i);
+            int at = -1;
+            for (int j = 0; j < names.size(); j++) if (names.get(j).equalsIgnoreCase(c)) at = j;
+            Object v = at < 0 ? null : row.get(at);
+            if (v == PendingEdits.Default.VALUE) v = null;
+            values.add(v);
+            shown.add(fk.targetColumns().get(i) + " = " + (v == null ? "NULL" : v));
+        }
+        String title = "→ " + fk.target().name() + " (" + String.join(", ", shown) + ")";
+        if (values.contains(null)) {
+            referenced.showNothing(title, "NULL points to no row");
+            return;
+        }
+        Async.run(target.session(), () -> target.session().referencedRow(fk, values), data -> {
+            if (request == referencedRequest) referenced.show(title, data);
+        }, ex -> {
+            if (request == referencedRequest) referenced.hide();
+        });
     }
 
     private static String text(Object v) {
@@ -372,6 +422,13 @@ class DataView extends BorderPane {
             }
         });
         grid.setSqlCopier(sqlCopier(target, names, pk, keyShown));
+        if (target.session() != null) {
+            Async.run(target.session(), () -> target.session().foreignKeys(target.table()), keys -> {
+                if (editTarget != target) return; // other rows by now
+                foreignKeys = keys;
+                showReferenced(grid.selectedCellProperty().get());
+            }, ex -> { });
+        }
         // a cell selected before editing was on becomes editable in the value panel too
         showCell(grid.selectedCellProperty().get());
         if (target.readOnlyConnection()) {
