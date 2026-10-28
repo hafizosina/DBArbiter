@@ -81,6 +81,19 @@ final class MySqlDialect implements Dialect {
         } catch (SQLException noSuchVariable) {
             // MariaDB and MySQL 5.7 have no such cache
         }
+        try {
+            return autoIncrements(m, ns, table);
+        } finally {
+            // back to the server's setting, so other catalog reads (e.g. row estimates) stay cached
+            try (java.sql.Statement st = m.connection().createStatement()) {
+                st.execute("set session information_schema_stats_expiry = default");
+            } catch (SQLException noSuchVariable) {
+                // as above
+            }
+        }
+    }
+
+    private static List<List<Object>> autoIncrements(Metadata m, Namespace ns, String table) throws SQLException {
         String only = table == null ? "" : table;
         List<List<Object>> rows = new ArrayList<>();
         for (List<Object> r : m.query("""

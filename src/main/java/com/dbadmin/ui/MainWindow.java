@@ -689,9 +689,7 @@ public class MainWindow implements SessionProvider {
             }, ex -> loadFailed(item, ex));
             case NAMESPACE -> {
                 Namespace ns = node.namespace();
-                Async.run(session, () -> List.of(session.listTables(ns), session.listSequences(ns, null).rows()), found -> {
-                    @SuppressWarnings("unchecked") List<TableRef> tables = (List<TableRef>) found.get(0);
-                    @SuppressWarnings("unchecked") List<List<Object>> sequences = (List<List<Object>>) found.get(1);
+                Async.run(session, () -> session.listTables(ns), tables -> {
                     TreeItem<NavNode> tablesFolder = folder(c, "Tables", tables.stream().filter(t -> !t.isView()).toList());
                     TreeItem<NavNode> viewsFolder = folder(c, "Views",
                             tables.stream().filter(t -> t.isView() && !t.isMaterializedView()).toList());
@@ -701,10 +699,7 @@ public class MainWindow implements SessionProvider {
                     if (c.getType().hasMaterializedViews() || !materialized.isEmpty()) {
                         item.getChildren().add(folder(c, "Materialized Views", materialized));
                     }
-                    // PostgreSQL's sequences; MySQL's AUTO_INCREMENT and SQLite's AUTOINCREMENT counters
-                    TreeItem<NavNode> sequencesFolder = new TreeItem<>(NavNode.folder(c, "Sequences (" + sequences.size() + ")"));
-                    sequences.forEach(r -> sequencesFolder.getChildren().add(new TreeItem<>(NavNode.sequence(c, ns, r))));
-                    item.getChildren().add(sequencesFolder);
+                    item.getChildren().add(sequencesFolder(c, ns, session));
                     tablesFolder.setExpanded(true);
                     status.setText(ns.label() + ": " + tables.size() + " tables/views");
                 }, ex -> loadFailed(item, ex));
@@ -763,6 +758,26 @@ public class MainWindow implements SessionProvider {
     @Override
     public Optional<DatabaseSession> openSession(ConnectionConfig c) {
         return sessions.get(c.getId());
+    }
+
+    /**
+     * The schema's sequences (PostgreSQL; MySQL's AUTO_INCREMENT and SQLite's AUTOINCREMENT counters), read only when
+     * the folder is opened, so listing the tables never waits for them or fails with them (e.g. without the rights).
+     */
+    private TreeItem<NavNode> sequencesFolder(ConnectionConfig c, Namespace ns, DatabaseSession session) {
+        TreeItem<NavNode> folder = new TreeItem<>(NavNode.folder(c, "Sequences"));
+        folder.getChildren().add(message("Loading…"));
+        boolean[] loaded = {false};
+        folder.expandedProperty().addListener((o, was, open) -> {
+            if (!open || loaded[0]) return;
+            loaded[0] = true;
+            Async.run(session, () -> session.listSequences(ns, null).rows(), rows -> {
+                folder.setValue(NavNode.folder(c, "Sequences (" + rows.size() + ")"));
+                folder.getChildren().setAll(rows.stream().map(r -> new TreeItem<>(NavNode.sequence(c, ns, r))).toList());
+                if (rows.isEmpty()) folder.getChildren().add(message("(none)"));
+            }, ex -> folder.getChildren().setAll(List.of(message("Could not read them: " + ex.getMessage()))));
+        });
+        return folder;
     }
 
     private TreeItem<NavNode> folder(ConnectionConfig c, String name, List<TableRef> tables) {
