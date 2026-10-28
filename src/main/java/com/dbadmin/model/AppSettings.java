@@ -39,7 +39,15 @@ public class AppSettings {
 
     /** At startup, ask GitHub whether a newer release is out (and say so in the footer). */
     private boolean checkForUpdates = true;
+    /** Ask "Close DBArbiter?" before the window closes (unsaved work is asked about either way). */
+    private boolean confirmExit;
+    /** At startup, open the scripts, tables and compares that were open when the app was last closed. */
+    private boolean reopenTabs;
 
+    public boolean isConfirmExit() { return confirmExit; }
+    public void setConfirmExit(boolean confirmExit) { this.confirmExit = confirmExit; }
+    public boolean isReopenTabs() { return reopenTabs; }
+    public void setReopenTabs(boolean reopenTabs) { this.reopenTabs = reopenTabs; }
     public boolean isCheckForUpdates() { return checkForUpdates; }
     public void setCheckForUpdates(boolean checkForUpdates) { this.checkForUpdates = checkForUpdates; }
     public Theme getTheme() { return theme; }
@@ -70,6 +78,8 @@ public class AppSettings {
         AppSettings c = new AppSettings();
         c.theme = theme;
         c.checkForUpdates = checkForUpdates;
+        c.confirmExit = confirmExit;
+        c.reopenTabs = reopenTabs;
         statusColors.forEach((t, m) -> c.statusColors.put(t, new LinkedHashMap<>(m)));
         return c;
     }

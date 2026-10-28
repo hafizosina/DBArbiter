@@ -14,6 +14,8 @@ import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.scene.Parent;
 import javafx.scene.control.Alert;
+import javafx.scene.control.Button;
+import javafx.scene.control.ButtonBar;
 import javafx.scene.control.ButtonType;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
@@ -42,6 +44,7 @@ import javafx.stage.Stage;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -73,6 +76,7 @@ public class MainWindow implements SessionProvider {
     private final TabPane tabs = new TabPane();
     /** Showing and closing tabs, their right-click menu, asking about unsaved work before the window closes. */
     private final TabStrip tabStrip = new TabStrip(tabs);
+    private final com.dbadmin.service.OpenTabsStore openTabsStore = new com.dbadmin.service.OpenTabsStore();
     /** Closed tabs Ctrl+Shift+T opens again, for 10 minutes. */
     private final ClosedTabs closedTabs = new ClosedTabs(10 * 60_000, System::currentTimeMillis);
     private final AppFooter footer = new AppFooter("Ready");
@@ -123,7 +127,7 @@ public class MainWindow implements SessionProvider {
             }
         });
         stage.setOnCloseRequest(e -> {
-            if (!tabStrip.confirmCloseAll()) e.consume();
+            if (!confirmExit()) e.consume();
         });
 
         tree.setShowRoot(false);
@@ -316,7 +320,7 @@ public class MainWindow implements SessionProvider {
         refreshItem.setOnAction(e -> refreshSelected());
         MenuItem exitItem = new MenuItem("Exit");
         exitItem.setOnAction(e -> {
-            if (tabStrip.confirmCloseAll()) stage.close();
+            if (confirmExit()) stage.close();
         });
 
         Menu connection = new Menu("Connection", null, newItem, editItem, deleteItem,
@@ -882,6 +886,88 @@ public class MainWindow implements SessionProvider {
             }
         }
         return Optional.ofNullable(last);
+    }
+
+    /**
+     * Before the window closes: "Close DBArbiter?" when that is set (Cancel the default), then every tab with unsaved
+     * work; then the open tabs are written down for the next start (or forgotten when that setting is off).
+     */
+    private boolean confirmExit() {
+        if (Themes.settings().isConfirmExit()) {
+            ButtonType close = new ButtonType("Close", ButtonBar.ButtonData.OK_DONE);
+            Alert ask = new Alert(Alert.AlertType.CONFIRMATION, "Close DBArbiter?", close, ButtonType.CANCEL);
+            ask.initOwner(stage);
+            ask.setHeaderText(null);
+            ((Button) ask.getDialogPane().lookupButton(close)).setDefaultButton(false);
+            ((Button) ask.getDialogPane().lookupButton(ButtonType.CANCEL)).setDefaultButton(true);
+            if (InAppDialogs.showAndWait(ask).orElse(ButtonType.CANCEL) != close) return false;
+        }
+        if (!tabStrip.confirmCloseAll()) return false;
+        openTabsStore.save(Themes.settings().isReopenTabs() ? openTabs() : List.of());
+        return true;
+    }
+
+    /** The tabs to open at the next start: saved scripts, tables, compares saved to a file; in their order. */
+    private List<com.dbadmin.service.OpenTabsStore.OpenTab> openTabs() {
+        List<com.dbadmin.service.OpenTabsStore.OpenTab> list = new ArrayList<>();
+        Tab front = tabs.getSelectionModel().getSelectedItem();
+        for (Tab t : tabs.getTabs()) {
+            boolean selected = t == front;
+            if (t instanceof ScriptTab st && st.file() != null) {
+                list.add(new com.dbadmin.service.OpenTabsStore.OpenTab("SCRIPT", st.file().toString(), st.connection() == null ? null : st.connection().getId(),
+                        null, null, null, null, selected));
+            } else if (t instanceof TableTab tt) {
+                TableRef r = tt.table();
+                list.add(new com.dbadmin.service.OpenTabsStore.OpenTab("TABLE", null, tt.connection().getId(), r.catalog(), r.schema(), r.name(), r.type(), selected));
+            } else if (t instanceof DataCompareTab dc && dc.file() != null) {
+                list.add(new com.dbadmin.service.OpenTabsStore.OpenTab("COMPARE", dc.file().toString(), null, null, null, null, null, selected));
+            } else if (t instanceof SchemaCompareTab sc && sc.file() != null) {
+                list.add(new com.dbadmin.service.OpenTabsStore.OpenTab("COMPARE", sc.file().toString(), null, null, null, null, null, selected));
+            }
+        }
+        return list;
+    }
+
+    /**
+     * At startup, when set: opens the tabs open last time. Files that are gone and deleted connections are skipped;
+     * a table opens once its connection has connected; compares only when licensed.
+     */
+    public void reopenTabs() {
+        if (!Themes.settings().isReopenTabs()) return;
+        Tab[] front = new Tab[1];
+        for (com.dbadmin.service.OpenTabsStore.OpenTab o : openTabsStore.load()) {
+            switch (o.kind()) {
+                case "SCRIPT" -> {
+                    Path file = Path.of(o.file());
+                    if (!Files.isRegularFile(file)) continue;
+                    openScripts(List.of(file));
+                    if (tabs.getSelectionModel().getSelectedItem() instanceof ScriptTab st) {
+                        st.useConnection(connectionById(o.connectionId()));
+                        if (o.selected()) front[0] = st;
+                    }
+                }
+                case "TABLE" -> {
+                    ConnectionConfig c = connectionById(o.connectionId());
+                    if (c == null) continue;
+                    TableRef table = new TableRef(o.catalog(), o.schema(), o.table(), o.type());
+                    boolean wasFront = o.selected();
+                    // it opens once connected, after the others: it only stays in front if it was
+                    withSession(c, s -> {
+                        Tab before = tabs.getSelectionModel().getSelectedItem();
+                        openTable(s, table);
+                        if (!wasFront && before != null) tabs.getSelectionModel().select(before);
+                    }, ex -> status.setText("Could not open " + table.name() + ": " + ex.getMessage()));
+                }
+                case "COMPARE" -> {
+                    Path file = Path.of(o.file());
+                    if (!Files.isRegularFile(file) || !license.allowsQuietly()) continue;
+                    openCompareReport(file);
+                    if (o.selected()) front[0] = tabs.getSelectionModel().getSelectedItem();
+                }
+                default -> { }
+            }
+        }
+        if (front[0] != null) tabs.getSelectionModel().select(front[0]);
     }
 
     /** Remembers how to open a closed tab again (Ctrl+Shift+T): scripts, tables, and compares saved to a file. */

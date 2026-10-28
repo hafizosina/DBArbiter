@@ -44,6 +44,7 @@ class SettingsDialog extends Dialog<AppSettings> {
 
         Map<String, Node> pages = new LinkedHashMap<>();
         pages.put("Theme", themePage());
+        pages.put("Exit & startup", exitPage());
         pages.put("Updates", updatesPage());
 
         BorderPane content = new BorderPane();
@@ -131,6 +132,27 @@ class SettingsDialog extends Dialog<AppSettings> {
 
         VBox page = new VBox(10, title, hint, choices, new javafx.scene.control.Separator(), colorsTitle, colorsHint,
                 colors, reset);
+        page.setPadding(new Insets(12, 16, 12, 16));
+        return page;
+    }
+
+    private Node exitPage() {
+        Label title = new Label("Exit & startup");
+        title.getStyleClass().add("form-title");
+        javafx.scene.control.CheckBox confirm = new javafx.scene.control.CheckBox("Ask \"Close DBArbiter?\" before the window closes");
+        confirm.setSelected(edited.isConfirmExit());
+        confirm.selectedProperty().addListener((o, a, on) -> edited.setConfirmExit(on));
+        Label confirmHint = new Label("Off: the window closes at once. Unsaved scripts, cell edits and compares are asked about either way.");
+        confirmHint.getStyleClass().add("hint-small");
+        confirmHint.setWrapText(true);
+        javafx.scene.control.CheckBox reopen = new javafx.scene.control.CheckBox("Open the tabs that were open last time");
+        reopen.setSelected(edited.isReopenTabs());
+        reopen.selectedProperty().addListener((o, a, on) -> edited.setReopenTabs(on));
+        Label reopenHint = new Label("Saved scripts, tables (their connection connects again) and saved compares. A script never"
+                + " saved is not kept.");
+        reopenHint.getStyleClass().add("hint-small");
+        reopenHint.setWrapText(true);
+        VBox page = new VBox(10, title, confirm, confirmHint, reopen, reopenHint);
         page.setPadding(new Insets(12, 16, 12, 16));
         return page;
     }

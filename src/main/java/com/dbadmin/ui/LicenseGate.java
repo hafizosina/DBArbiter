@@ -54,6 +54,11 @@ final class LicenseGate {
      * True when the license lets the tools named {@code tools} (e.g. "Compare Table and Compare Data") open; otherwise
      * says why and offers to enter a license, and is true if one that allows them was entered.
      */
+    /** Whether the compares are licensed, without asking (e.g. tabs opened again at startup). */
+    boolean allowsQuietly() {
+        return licensing.allowsCompare();
+    }
+
     boolean allows(String tools) {
         showInFooter();
         if (licensing.allowsCompare()) return true;

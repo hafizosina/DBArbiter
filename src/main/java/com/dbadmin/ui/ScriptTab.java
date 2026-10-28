@@ -218,6 +218,11 @@ class ScriptTab extends Tab implements UnsavedWork {
         return connection.getValue();
     }
 
+    /** Picks the connection, when the script has none yet (a tab opened again at startup). */
+    void useConnection(ConnectionConfig c) {
+        if (connection.getValue() == null && c != null) connection.setValue(c);
+    }
+
     /** Marks the text as not saved (a closed script opened again with the changes it had). */
     void markUnsaved() {
         setDirty(true);

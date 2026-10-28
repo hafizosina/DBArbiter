@@ -3,7 +3,6 @@
 ## Open
 
 7. [ ] **Background tasks panel**: a small panel you can hide that lists everything running in the background (queries, compares, scans, exports / imports), with a way to stop each one.
-9. [ ] **Settings: on exit.** Two settings: ask "Close DBAdmin?" before the window closes (or close at once; unsaved scripts and edits are still asked about), and reopen the tabs that were open last time.
 10. [ ] **Scan: save and reopen** a scan's settings and its report as a .dbscan file (phase 5 of #1, see docs/scan-plan.md).
 20. [ ] **Data grid: preview the row a foreign key points to.** In the value panel, a cell in a foreign key column shows the referenced row from the related table.
 21. [ ] **Data Compare: record mode.** Show one compared row as a list of columns (source and target side by side), for tables with many columns. Boolean columns show as check boxes.
@@ -28,3 +27,4 @@
 12. [x] **Data Compare: leave out the primary key**: (a) the column picker marks the source table's primary key and has "Leave out the primary key (id)": it unticks the key in Key and Compare and Compare all skips it, for rows matched by other columns; ticking the key by hand turns it off. (b) Generate SQL has "INSERT without id" when the target's primary key is not serial / identity (those were always left out): the target's default gives the new rows their ids; a review note warns when the compare's key is that column (running again would insert again). Checked on PostgreSQL 16 with a uuid key.
 22. [x] **Data Compare: hide columns with no changes**: compared columns where no row has a difference are hidden by default; "Hide N unchanged columns" in the results bar shows them again (not listed when every compared column has a difference). Key and Show columns always stay.
 17. [x] **Ctrl+Shift+T reopens the last closed tab** (also "Reopen <name>" in a tab's right-click menu), newest first, for 10 minutes: a script with its text, connection and unsaved state (a saved, unchanged file is read again), a table tab, a Table / Data Compare that has a file. Other tabs (Scan, connection forms) are not kept.
+9. [x] **Settings: on exit** (Settings → Exit & startup, both off by default): "Ask 'Close DBArbiter?' before the window closes" (Cancel the default; unsaved work is asked about either way), and "Open the tabs that were open last time": saved scripts (with their connection), tables (their connection connects again) and saved compares, written to ~/.dbadmin/open-tabs.json on exit; the tab in front stays in front.
