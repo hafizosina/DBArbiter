@@ -3,15 +3,14 @@
 ## Open
 
 7. [ ] **Background tasks panel**: a small panel you can hide that lists everything running in the background (queries, compares, scans, exports / imports), with a way to stop each one.
-9. [ ] **Settings: on exit.** One option to choose between asking before closing and closing at once (even with queries running), and one to reopen the tabs that were open last time. Both can be switched on and off in Settings.
-   - ? What should "force close" do with unsaved scripts and running queries?
+9. [ ] **Settings: on exit.** Two settings: ask "Close DBAdmin?" before the window closes (or close at once; unsaved scripts and edits are still asked about), and reopen the tabs that were open last time.
 10. [ ] **Scan: save and reopen** a scan's settings and its report as a .dbscan file (phase 5 of #1, see docs/scan-plan.md).
-12. [ ] **Data Compare: leave out the primary key.** An option to compare without the primary key column(s), for tables whose ids differ between the two databases while the data is the same.
+12. [ ] **Data Compare: leave out the primary key.** (a) In the compare setup, one click to take the primary key out of Key and Compare, so rows are matched by the other columns when ids differ between the databases. (b) In Generate SQL, an option to leave the primary key out of the INSERTs, so the target gives new rows their own ids.
 17. [ ] **Ctrl+Shift+T reopens the last closed tab**, with its content. Closed tabs are kept for 10 minutes.
 20. [ ] **Data grid: preview the row a foreign key points to.** In the value panel, a cell in a foreign key column shows the referenced row from the related table.
 21. [ ] **Data Compare: record mode.** Show one compared row as a list of columns (source and target side by side), for tables with many columns. Boolean columns show as check boxes.
 22. [ ] **Data Compare: hide columns with no changes.** Columns where no row has a difference are collapsed by default, with a toggle to show them.
-23. [ ] **Sequences.** ? Not clear yet: a Sequences node in the navigator (name, current value, increment), and / or sequences in the table's Properties?
+23. [ ] **Sequences.** (a) A Sequences folder per schema in the navigator: name, current value, increment; right-click to copy or reset. (b) In a table's Properties, the sequences its columns use (e.g. a serial id) with their current value.
 
 ## Done
 
