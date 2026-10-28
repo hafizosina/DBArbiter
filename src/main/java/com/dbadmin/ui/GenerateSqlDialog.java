@@ -61,7 +61,8 @@ class GenerateSqlDialog extends Dialog<String> {
         area.getStyleClass().add("sql-editor");
         VirtualizedScrollPane<CodeArea> scroll = new VirtualizedScrollPane<>(area);
         scroll.setPrefHeight(480);
-        VBox.setVgrow(scroll, Priority.ALWAYS);
+        VBox findable = FindBar.over(area, scroll);
+        VBox.setVgrow(findable, Priority.ALWAYS);
         summary.getStyleClass().add("hint-small");
         summary.setWrapText(true);
         Button copy = new Button("Copy");
@@ -94,7 +95,7 @@ class GenerateSqlDialog extends Dialog<String> {
         soft.selectedProperty().addListener((o, a, b) -> refresh.run());
         refresh.run();
 
-        VBox content = new VBox(8, options, head, scroll);
+        VBox content = new VBox(8, options, head, findable);
         content.setPadding(new Insets(12, 16, 8, 16));
         content.setPrefWidth(980);
         getDialogPane().setContent(content);

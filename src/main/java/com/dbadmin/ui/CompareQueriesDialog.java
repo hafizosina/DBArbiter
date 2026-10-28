@@ -60,6 +60,6 @@ class CompareQueriesDialog extends Dialog<Void> {
         HBox.setHgrow(gap, Priority.ALWAYS);
         HBox head = new HBox(8, label, gap, copy);
         head.setAlignment(Pos.CENTER_LEFT);
-        return new VBox(4, head, scroll);
+        return new VBox(4, head, FindBar.over(area, scroll));
     }
 }

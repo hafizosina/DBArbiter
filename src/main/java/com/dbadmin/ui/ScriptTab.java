@@ -129,9 +129,9 @@ class ScriptTab extends Tab implements UnsavedWork {
 
         BorderPane pane = new BorderPane(split);
         pane.setTop(bar);
-        // find/replace also from the results area
+        // find/replace also from the results area (a value panel or diff has its own)
         pane.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
-            if (editor.handleFindKeys(e)) e.consume();
+            if (!FindBar.isInOwnFind(e) && editor.handleFindKeys(e)) e.consume();
         });
         setContent(pane);
 

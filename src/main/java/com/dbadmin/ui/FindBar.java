@@ -93,6 +93,63 @@ class FindBar extends VBox {
         hideBar();
     }
 
+    /** Marks a view made by {@link #over}: its find keys are its own (see {@link #isInOwnFind}). */
+    private static final String SCOPE = "find-scope";
+
+    /**
+     * {@code content} (the area's scroll pane) with a find bar above it: Ctrl+F opens it, F3 / Shift+F3 and
+     * Enter / Shift+Enter go between matches. For a text view that colors its own text: the matches are marked
+     * on top of those colors, and again after the view restyles new text.
+     */
+    static VBox over(CodeArea area, javafx.scene.Node content) {
+        FindBar[] bar = new FindBar[1];
+        bar[0] = new FindBar(area, () -> javafx.application.Platform.runLater(() -> markMatches(area, bar[0].matchRanges())));
+        VBox box = new VBox(bar[0], content);
+        VBox.setVgrow(content, Priority.ALWAYS);
+        box.getProperties().put(SCOPE, true);
+        box.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
+            if (e.isShortcutDown() && !e.isShiftDown() && e.getCode() == KeyCode.F) bar[0].open(false);
+            else if (e.getCode() == KeyCode.F3) bar[0].move(!e.isShiftDown());
+            else return;
+            e.consume();
+        });
+        return box;
+    }
+
+    /** Whether a key event comes from inside a view made by {@link #over}, so an enclosing tab leaves it alone. */
+    static boolean isInOwnFind(javafx.event.Event e) {
+        for (Object n = e.getTarget(); n instanceof javafx.scene.Node node; n = node.getParent()) {
+            if (node.getProperties().containsKey(SCOPE)) return true;
+        }
+        return false;
+    }
+
+    /** Puts "search-match" on the ranges, on top of the area's own styles (and takes it off everywhere else). */
+    private static void markMatches(CodeArea area, List<int[]> ranges) {
+        if (area.getLength() == 0) return;
+        org.fxmisc.richtext.model.StyleSpans<java.util.Collection<String>> base = area.getStyleSpans(0, area.getLength())
+                .mapStyles(styles -> styles.contains("search-match")
+                        ? styles.stream().filter(c -> !c.equals("search-match")).toList() : styles);
+        if (!ranges.isEmpty()) {
+            org.fxmisc.richtext.model.StyleSpansBuilder<java.util.Collection<String>> marks = new org.fxmisc.richtext.model.StyleSpansBuilder<>();
+            int last = 0;
+            for (int[] m : ranges) {
+                if (m[1] > area.getLength()) break; // the text changed since; the next refresh marks it
+                marks.add(List.of(), m[0] - last);
+                marks.add(List.of("search-match"), m[1] - m[0]);
+                last = m[1];
+            }
+            marks.add(List.of(), area.getLength() - last);
+            base = base.overlay(marks.create(), (styles, mark) -> {
+                if (mark.isEmpty()) return styles;
+                List<String> both = new ArrayList<>(styles);
+                both.addAll(mark);
+                return both;
+            });
+        }
+        area.setStyleSpans(0, base);
+    }
+
     /** Shows the bar; the editor's selected text (one line) becomes the search. */
     void open(boolean withReplace) {
         String selected = editor.getSelectedText();

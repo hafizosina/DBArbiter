@@ -37,7 +37,7 @@
 .sql-editor .sql-param { -fx-fill: #f48fb1; }
 .sql-editor .sql-dollar { -fx-fill: #e06c75; -fx-font-weight: bold; }
 .sql-editor .sql-variable { -fx-fill: #e5c07b; }
-.sql-editor .search-match { -rtfx-background-color: #6b5a1e; }
+.styled-text-area .search-match { -rtfx-background-color: #6b5a1e; }
 .quick-query { -fx-border-color: #43454a; }
 .find-bar { -fx-background-color: #2b2d30; -fx-border-color: transparent transparent #43454a transparent; }
 

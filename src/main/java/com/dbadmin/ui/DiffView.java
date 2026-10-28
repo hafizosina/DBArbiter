@@ -24,7 +24,7 @@ class DiffView extends StackPane {
         area.setEditable(false);
         area.setWrapText(true);
         area.setParagraphGraphicFactory(this::gutter);
-        getChildren().add(new VirtualizedScrollPane<>(area));
+        getChildren().add(FindBar.over(area, new VirtualizedScrollPane<>(area)));
     }
 
     /** Shows the diff of two texts; null means there is no such value (all lines added or all removed). */

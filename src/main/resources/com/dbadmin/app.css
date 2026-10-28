@@ -69,7 +69,7 @@
 /* find / replace */
 .find-bar { -fx-background-color: #f0f0f0; -fx-border-color: transparent transparent #d0d0d0 transparent; }
 .find-none { -fx-text-fill: #c62828; }
-.sql-editor .search-match { -rtfx-background-color: #ffe082; }
+.styled-text-area .search-match { -rtfx-background-color: #ffe082; }
 
 /* main tabs (scripts, tables): darker strip, selected tab white with a blue top edge */
 .main-tabs > .tab-header-area > .tab-header-background { -fx-background-color: #d5dae1; }

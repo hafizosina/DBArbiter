@@ -74,7 +74,8 @@ class CellInspector extends VBox {
     /** Off by default and for every new cell: loading images contacts the servers they are on. */
     private final ToggleButton loadImages = new ToggleButton("Load Images");
     private final StackPane body = new StackPane();
-    private VirtualizedScrollPane<CodeArea> source;
+    /** The text with its find bar (Ctrl+F); Preview shows the rendered HTML in its place. */
+    private VBox source;
     /** Created on first use: WebView is heavy. */
     private WebView web;
     private String webContent;
@@ -130,7 +131,7 @@ class CellInspector extends VBox {
         text.focusedProperty().addListener((o, was, focused) -> {
             if (!focused) applyPending();
         });
-        source = new VirtualizedScrollPane<>(text);
+        source = FindBar.over(text, new VirtualizedScrollPane<>(text));
         body.getChildren().add(source);
         VBox.setVgrow(body, Priority.ALWAYS);
 

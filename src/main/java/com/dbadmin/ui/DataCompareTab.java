@@ -129,7 +129,7 @@ class DataCompareTab extends Tab implements UnsavedWork {
             } else if (SchemaCompareTab.COMPARE_KEY.match(e)) {
                 e.consume();
                 runDataCompare();
-            } else if (FIND_KEY.match(e) && report != null) {
+            } else if (FIND_KEY.match(e) && report != null && !FindBar.isInOwnFind(e)) {
                 e.consume();
                 find.open();
             }

@@ -147,15 +147,16 @@ class ReplaceDialog extends Dialog<String> {
         preview.getStyleClass().add("sql-editor");
         VirtualizedScrollPane<CodeArea> previewPane = new VirtualizedScrollPane<>(preview);
         previewPane.setPrefHeight(200);
+        VBox findablePreview = FindBar.over(preview, previewPane);
 
         VBox content = new VBox(8,
                 section("Values"), pairs,
                 section("Columns to change"), columns,
                 section("Also set in each changed row"), alsoSetRows, addAlso,
                 section("Checks"), checks,
-                section("Preview (exact case, as the script changes them)"), previewPane);
+                section("Preview (exact case, as the script changes them)"), findablePreview);
         content.setPadding(new Insets(10, 14, 10, 14));
-        VBox.setVgrow(previewPane, Priority.ALWAYS);
+        VBox.setVgrow(findablePreview, Priority.ALWAYS);
         ScrollPane scroll = new ScrollPane(content);
         scroll.setFitToWidth(true);
         scroll.setPrefSize(980, 560); // fits a laptop screen; the rest scrolls

@@ -49,7 +49,7 @@ class MatchRowsView extends VBox {
         full.setWrapText(true);
         full.getStyleClass().add("sql-editor");
         rows.getSelectionModel().selectedItemProperty().addListener((o, a, r) -> showFull(r));
-        SplitPane split = new SplitPane(rows, new VirtualizedScrollPane<>(full));
+        SplitPane split = new SplitPane(rows, FindBar.over(full, new VirtualizedScrollPane<>(full)));
         split.setOrientation(javafx.geometry.Orientation.VERTICAL);
         split.setDividerPositions(0.6);
         VBox.setVgrow(split, javafx.scene.layout.Priority.ALWAYS);
