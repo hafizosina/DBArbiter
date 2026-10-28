@@ -40,6 +40,7 @@
 .styled-text-area .search-match { -rtfx-background-color: #6b5a1e; }
 .quick-query { -fx-border-color: #43454a; }
 .find-bar { -fx-background-color: #2b2d30; -fx-border-color: transparent transparent #43454a transparent; }
+.tasks-panel { -fx-background-color: #2b2d30; -fx-border-color: #43454a transparent transparent transparent; }
 
 /* autocomplete */
 .list-cell:selected .completion-detail { -fx-text-fill: #cfe0ff; }

@@ -79,7 +79,7 @@ final class TableTransfer {
             lastDir = file.getParentFile();
             Path path = file.toPath();
             host.status("Exporting " + table.name() + "…");
-            inJob(session, host, s -> {
+            inJob("Export " + table.name(), session, host, s -> {
                 String sql = choice.currentQuery() ? currentQuery : "SELECT * FROM " + s.qualifiedName(table);
                 try (OutputStream out = new BufferedOutputStream(Files.newOutputStream(path))) {
                     Writer text = new BufferedWriter(new OutputStreamWriter(out, StandardCharsets.UTF_8));
@@ -152,7 +152,7 @@ final class TableTransfer {
                 .indexOf(k.toLowerCase())).toList();
         boolean keyImported = !primaryKey.isEmpty() && !keyAt.contains(-1);
         host.status("Checking which rows already exist…");
-        inJob(session, host, s -> keyImported ? s.keyValues(table, primaryKey) : Set.<String>of(), existing -> {
+        inJob("Import into " + table.name() + " (checking keys)", session, host, s -> keyImported ? s.keyValues(table, primaryKey) : Set.<String>of(), existing -> {
             List<List<String>> fresh = plan.rows().stream()
                     .filter(r -> !keyImported || !existing.contains(DatabaseSession.keyText(keyAt.stream().map(r::get).toList())))
                     .toList();
@@ -172,7 +172,7 @@ final class TableTransfer {
             ask.setHeaderText("Insert " + fresh.size() + " row(s) into " + table.name() + "?");
             if (InAppDialogs.showAndWait(ask).orElse(ButtonType.CANCEL) != go) return;
             host.status("Importing into " + table.name() + "…");
-            inJob(session, host, s -> s.insertRows(table, plan.columns(), fresh, n -> Platform.runLater(
+            inJob("Import into " + table.name(), session, host, s -> s.insertRows(table, plan.columns(), fresh, n -> Platform.runLater(
                     () -> host.status("Importing into " + table.name() + ": " + String.format("%,d", n) + " rows…"))), n -> {
                 host.status("Imported " + n + " row(s) into " + table.name() + (skipped > 0 ? " (" + skipped + " already there, left out)" : ""));
                 host.imported(session, table);
@@ -200,9 +200,9 @@ final class TableTransfer {
      * with a {@link java.util.concurrent.CancellationException} (an export then deletes its half-written file;
      * an import's transaction is rolled back with its connection).
      */
-    private static <T> void inJob(DatabaseSession session, Host host, OnSession<T> work, java.util.function.Consumer<T> done,
+    private static <T> void inJob(String title, DatabaseSession session, Host host, OnSession<T> work, java.util.function.Consumer<T> done,
                                   java.util.function.Consumer<Throwable> failed) {
-        Job<T> job = Job.start(List.of(session.getConfig()), DatabaseSession::open, Async.background(), Platform::runLater,
+        Job<T> job = BackgroundTasks.start(title + " · " + session.getConfig().getName(), List.of(session.getConfig()),
                 (sessions, j) -> work.run(sessions.get(0)), new Job.Listener<T>() {
                     @Override
                     public void done(T result) {

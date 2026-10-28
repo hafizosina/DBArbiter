@@ -57,6 +57,11 @@ class AppFooter extends HBox {
         setAlignment(Pos.CENTER_LEFT);
     }
 
+    /** Puts a control (the background tasks toggle) right after the status line. */
+    void addAfterStatus(javafx.scene.Node node) {
+        getChildren().add(getChildren().indexOf(status) + 1, node);
+    }
+
     /** The license line next to the version: who it is for and how long it lasts; orange near and after the end. */
     void showLicense(Optional<License> current, LocalDate today) {
         boolean warn = false;

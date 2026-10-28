@@ -73,6 +73,7 @@ class ScriptTab extends Tab implements UnsavedWork {
         setGraphic(TabBadge.of(TabBadge.Kind.SCRIPT));
         this.editor = new SqlEditor(completer, sessions, connection::getValue, this::runStatement);
         this.runner = new ScriptRunner(sessions, completer);
+        runner.describedAs(() -> "Script " + displayName() + (connection.getValue() == null ? "" : " · " + connection.getValue().getName()));
         this.bindings = bindings;
         this.boundId = file == null ? null : bindings.connectionFor(file);
 

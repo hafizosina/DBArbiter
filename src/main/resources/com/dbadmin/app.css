@@ -68,6 +68,7 @@
 
 /* find / replace */
 .find-bar { -fx-background-color: #f0f0f0; -fx-border-color: transparent transparent #d0d0d0 transparent; }
+.tasks-panel { -fx-background-color: #f0f0f0; -fx-border-color: #d0d0d0 transparent transparent transparent; }
 .find-none { -fx-text-fill: #c62828; }
 .styled-text-area .search-match { -rtfx-background-color: #ffe082; }
 

@@ -91,6 +91,7 @@ class TableTab extends Tab implements UnsavedWork {
         this.structure = new StructureEditing(session, table, this::structureChanged);
         this.queryEditor = new SqlEditor(completer, sessions, session::getConfig, this::runStatement);
         this.runner = new ScriptRunner(sessions, completer);
+        runner.describedAs(() -> "Query " + table.name() + " · " + session.getConfig().getName());
         setOnSelectionChanged(e -> queryEditor.hidePopup());
         dataView.offerRecordMode();
         setTooltip(new javafx.scene.control.Tooltip(session.getConfig().getName() + " · " + table.displayName()));

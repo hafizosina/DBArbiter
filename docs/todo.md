@@ -2,7 +2,6 @@
 
 ## Open
 
-7. [ ] **Background tasks panel**: a small panel you can hide that lists everything running in the background (queries, compares, scans, exports / imports), with a way to stop each one.
 
 ## Done
 
@@ -28,3 +27,4 @@
 23. [x] **Sequences**: (a) a Sequences folder per schema in the navigator ("name · last value"; MySQL: the AUTO_INCREMENT counters, read without the 24 h cache; SQLite: sqlite_sequence). Right-click: Copy Name, Copy nextval(…) on PostgreSQL, and Reset Sequence… where Truncate / Reset are offered (writable, warning level 0): it suggests the column's highest value + 1 and shows the statement, Cancel the default. (b) Properties → Sequences: the ones the table's columns use, with last value, increment, start. Checked on PostgreSQL 16, MySQL 8.4 and SQLite.
 20. [x] **Data grid: preview the row a foreign key points to**: for a cell of a foreign key column (rows of one table: the table tab, and script results of one table), the value panel shows "→ m_product (id = 7)" and that row as column / value pairs underneath; the key's other columns come from the same row; NULL and a missing row are said so. Checked on PostgreSQL.
 10. [x] **Scan: save and reopen** (phase 5 of #1): Save… in the Scan tab writes a .dbscan file (format version 1): the form (connection, values, options, ticked schemas / tables / columns) and the findings and coverage. Tools → Open Scan…, dropping the file on the window, Ctrl+Shift+T and the tabs reopened at startup open it again without scanning; Replace… works on the opened findings.
+7. [x] **Background tasks panel**: "⟳ N running" in the footer shows / hides a panel above it listing what runs in the background: scripts and table queries, Compare Data / Tables, scans, exports and imports, each with its progress, how long it has run, and Stop.

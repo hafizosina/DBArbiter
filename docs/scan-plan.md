@@ -187,7 +187,7 @@ modified_date / modified_by set, a second run 0 rows, a new scan finds only the 
 3. Matching rows panel with highlights.
 4. Replace: generator, dialog, checks, preview, script tab. PostgreSQL first (the example), then MySQL and SQLite;
    plain text first, then JSON columns (the cast back, the preview's JSON check).
-5. Save and reopen a scan (`.dbscan`, with a format version as the compare files have).
+5. ~~Save and reopen a scan (`.dbscan`, with a format version as the compare files have).~~ Done (todo #10).
 
 ## Decided (2026-10-23)
 

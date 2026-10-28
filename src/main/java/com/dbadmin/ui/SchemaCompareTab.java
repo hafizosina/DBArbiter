@@ -325,8 +325,8 @@ class SchemaCompareTab extends Tab implements UnsavedWork {
         String src = sourceName;
         String dst = targetName;
         compareButton.setText("Cancel");
-        running = Job.start(List.of(schemaSource.connection.getValue(), schemaTarget.connection.getValue()), DatabaseSession::open,
-                Async.background(), Platform::runLater, (sessions, job) -> {
+        running = BackgroundTasks.start("Compare Tables", List.of(schemaSource.connection.getValue(), schemaTarget.connection.getValue()),
+                (sessions, job) -> {
                     DatabaseSession a = sessions.get(0);
                     DatabaseSession b = sessions.get(1);
                     // read both sides at the same time (they usually are different servers)

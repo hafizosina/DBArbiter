@@ -55,9 +55,27 @@ final class ScriptRunner {
     private boolean cancelRequested;
     private boolean schemaChanged;
 
+    /** What the background tasks panel calls a run (e.g. the script's name). */
+    private java.util.function.Supplier<String> title = () -> "Query";
+    private BackgroundTasks.Task task;
+
     ScriptRunner(SessionProvider sessions, SqlCompleter completer) {
         this.sessions = sessions;
         this.completer = completer;
+        // listed in the background tasks panel while it runs; Stop there stops it as the toolbar's does
+        running.addListener((o, was, on) -> {
+            if (on) {
+                task = BackgroundTasks.add(title.get(), this::stop);
+            } else if (task != null) {
+                BackgroundTasks.remove(task);
+                task = null;
+            }
+        });
+    }
+
+    /** Names the runs in the background tasks panel. */
+    void describedAs(java.util.function.Supplier<String> title) {
+        this.title = title;
     }
 
     ReadOnlyBooleanProperty runningProperty() {

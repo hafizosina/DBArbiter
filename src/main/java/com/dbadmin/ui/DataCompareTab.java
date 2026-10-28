@@ -581,8 +581,8 @@ class DataCompareTab extends Tab implements UnsavedWork {
                 dataTarget.schemaLabel(), t2.name(), dst);
         dataGrid.getItems().clear();
         compareButton.setText("Cancel");
-        running = Job.start(List.of(dataSource.connection.getValue(), dataTarget.connection.getValue()), DatabaseSession::open,
-                Async.background(), Platform::runLater, (sessions, job) -> {
+        running = BackgroundTasks.start("Compare Data · " + t1.name(), List.of(dataSource.connection.getValue(), dataTarget.connection.getValue()),
+                (sessions, job) -> {
                     DatabaseSession a = sessions.get(0);
                     DatabaseSession b = sessions.get(1);
                     job.progress("Reading " + t1.name() + " from " + src + " and " + dst + "…");

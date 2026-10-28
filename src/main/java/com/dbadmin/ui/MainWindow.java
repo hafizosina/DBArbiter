@@ -181,7 +181,9 @@ public class MainWindow implements SessionProvider {
             }
         });
         root.setCenter(split);
-        root.setBottom(footer);
+        TasksPanel tasksPanel = new TasksPanel();
+        footer.addAfterStatus(tasksPanel.toggle());
+        root.setBottom(new javafx.scene.layout.VBox(tasksPanel, footer));
         license = new LicenseGate(stage, footer, status::setText);
         installScriptDrop();
         updateMenuItems();

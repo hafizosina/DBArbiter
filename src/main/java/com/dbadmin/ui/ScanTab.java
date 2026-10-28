@@ -431,7 +431,7 @@ class ScanTab extends Tab {
         export.setDisable(true);
         replace.setDisable(true);
         long started = System.nanoTime();
-        running = Job.start(List.of(c), DatabaseSession::open, Async.background(), Platform::runLater,
+        running = BackgroundTasks.start("Scan · " + c.getName(), List.of(c),
                 (ss, job) -> DataScan.run(ss.get(0), request, job, r -> Platform.runLater(() -> {
                     results.add(r);
                     showFindings();
