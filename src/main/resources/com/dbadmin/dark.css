@@ -77,6 +77,7 @@
 /* table header */
 .table-header { -fx-background-color: #2b2d30; }
 .table-header-kind { -fx-text-fill: #9da0a8; -fx-border-color: #5a5d63; }
+.table-header-connection { -fx-text-fill: #d5d8de; }
 
 /* in-window dialogs */
 .overlay-layer { -fx-background-color: rgba(0, 0, 0, 0.5); }

@@ -88,6 +88,7 @@ class ScriptTab extends Tab implements UnsavedWork {
             connection.setValue(connections.stream()
                     .filter(c -> c.getId().equals(current.getId())).findFirst().orElse(null));
             updateBindingWarning(); // a rename changes the text
+            updateTitle();
         });
 
         runButton.setTooltip(new Tooltip("Run the statement at the cursor, or the selection (Ctrl+Enter)"));
@@ -102,6 +103,7 @@ class ScriptTab extends Tab implements UnsavedWork {
         connection.valueProperty().addListener((o, a, c) -> {
             showMode(mode, c);
             updateBindingWarning();
+            updateTitle();
             editor.connectionChanged();
         });
         showMode(mode, initial);
@@ -424,9 +426,12 @@ class ScriptTab extends Tab implements UnsavedWork {
         return file != null ? file.getFileName().toString() : untitledName;
     }
 
+    /** "*name · connection", so the tab says which database the script runs on. */
     private void updateTitle() {
-        setText((dirty ? "*" : "") + displayName());
-        setTooltip(new Tooltip(file != null ? file.toString() : "Unsaved script"));
+        ConnectionConfig c = connection.getValue();
+        String on = c == null ? "" : " · " + c.getName();
+        setText((dirty ? "*" : "") + displayName() + on);
+        setTooltip(new Tooltip((file != null ? file.toString() : "Unsaved script") + (c == null ? "" : "\nConnection: " + c.getName())));
     }
 
     private Window window() {

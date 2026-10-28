@@ -102,6 +102,7 @@
 .table-header-icon.table { -fx-text-fill: #1565c0; }
 .table-header-icon.view { -fx-text-fill: #6a1b9a; }
 .table-header-name { -fx-font-size: 15px; -fx-font-weight: bold; }
+.table-header-connection { -fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: #37474f; }
 .table-header-kind { -fx-font-size: 10px; -fx-text-fill: #546e7a; -fx-padding: 1 5 1 5; -fx-border-color: #b0bec5; -fx-border-radius: 3; }
 .nav-icon.matview, .table-header-icon.matview { -fx-text-fill: #00838f; }
 .quick-query { -fx-border-color: #c8c8c8; }

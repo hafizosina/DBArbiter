@@ -125,8 +125,8 @@ class TableTab extends Tab implements UnsavedWork {
         inner.getSelectionModel().select(data);
     }
 
-    /** "▦ schema.table  TABLE · connection" above the Properties / Data tabs. */
-    private HBox buildHeader() {
+    /** The connection (with read-only / read-write) over "▦ schema.table  TABLE", above the Properties / Data tabs. */
+    private VBox buildHeader() {
         Label icon = new Label(table.isMaterializedView() ? "◩" : table.isView() ? "◫" : "▦");
         icon.getStyleClass().addAll("table-header-icon",
                 table.isMaterializedView() ? "matview" : table.isView() ? "view" : "table");
@@ -134,11 +134,12 @@ class TableTab extends Tab implements UnsavedWork {
         name.getStyleClass().add("table-header-name");
         Label kind = new Label(table.type() == null ? "" : table.type().toUpperCase());
         kind.getStyleClass().add("table-header-kind");
-        Label connection = new Label(session.getConfig().getName());
-        connection.getStyleClass().add("hint-small");
-        connection.setGraphic(DbIcons.connection(session.getConfig().getType(), false));
-        Region spacer = new Region();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
+        ConnectionConfig config = session.getConfig();
+        Label connection = new Label(config.getName());
+        connection.getStyleClass().add("table-header-connection");
+        connection.setGraphic(DbIcons.connection(config.getType(), false));
+        Label mode = new Label(config.isReadOnly() ? "read-only" : "read-write");
+        mode.getStyleClass().add(config.isReadOnly() ? "hint-small" : "mode-write");
         // Backup / Rename, and Truncate / Reset / Drop where the connection's warning level is 0 (see TableActions)
         javafx.scene.control.MenuButton actions = new javafx.scene.control.MenuButton("Table");
         TableActions.Items items = TableActions.items(() -> getTabPane() == null ? null : getTabPane().getScene().getWindow(),
@@ -149,8 +150,11 @@ class TableTab extends Tab implements UnsavedWork {
         actions.setVisible(items.anyShown());
         actions.setManaged(items.anyShown());
         actions.getStyleClass().add("small-button");
-        HBox header = new HBox(8, icon, name, kind, actions, spacer, connection);
-        header.setAlignment(Pos.CENTER_LEFT);
+        HBox connectionRow = new HBox(8, connection, mode);
+        connectionRow.setAlignment(Pos.CENTER_LEFT);
+        HBox tableRow = new HBox(8, icon, name, kind, actions);
+        tableRow.setAlignment(Pos.CENTER_LEFT);
+        VBox header = new VBox(4, connectionRow, tableRow);
         header.getStyleClass().add("table-header");
         return header;
     }

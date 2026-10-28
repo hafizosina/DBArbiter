@@ -8,6 +8,7 @@ import com.dbadmin.service.DatabaseSession;
 import com.dbadmin.service.ScriptBindings;
 import com.dbadmin.service.ScriptFolder;
 import com.dbadmin.service.SessionManager;
+import com.dbadmin.service.compare.CompareReportFiles;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
@@ -255,9 +256,12 @@ public class MainWindow implements SessionProvider {
     /** Opens a saved Table or Data Compare report in a new tab. */
     private void openCompareReport() {
         Path file = CompareReportChooser.open(stage);
-        if (file == null) return;
+        if (file != null) openCompareReport(file);
+    }
+
+    private void openCompareReport(Path file) {
         try {
-            Object report = com.dbadmin.service.compare.CompareReportFiles.open(file);
+            Object report = CompareReportFiles.open(file);
             if (report instanceof com.dbadmin.service.compare.DataCompareReport data) {
                 DataCompareTab tab = new DataCompareTab(connections, this, null);
                 showTab(tab);
@@ -893,30 +897,37 @@ public class MainWindow implements SessionProvider {
     }
 
     /**
-     * Opens .sql files dropped anywhere on the window. Filters, so a drop on the editor opens the file
-     * instead of pasting its path; other drags (text) are left alone.
+     * Opens .sql and .dbcompare files dropped anywhere on the window. Filters, so a drop on the editor opens
+     * the file instead of pasting its path; other drags (text) are left alone.
      */
     private void installScriptDrop() {
         root.addEventFilter(DragEvent.DRAG_OVER, e -> {
-            if (!sqlFiles(e.getDragboard()).isEmpty()) {
+            Dragboard board = e.getDragboard();
+            if (!droppedFiles(board, ".sql").isEmpty() || !droppedFiles(board, CompareReportFiles.EXTENSION).isEmpty()) {
                 e.acceptTransferModes(TransferMode.COPY);
                 e.consume();
             }
         });
         root.addEventFilter(DragEvent.DRAG_DROPPED, e -> {
-            List<Path> files = sqlFiles(e.getDragboard());
-            if (files.isEmpty()) return;
+            List<Path> scripts = droppedFiles(e.getDragboard(), ".sql");
+            List<Path> reports = droppedFiles(e.getDragboard(), CompareReportFiles.EXTENSION);
+            if (scripts.isEmpty() && reports.isEmpty()) return;
             e.setDropCompleted(true);
             e.consume();
             // after the drop returns, so the file manager is not held by an error dialog
-            Platform.runLater(() -> openScripts(files));
+            Platform.runLater(() -> {
+                openScripts(scripts);
+                if (!reports.isEmpty() && license.allows("Compare Table and Compare Data")) {
+                    reports.forEach(this::openCompareReport);
+                }
+            });
         });
     }
 
-    private static List<Path> sqlFiles(Dragboard board) {
+    private static List<Path> droppedFiles(Dragboard board, String extension) {
         if (!board.hasFiles()) return List.of();
         return board.getFiles().stream()
-                .filter(f -> f.isFile() && f.getName().toLowerCase(java.util.Locale.ROOT).endsWith(".sql"))
+                .filter(f -> f.isFile() && f.getName().toLowerCase(java.util.Locale.ROOT).endsWith(extension))
                 .map(f -> f.toPath().toAbsolutePath().normalize())
                 .toList();
     }
