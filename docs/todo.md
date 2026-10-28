@@ -3,8 +3,6 @@
 ## Open
 
 7. [ ] **Background tasks panel**: a small panel you can hide that lists everything running in the background (queries, compares, scans, exports / imports), with a way to stop each one.
-8. [ ] **Export SQL INSERT: choose the key columns.** Today "Skip rows whose primary key already exists" works only on the primary key. Let the user pick which columns decide that a row already exists, so tables without a primary key (or with a surrogate id) can be exported too.
-   ![Export dialog](img/img.png)
 9. [ ] **Settings: on exit.** One option to choose between asking before closing and closing at once (even with queries running), and one to reopen the tabs that were open last time. Both can be switched on and off in Settings.
    - ? What should "force close" do with unsaved scripts and running queries?
 10. [ ] **Scan: save and reopen** a scan's settings and its report as a .dbscan file (phase 5 of #1, see docs/scan-plan.md).
@@ -30,3 +28,4 @@
 16. [x] **Wrap a selection in brackets**: in the SQL editor (scripts and the table query box), typing `(`, `[`, `{`, `'`, `"` or `` ` `` over selected text puts it inside them; the text stays selected, so it can be wrapped again, and one Undo takes it back. Without a selection, and for closing brackets, typing works as before.
 15. [x] **Ctrl+F in every text view**: besides the SQL editor, the data grid and Data Compare, the value panel, the diff view, Scan's matching rows, and the SQL of Generate SQL, Replace and Compare queries now have a find bar (Ctrl+F, Enter / F3 next, Shift+Enter / Shift+F3 previous, Esc closes). Matches are marked on top of the view's own colors (JSON, diff). In a script tab, Ctrl+F in the value panel searches the panel, elsewhere in the results it still searches the SQL.
 19. [x] **Data grid: copy rows as SQL**: right-click → Copy as SQL → INSERT / UPDATE / DELETE puts the selected rows on the clipboard as statements of their table, nothing is run. Values as shown (edits included); UPDATE sets the other columns by the primary key, DELETE by the key (both off when the key is not in the result); new unsaved rows only as INSERT. Also on read-only connections.
+8. [x] **Export SQL INSERT: choose the key columns**: "Skip rows that already exist, found by" with a column picker (the primary key ticked first; works for tables without one too). By the primary key the database's own form is kept (ON CONFLICT DO NOTHING, INSERT OR IGNORE, NOT EXISTS on MySQL); by other columns each INSERT is INSERT … SELECT … WHERE NOT EXISTS (… those columns …), checked on PostgreSQL 16, MySQL 8.4 and SQLite. The export stops with a message if a picked column is not in the exported rows.

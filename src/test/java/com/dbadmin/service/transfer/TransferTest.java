@@ -24,6 +24,8 @@ import java.util.Set;
 import java.util.zip.ZipInputStream;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TransferTest {
@@ -85,6 +87,36 @@ class TransferTest {
         assertEquals("INSERT INTO t (`id`, `name`) SELECT 1, 'a' FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM t WHERE `id` = 1);",
                 SqlInserts.statement(DbType.MYSQL, "t", "`", cols, vals, List.of("id")));
         assertEquals("INSERT OR IGNORE INTO t (\"id\", \"name\") VALUES (1, 'a');", SqlInserts.statement(DbType.SQLITE, "t", "\"", cols, vals, List.of("id")));
+    }
+
+    @Test
+    void insertsSkipRowsFoundByChosenColumnsWithNotExists() {
+        List<String> cols = List.of("id", "Code", "note");
+        List<String> vals = List.of("1", "'A'", "NULL");
+        assertEquals("INSERT INTO t (\"id\", \"Code\", \"note\") SELECT 1, 'A', NULL WHERE NOT EXISTS (SELECT 1 FROM t WHERE \"Code\" = 'A');",
+                SqlInserts.statementIfAbsent(DbType.POSTGRESQL, "t", "\"", cols, vals, List.of("code")));
+        assertEquals("INSERT INTO t (`id`, `Code`, `note`) SELECT 1, 'A', NULL FROM DUAL WHERE NOT EXISTS (SELECT 1 FROM t WHERE `Code` = 'A' AND `note` IS NULL);",
+                SqlInserts.statementIfAbsent(DbType.MYSQL, "t", "`", cols, vals, List.of("Code", "note")));
+        assertTrue(SqlInserts.sameColumns(List.of("ID"), List.of("id")));
+        assertFalse(SqlInserts.sameColumns(List.of("id", "code"), List.of("id")));
+    }
+
+    @Test
+    void theWriterUsesTheConflictFormForThePrimaryKeyAndNotExistsForOtherColumns() throws Exception {
+        java.io.StringWriter out = new java.io.StringWriter();
+        RowSink byKey = SqlInserts.writer(out, DbType.SQLITE, "t", "\"", List.of("ID"), List.of("id"));
+        byKey.begin(List.of("id", "code"), List.of("integer", "text"));
+        byKey.row(java.util.Arrays.asList(1, "A"));
+        assertEquals("INSERT OR IGNORE INTO t (\"id\", \"code\") VALUES (1, 'A');\n", out.toString());
+
+        java.io.StringWriter out2 = new java.io.StringWriter();
+        RowSink byCode = SqlInserts.writer(out2, DbType.SQLITE, "t", "\"", List.of("code"), List.of("id"));
+        byCode.begin(List.of("id", "code"), List.of("integer", "text"));
+        byCode.row(java.util.Arrays.asList(1, "A"));
+        assertEquals("INSERT INTO t (\"id\", \"code\") SELECT 1, 'A' WHERE NOT EXISTS (SELECT 1 FROM t WHERE \"code\" = 'A');\n", out2.toString());
+
+        RowSink missing = SqlInserts.writer(new java.io.StringWriter(), DbType.SQLITE, "t", "\"", List.of("code"), List.of("id"));
+        assertThrows(java.io.IOException.class, () -> missing.begin(List.of("id"), List.of("integer")));
     }
 
     @Test

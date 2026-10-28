@@ -65,9 +65,11 @@ final class TableTransfer {
 
     /** @param currentQuery the table tab's current query (a plain read-only SELECT), or null */
     static void export(Window owner, DatabaseSession session, TableRef table, String currentQuery, Host host) {
-        Async.run(session, () -> session.primaryKey(table), primaryKey -> {
+        Async.run(session, () -> List.of(session.primaryKey(table),
+                session.columnInfo(table).stream().map(com.dbadmin.model.ColumnInfo::name).toList()), keys -> {
+            List<String> primaryKey = keys.get(0);
             ExportDialog.Choice choice = InAppDialogs.showAndWait(new ExportDialog(owner, table.displayName(),
-                    !primaryKey.isEmpty(), currentQuery != null)).orElse(null);
+                    keys.get(1), primaryKey, currentQuery != null)).orElse(null);
             if (choice == null) return;
             FileChooser chooser = chooser("Export " + table.name());
             chooser.setInitialFileName(table.name() + "-" + STAMP.format(LocalDateTime.now()) + choice.format().extension);
@@ -88,7 +90,7 @@ final class TableTransfer {
                         }
                         case XLSX -> Xlsx.writer(out, table.name());
                         case SQL -> SqlInserts.writer(text, s.getConfig().getType(), s.qualifiedName(table),
-                                s.identifierQuote(), choice.skipExisting(), primaryKey);
+                                s.identifierQuote(), choice.existsBy(), primaryKey);
                         case JSON -> Json.writer(text);
                     };
                     long n = s.streamRows(sql, sink, rows -> Platform.runLater(
