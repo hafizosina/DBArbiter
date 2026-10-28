@@ -409,7 +409,8 @@ class DataCompareTab extends Tab implements UnsavedWork {
         // the results bar: column picker toggle · status filters (also the legend) · verdicts
         columnsToggle.setText("◧");
         columnsToggle.setTooltip(new Tooltip("Show or hide the column picker"));
-        statusBar.getChildren().addAll(columnsToggle, new javafx.scene.control.Separator(javafx.geometry.Orientation.VERTICAL));
+        statusBar.getChildren().addAll(columnsToggle, DataView.recordToggle(), new javafx.scene.control.Separator(javafx.geometry.Orientation.VERTICAL));
+        dataView.offerRecordMode();
         for (DataCompare.RowStatus status : DataCompare.RowStatus.values()) {
             CheckBox box = new CheckBox(statusLabel(status, "source", "target"));
             box.setMnemonicParsing(false); // keep the "_" in ONLY_IN_SOURCE
@@ -591,9 +592,11 @@ class DataCompareTab extends Tab implements UnsavedWork {
                     StatementResult rb = readB.get();
                     job.checkCancelled();
                     job.progress("Comparing " + ra.data().rows().size() + " and " + rb.data().rows().size() + " rows…");
-                    return DataCompareReport.of(DataCompare.compare(ra.data(), rb.data(), p.keys(), p.compared(), p.shownOnly(),
-                                    MAX_LISTED_ROWS, p.oneToMany(), p.ignoreLineEndings()), srcSide, dstSide, p.keys(), p.filter(), p.limit(),
-                            ra.truncated() || rb.truncated(), "v" + AppFooter.version());
+                    DataCompareReport report = DataCompareReport.of(DataCompare.compare(ra.data(), rb.data(), p.keys(), p.compared(),
+                                    p.shownOnly(), MAX_LISTED_ROWS, p.oneToMany(), p.ignoreLineEndings()), srcSide, dstSide, p.keys(),
+                            p.filter(), p.limit(), ra.truncated() || rb.truncated(), "v" + AppFooter.version());
+                    report.booleanColumns = booleanColumns(ra.data(), report.shownColumns);
+                    return report;
                 }, new Job.Listener<>() {
                     @Override
                     public void progress(String text) {
@@ -796,8 +799,9 @@ class DataCompareTab extends Tab implements UnsavedWork {
             row.add(new StatusValue(d.status.name(), statusLabel(d.status, src, dst)));
             row.add(new VerdictCell(d));
             for (int c = 0; c < r.shownColumns.size(); c++) {
-                Object a = d.source == null ? null : d.source.get(c);
-                Object b = d.target == null ? null : d.target.get(c);
+                boolean isBoolean = r.booleanColumns != null && r.booleanColumns.contains(r.shownColumns.get(c));
+                Object a = d.source == null ? null : booleanOrText(d.source.get(c), isBoolean);
+                Object b = d.target == null ? null : booleanOrText(d.target.get(c), isBoolean);
                 boolean isCompared = r.comparedColumns.contains(r.shownColumns.get(c));
                 ComparedValue value = new ComparedValue(a, b, d.source != null, d.target != null, src, dst, isCompared, r.ignoreLineEndings);
                 if (value.differs()) unchangedColumns.remove(c);
@@ -828,6 +832,28 @@ class DataCompareTab extends Tab implements UnsavedWork {
         reportShown.set(true);
         updateVerdictSummary();
         refreshGrid();
+    }
+
+    /** The shown columns that are boolean in the source's rows (JDBC BOOLEAN or BIT, e.g. MySQL's tinyint(1)). */
+    private static List<String> booleanColumns(com.dbadmin.model.TableData data, List<String> shown) {
+        List<String> result = new ArrayList<>();
+        for (String c : shown) {
+            for (int i = 0; i < data.columns().size(); i++) {
+                if (!data.columns().get(i).equalsIgnoreCase(c)) continue;
+                int type = data.types().get(i).sqlType();
+                if (type == java.sql.Types.BOOLEAN || type == java.sql.Types.BIT) result.add(c);
+                break;
+            }
+        }
+        return result;
+    }
+
+    /** A boolean column's value from the report ("true" / "false") as a Boolean, so it shows as a check box. */
+    private static Object booleanOrText(String value, boolean isBoolean) {
+        if (!isBoolean || value == null) return value;
+        if (value.equalsIgnoreCase("true") || value.equals("1") || value.equalsIgnoreCase("t")) return Boolean.TRUE;
+        if (value.equalsIgnoreCase("false") || value.equals("0") || value.equalsIgnoreCase("f")) return Boolean.FALSE;
+        return value;
     }
 
     /** The report rows whose status is ticked in the filter bar. */

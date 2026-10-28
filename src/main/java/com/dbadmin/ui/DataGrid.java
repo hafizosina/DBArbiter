@@ -556,13 +556,37 @@ class DataGrid extends TableView<List<Object>> {
                 setStyle("-fx-background-color: " + color + "; -fx-text-fill: " + StatusValue.textColorOn(color)
                         + "; -fx-font-weight: bold;");
             } else if (value instanceof ComparedValue cv) {
-                setText(cv.toString().replace('\n', '↵'));
+                javafx.scene.Node checks = comparedChecks(cv);
+                setText(checks != null ? null : cv.toString().replace('\n', '↵'));
+                setGraphic(checks);
                 if (cv.differs()) getStyleClass().add("cmp-cell-changed");
             } else {
                 setText(oneLine(value));
                 if (value == null || value instanceof BlobValue || value == PendingEdits.Default.VALUE) getStyleClass().add("null-value");
             }
         }
+    }
+
+    /**
+     * A compared value of a boolean column as check boxes (read-only): one, or "☐ → ☑" when the two sides differ;
+     * null for a value that is not boolean.
+     */
+    static javafx.scene.Node comparedChecks(ComparedValue cv) {
+        if (!(cv.source() instanceof Boolean) && !(cv.target() instanceof Boolean)) return null;
+        if (!cv.inTarget()) return readOnlyCheck(cv.source());
+        if (!cv.inSource() || !cv.valuesDiffer()) return readOnlyCheck(cv.inSource() ? cv.source() : cv.target());
+        javafx.scene.layout.HBox box = new javafx.scene.layout.HBox(4, readOnlyCheck(cv.source()), new Label("→"), readOnlyCheck(cv.target()));
+        box.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+        return box;
+    }
+
+    private static javafx.scene.Node readOnlyCheck(Object value) {
+        if (!(value instanceof Boolean b)) return new Label(oneLine(value)); // NULL
+        CheckBox check = new CheckBox();
+        check.setSelected(b);
+        check.setMouseTransparent(true);
+        check.setFocusTraversable(false);
+        return check;
     }
 
     /** A value as one line of a cell: line breaks as a symbol, long text cut; the value panel has it all. */

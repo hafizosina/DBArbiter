@@ -89,7 +89,7 @@ class RecordView extends BorderPane {
         setTop(bar);
         setCenter(fields);
 
-        grid.getColumns().addListener((ListChangeListener<TableColumn<List<Object>, ?>>) c -> listFields());
+        grid.getVisibleLeafColumns().addListener((ListChangeListener<TableColumn<List<Object>, ?>>) c -> listFields());
         grid.itemsProperty().addListener((o, a, b) -> {
             b.addListener((ListChangeListener<List<Object>>) c -> updatePosition()); // more rows fetched
             show(row); // a refreshed page keeps its place
@@ -132,7 +132,7 @@ class RecordView extends BorderPane {
     private void listFields() {
         Integer picked = fields.getSelectionModel().getSelectedItem();
         List<Integer> columns = new ArrayList<>();
-        if (row >= 0) grid.getColumns().forEach(col -> columns.add((Integer) col.getUserData()));
+        if (row >= 0) grid.getVisibleLeafColumns().forEach(col -> columns.add((Integer) col.getUserData()));
         fields.setItems(FXCollections.observableArrayList(columns));
         if (columns.isEmpty()) return;
         fields.getSelectionModel().select(picked != null && columns.contains(picked) ? picked : columns.get(0));
@@ -230,7 +230,7 @@ class RecordView extends BorderPane {
         @Override
         protected void updateItem(Object value, boolean empty) {
             super.updateItem(value, empty);
-            getStyleClass().removeAll("null-value", "cell-edited");
+            getStyleClass().removeAll("null-value", "cell-edited", "cmp-cell-changed");
             if (field != null) return;
             setGraphic(null);
             if (empty || getTableRow() == null || getTableRow().getItem() == null) {
@@ -243,6 +243,12 @@ class RecordView extends BorderPane {
                 check.setSelected(b);
                 check.setMouseTransparent(!editable());
                 setGraphic(check);
+            } else if (value instanceof ComparedValue cv) {
+                // a compared row (Data Compare): "old → new" or check boxes, changed values marked as in the grid
+                javafx.scene.Node checks = DataGrid.comparedChecks(cv);
+                setText(checks != null ? null : DataGrid.oneLine(cv.toString()));
+                setGraphic(checks);
+                if (cv.differs()) getStyleClass().add("cmp-cell-changed");
             } else {
                 setText(DataGrid.oneLine(value));
                 if (value == null || value instanceof BlobValue || value == PendingEdits.Default.VALUE) getStyleClass().add("null-value");

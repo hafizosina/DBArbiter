@@ -58,6 +58,8 @@ public final class DataCompareReport {
     /** Key, compared and show-only columns: what {@link Row#source} and {@link Row#target} hold. */
     public List<String> shownColumns = List.of();
     public List<String> sourceColumns = List.of();
+    /** Shown columns whose type is boolean (their values are shown as check boxes); empty in files saved before. */
+    public List<String> booleanColumns = List.of();
     public String where = "";
     /** The main table's alias and the joins that give it a key from other tables; no joins: the table's own columns. */
     public String mainAlias;
