@@ -23,13 +23,15 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
  * The SQL editor used by script tabs and by the query box of a table: syntax colors, line numbers,
- * autocomplete (typing / Ctrl+Space), find and replace (Ctrl+F / Ctrl+R / F3) and Ctrl+Enter to run.
+ * autocomplete (typing / Ctrl+Space), find and replace (Ctrl+F / Ctrl+R / F3), Ctrl+Enter to run, and a bracket
+ * or quote typed over selected text wraps it.
  */
 class SqlEditor extends VBox {
 
@@ -72,6 +74,9 @@ class SqlEditor extends VBox {
             }
         });
         area.addEventFilter(MouseEvent.MOUSE_PRESSED, e -> popup.hide());
+        area.addEventFilter(KeyEvent.KEY_TYPED, e -> {
+            if (wrapSelection(e.getCharacter())) e.consume();
+        });
         // a filter, so the text area never sees Ctrl+Enter and inserts a newline
         area.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
             if (e.getCode() == KeyCode.ENTER && e.isShortcutDown()) {
@@ -120,6 +125,23 @@ class SqlEditor extends VBox {
             scroll.setPrefHeight(height);
             onSized.run();
         });
+    }
+
+    /** Opening brackets and quotes, and what closes them, for {@link #wrapSelection}. */
+    private static final Map<String, String> WRAPS = Map.of("(", ")", "[", "]", "{", "}", "'", "'", "\"", "\"", "`", "`");
+
+    /**
+     * Typing an opening bracket or a quote over selected text puts the text inside them instead of replacing it;
+     * the text stays selected, so it can be wrapped again. One undo step. False when nothing was wrapped.
+     */
+    boolean wrapSelection(String typed) {
+        String close = WRAPS.get(typed);
+        String selected = area.getSelectedText();
+        if (close == null || selected.isEmpty()) return false;
+        int start = area.getSelection().getStart();
+        area.replaceSelection(typed + selected + close);
+        area.selectRange(start + typed.length(), start + typed.length() + selected.length());
+        return true;
     }
 
     /** Replaces the text as a fresh start: not undoable. */
