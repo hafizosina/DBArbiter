@@ -271,6 +271,15 @@ class TableTab extends Tab implements UnsavedWork {
         return key(session, table);
     }
 
+    /** The connection and the table shown (to open the tab again). */
+    ConnectionConfig connection() {
+        return session.getConfig();
+    }
+
+    TableRef table() {
+        return table;
+    }
+
     // ---- changing the structure ----
 
     private enum StructureAction { ADD, EDIT, DROP }

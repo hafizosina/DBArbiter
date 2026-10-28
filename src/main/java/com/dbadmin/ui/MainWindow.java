@@ -73,6 +73,8 @@ public class MainWindow implements SessionProvider {
     private final TabPane tabs = new TabPane();
     /** Showing and closing tabs, their right-click menu, asking about unsaved work before the window closes. */
     private final TabStrip tabStrip = new TabStrip(tabs);
+    /** Closed tabs Ctrl+Shift+T opens again, for 10 minutes. */
+    private final ClosedTabs closedTabs = new ClosedTabs(10 * 60_000, System::currentTimeMillis);
     private final AppFooter footer = new AppFooter("Ready");
     private final Label status = footer.status();
     /** The license: footer line, License dialog, and the check before the compares open. */
@@ -158,10 +160,20 @@ public class MainWindow implements SessionProvider {
         root.setTop(buildTopBar());
         // a filter, so it works wherever the focus is (editor, grid, tree)
         KeyCombination closeTab = KeyCombination.keyCombination("Shortcut+W");
+        KeyCombination reopenTab = KeyCombination.keyCombination("Shortcut+Shift+T");
         root.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
             if (closeTab.match(e)) {
                 e.consume();
                 tabStrip.close(tabs.getSelectionModel().getSelectedItem());
+            } else if (reopenTab.match(e)) {
+                e.consume();
+                reopenClosedTab();
+            }
+        });
+        tabStrip.setReopen(this::reopenClosedTab, () -> closedTabs.lastTitle().orElse(null));
+        tabs.getTabs().addListener((javafx.collections.ListChangeListener<Tab>) change -> {
+            while (change.next()) {
+                for (Tab t : change.getRemoved()) rememberClosed(t);
             }
         });
         root.setCenter(split);
@@ -870,6 +882,53 @@ public class MainWindow implements SessionProvider {
             }
         }
         return Optional.ofNullable(last);
+    }
+
+    /** Remembers how to open a closed tab again (Ctrl+Shift+T): scripts, tables, and compares saved to a file. */
+    private void rememberClosed(Tab t) {
+        if (t instanceof ScriptTab st) {
+            String text = st.text();
+            Path file = st.file();
+            boolean unsaved = st.isDirty();
+            String name = st.untitledName();
+            String connectionId = st.connection() == null ? null : st.connection().getId();
+            closedTabs.add(st.displayName(), () -> {
+                ConnectionConfig c = connectionById(connectionId);
+                if (file != null && !unsaved) {
+                    openScripts(List.of(file));
+                    return;
+                }
+                ScriptTab tab = new ScriptTab(file != null ? file.getFileName().toString() : name, file, text, connections, c, this,
+                        completer, scriptBindings);
+                openScriptTab(tab);
+                if (unsaved) tab.markUnsaved();
+            });
+        } else if (t instanceof TableTab tt) {
+            String connectionId = tt.connection().getId();
+            TableRef table = tt.table();
+            closedTabs.add(table.name(), () -> {
+                ConnectionConfig c = connectionById(connectionId);
+                if (c == null) {
+                    status.setText("The connection of " + table.name() + " was deleted");
+                    return;
+                }
+                withSession(c, s -> openTable(s, table), ex -> error("Could not open " + table.name(), ex));
+            });
+        } else if (t instanceof DataCompareTab dc && dc.file() != null) {
+            Path file = dc.file();
+            closedTabs.add(file.getFileName().toString(), () -> openCompareReport(file));
+        } else if (t instanceof SchemaCompareTab sc && sc.file() != null) {
+            Path file = sc.file();
+            closedTabs.add(file.getFileName().toString(), () -> openCompareReport(file));
+        }
+    }
+
+    private void reopenClosedTab() {
+        if (!closedTabs.reopenLast()) status.setText("No closed tab to reopen (they are kept for 10 minutes)");
+    }
+
+    private ConnectionConfig connectionById(String id) {
+        return id == null ? null : connections.stream().filter(c -> c.getId().equals(id)).findFirst().orElse(null);
     }
 
     /** Opens script files in tabs, or switches to a tab where one is already open. */

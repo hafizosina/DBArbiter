@@ -18,6 +18,9 @@ import java.util.List;
 final class TabStrip {
 
     private final TabPane tabs;
+    /** Reopen Closed Tab in the menu (set by the window): what it opens, and the closed tab's title or null. */
+    private Runnable reopen;
+    private java.util.function.Supplier<String> lastClosed = () -> null;
 
     TabStrip(TabPane tabs) {
         this.tabs = tabs;
@@ -28,6 +31,12 @@ final class TabStrip {
                 }
             }
         });
+    }
+
+    /** Adds Reopen Closed Tab (Ctrl+Shift+T) to the tabs' menu. */
+    void setReopen(Runnable reopen, java.util.function.Supplier<String> lastClosed) {
+        this.reopen = reopen;
+        this.lastClosed = lastClosed;
     }
 
     /** Adds the tab and selects it. */
@@ -70,8 +79,16 @@ final class TabStrip {
         });
         MenuItem all = new MenuItem("Close All");
         all.setOnAction(e -> closeAll(List.copyOf(tabs.getTabs())));
-        ContextMenu menu = new ContextMenu(close, others, left, right, new SeparatorMenuItem(), all);
+        MenuItem reopenItem = new MenuItem("Reopen Closed Tab");
+        reopenItem.setAccelerator(javafx.scene.input.KeyCombination.keyCombination("Shortcut+Shift+T"));
+        reopenItem.setOnAction(e -> {
+            if (reopen != null) reopen.run();
+        });
+        ContextMenu menu = new ContextMenu(close, others, left, right, new SeparatorMenuItem(), all, new SeparatorMenuItem(), reopenItem);
         menu.setOnShowing(e -> {
+            String last = lastClosed.get();
+            reopenItem.setText(last == null ? "Reopen Closed Tab" : "Reopen " + last);
+            reopenItem.setDisable(last == null);
             int i = tabs.getTabs().indexOf(tab);
             others.setDisable(tabs.getTabs().size() < 2);
             left.setDisable(i <= 0);

@@ -208,6 +208,26 @@ class ScriptTab extends Tab implements UnsavedWork {
         return dirty;
     }
 
+    /** The script's text now. */
+    String text() {
+        return editor.area().getText();
+    }
+
+    /** The connection picked for the script, or null. */
+    ConnectionConfig connection() {
+        return connection.getValue();
+    }
+
+    /** Marks the text as not saved (a closed script opened again with the changes it had). */
+    void markUnsaved() {
+        setDirty(true);
+    }
+
+    /** "Untitled-3" for a script never saved. */
+    String untitledName() {
+        return untitledName;
+    }
+
     void focusEditor() {
         editor.focusEditor();
     }

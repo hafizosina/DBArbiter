@@ -154,6 +154,11 @@ class DataCompareTab extends Tab implements UnsavedWork {
         return find;
     }
 
+    /** The compare's file, or null before it is saved or opened. */
+    Path file() {
+        return compareFile.file();
+    }
+
     /** The results shown now, null before a compare (for tests). */
     DataCompareReport report() {
         return report;

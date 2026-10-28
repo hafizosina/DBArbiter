@@ -419,6 +419,11 @@ class SchemaCompareTab extends Tab implements UnsavedWork {
         tablesButton.setText(picked.size() == 1 ? "1 table: " + picked.iterator().next() : picked.size() + " tables");
     }
 
+    /** The compare's file, or null before it is saved or opened. */
+    Path file() {
+        return compareFile.file();
+    }
+
     private SchemaCompareReport report() {
         SchemaCompareReport r = SchemaCompareReport.of(diffs, sourceName, targetName, "v" + AppFooter.version());
         r.sourceConnection = schemaSource.connection.getValue() == null ? null : schemaSource.connection.getValue().getName();
