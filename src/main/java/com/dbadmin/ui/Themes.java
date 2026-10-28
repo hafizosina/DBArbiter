@@ -19,6 +19,7 @@ final class Themes {
 
     private static final String APP_CSS = css("app.css");
     private static final String DARK_CSS = css("dark.css");
+    private static final String CATPPUCCIN_CSS = css("catppuccin.css");
     private static final SettingsStore STORE = new SettingsStore();
     private static AppSettings settings = STORE.load();
     private static final ObjectProperty<Theme> THEME = new SimpleObjectProperty<>(settings.getTheme());
@@ -94,6 +95,10 @@ final class Themes {
     }
 
     private static void apply(ObservableList<String> sheets, Theme theme) {
-        sheets.setAll(theme == Theme.DARK ? List.of(APP_CSS, DARK_CSS) : List.of(APP_CSS));
+        sheets.setAll(switch (theme) {
+            case LIGHT -> List.of(APP_CSS);
+            case DARK -> List.of(APP_CSS, DARK_CSS);
+            case CATPPUCCIN -> List.of(APP_CSS, DARK_CSS, CATPPUCCIN_CSS);
+        });
     }
 }

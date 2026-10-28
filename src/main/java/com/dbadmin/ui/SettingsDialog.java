@@ -187,20 +187,28 @@ class SettingsDialog extends Dialog<AppSettings> {
 
     /** A small picture of the theme: title bar, navigator and editor with a few colored "words". */
     private static Region swatch(Theme theme) {
-        boolean dark = theme == Theme.DARK;
+        // background, title bar, navigator, editor, keyword, text, keyword, string, comment, table, table, view
+        String[] c = switch (theme) {
+            case LIGHT -> new String[]{"#f4f4f4", "#e4e8ee", "#f5f5f5", "#ffffff", "#0033b3", "#333333", "#0033b3", "#067d17",
+                    "#8c8c8c", "#1565c0", "#1565c0", "#6a1b9a"};
+            case DARK -> new String[]{"#2b2d30", "#3c3f41", "#2b2d30", "#1e1f22", "#cf8e6d", "#bcbec4", "#cf8e6d", "#6aab73",
+                    "#7a7e85", "#6aa9ff", "#6aa9ff", "#c792ea"};
+            case CATPPUCCIN -> new String[]{"#181825", "#11111b", "#181825", "#1e1e2e", "#cba6f7", "#cdd6f4", "#cba6f7", "#a6e3a1",
+                    "#6c7086", "#89b4fa", "#89b4fa", "#f5c2e7"};
+        };
         Pane p = new Pane(
-                rect(0, 0, 150, 92, dark ? "#2b2d30" : "#f4f4f4"),
-                rect(0, 0, 150, 14, dark ? "#3c3f41" : "#e4e8ee"),
-                rect(0, 14, 40, 78, dark ? "#2b2d30" : "#f5f5f5"),
-                rect(42, 18, 104, 70, dark ? "#1e1f22" : "#ffffff"),
-                rect(48, 26, 26, 6, dark ? "#cf8e6d" : "#0033b3"),
-                rect(78, 26, 40, 6, dark ? "#bcbec4" : "#333333"),
-                rect(48, 38, 30, 6, dark ? "#cf8e6d" : "#0033b3"),
-                rect(82, 38, 34, 6, dark ? "#6aab73" : "#067d17"),
-                rect(48, 50, 50, 6, dark ? "#7a7e85" : "#8c8c8c"),
-                rect(6, 22, 26, 5, dark ? "#6aa9ff" : "#1565c0"),
-                rect(6, 32, 22, 5, dark ? "#6aa9ff" : "#1565c0"),
-                rect(6, 42, 26, 5, dark ? "#c792ea" : "#6a1b9a"));
+                rect(0, 0, 150, 92, c[0]),
+                rect(0, 0, 150, 14, c[1]),
+                rect(0, 14, 40, 78, c[2]),
+                rect(42, 18, 104, 70, c[3]),
+                rect(48, 26, 26, 6, c[4]),
+                rect(78, 26, 40, 6, c[5]),
+                rect(48, 38, 30, 6, c[6]),
+                rect(82, 38, 34, 6, c[7]),
+                rect(48, 50, 50, 6, c[8]),
+                rect(6, 22, 26, 5, c[9]),
+                rect(6, 32, 22, 5, c[10]),
+                rect(6, 42, 26, 5, c[11]));
         p.setPrefSize(150, 92);
         p.setMinSize(150, 92);
         p.setMaxSize(150, 92);

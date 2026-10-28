@@ -9,12 +9,17 @@ import java.util.Map;
 public class AppSettings {
 
     public enum Theme {
-        LIGHT("Light"), DARK("Dark");
+        LIGHT("Light"), DARK("Dark"), CATPPUCCIN("Catppuccin Mocha");
 
         private final String label;
 
         Theme(String label) {
             this.label = label;
+        }
+
+        /** Dark themes build on dark.css (Catppuccin Mocha adds its palette on top). */
+        public boolean isDark() {
+            return this != LIGHT;
         }
 
         @Override
@@ -29,6 +34,10 @@ public class AppSettings {
     private static final Map<String, String> LIGHT_STATUS_COLORS = Map.of(
             "MATCH", "#d7f0da", "CHANGED", "#ffe0b2", "ONLY_SOURCE", "#d0e7fb", "ONLY_TARGET", "#fbd5d8",
             "DUPLICATE_KEY", "#ead5f2");
+    /** Mocha's green, peach, blue, red and mauve, dimmed to sit under its text. */
+    private static final Map<String, String> CATPPUCCIN_STATUS_COLORS = Map.of(
+            "MATCH", "#2f4a3a", "CHANGED", "#5a4632", "ONLY_SOURCE", "#2d3f5f", "ONLY_TARGET", "#5a2f3f",
+            "DUPLICATE_KEY", "#4a3a64");
     private static final Map<String, String> DARK_STATUS_COLORS = Map.of(
             "MATCH", "#1f4a2a", "CHANGED", "#5a3d12", "ONLY_SOURCE", "#173a5e", "ONLY_TARGET", "#5e1f26",
             "DUPLICATE_KEY", "#47265a");
@@ -67,7 +76,12 @@ public class AppSettings {
     }
 
     public static String defaultStatusColor(Theme theme, String status) {
-        return (theme == Theme.DARK ? DARK_STATUS_COLORS : LIGHT_STATUS_COLORS).getOrDefault(status, "#cccccc");
+        Map<String, String> colors = switch (theme) {
+            case LIGHT -> LIGHT_STATUS_COLORS;
+            case DARK -> DARK_STATUS_COLORS;
+            case CATPPUCCIN -> CATPPUCCIN_STATUS_COLORS;
+        };
+        return colors.getOrDefault(status, "#cccccc");
     }
 
     public void setStatusColor(Theme theme, String status, String color) {
