@@ -90,6 +90,11 @@ class ScanTab extends Tab {
     static final int ROWS_SHOWN = 100;
     private final Button export = new Button("Export CSV…");
     private final Button replace = new Button("Replace…");
+    private final Button save = new Button("Save…");
+    /** The file this scan was opened from or saved to; null before. */
+    private java.nio.file.Path file;
+    /** A scan being opened: its ticks are applied as the schemas and tables are listed, then it is null. */
+    private com.dbadmin.service.scan.ScanFile opening;
     private Job<List<TableResult>> running;
     /** The request of the last scan, for the findings' value headers and the coverage. */
     private ScanRequest lastRequest;
@@ -137,6 +142,8 @@ class ScanTab extends Tab {
         });
         status.getStyleClass().add("hint-small");
         export.setOnAction(e -> exportFindings());
+        save.setOnAction(e -> saveScan());
+        save.setTooltip(new Tooltip("Save the form and what was found to a .dbscan file, to open again without scanning"));
         export.setDisable(true);
         replace.setOnAction(e -> openReplace());
         replace.setDisable(true);
@@ -162,7 +169,7 @@ class ScanTab extends Tab {
         VBox.setVgrow(pickers, Priority.ALWAYS);
         Region gap = new Region();
         HBox.setHgrow(gap, Priority.ALWAYS);
-        HBox actions = new HBox(8, scanButton, status, gap, replace, export);
+        HBox actions = new HBox(8, scanButton, status, gap, replace, export, save);
         actions.setAlignment(Pos.CENTER_LEFT);
         VBox form = new VBox(8, top, pickers, actions);
         form.setPadding(new Insets(8));
@@ -237,7 +244,7 @@ class ScanTab extends Tab {
         status.setText("Reading schemas…");
         sessions.withSession(c, s -> Async.run(s, s::listNamespaces, all -> {
             List<Pick<Namespace>> picks = all.stream().filter(ns -> !ns.isSystem(c.getType()))
-                    .map(ns -> new Pick<>(ns, ns.label(), true)).toList();
+                    .map(ns -> new Pick<>(ns, ns.label(), opening == null || opening.schemas.contains(ns.label()))).toList();
             picks.forEach(p -> p.on().addListener((o, a, b) -> loadTables()));
             schemas.setItems(picks);
             loadTables();
@@ -259,14 +266,16 @@ class ScanTab extends Tab {
             List<ColumnPick> columnPicks = new ArrayList<>();
             for (ScanTable t : found) {
                 String key = t.table().displayName();
-                Pick<ScanTable> tp = new Pick<>(t, tableLabel(t), tableTicks.getOrDefault(key, !isBig(t)));
+                Pick<ScanTable> tp = new Pick<>(t, tableLabel(t), opening != null ? opening.tables.contains(key)
+                        : tableTicks.getOrDefault(key, !isBig(t)));
                 tp.on().addListener((o, a, b) -> {
                     columns.refilter();
                     updateCounts();
                 });
                 tablePicks.add(tp);
                 for (ScanColumn col : t.searchableColumns()) {
-                    ColumnPick cp = new ColumnPick(tp, col, new SimpleBooleanProperty(columnTicks.getOrDefault(key + "|" + col.name(), true)));
+                    ColumnPick cp = new ColumnPick(tp, col, new SimpleBooleanProperty(opening != null
+                            ? opening.columns.contains(key + "|" + col.name()) : columnTicks.getOrDefault(key + "|" + col.name(), true)));
                     cp.on().addListener((o, a, b) -> updateCounts());
                     columnPicks.add(cp);
                 }
@@ -276,7 +285,85 @@ class ScanTab extends Tab {
             columns.refilter();
             updateCounts();
             status.setText("");
+            if (opening != null) showOpened();
         }, ex -> status.setText("Could not read the tables: " + ex.getMessage())), ex -> status.setText("Could not connect: " + ex.getMessage()));
+    }
+
+    // ---- saving and opening ----
+
+    /** The form as it is now, with what the last scan found. */
+    com.dbadmin.service.scan.ScanFile snapshot() {
+        com.dbadmin.service.scan.ScanFile f = new com.dbadmin.service.scan.ScanFile();
+        f.created = java.time.LocalDateTime.now().withNano(0).toString();
+        f.appVersion = "v" + AppFooter.version();
+        ConnectionConfig c = connection.getValue();
+        f.connectionId = c == null ? null : c.getId();
+        f.connectionName = c == null ? null : c.getName();
+        f.values = values.getText();
+        f.wholeValue = "whole value".equals(match.getValue());
+        f.ignoreCase = ignoreCase.isSelected();
+        f.timeoutSeconds = timeout.getText();
+        f.bigTableRows = bigRows.getText();
+        f.schemas = schemas.items().stream().filter(p -> p.on().get()).map(Pick::label).toList();
+        f.tables = tables.items().stream().filter(p -> p.on().get()).map(p -> p.item().table().displayName()).toList();
+        f.columns = columns.items().stream().filter(p -> p.on().get()).map(p -> p.table().item().table().displayName() + "|" + p.column().name()).toList();
+        f.request = lastRequest;
+        f.results = List.copyOf(results);
+        return f;
+    }
+
+    private void saveScan() {
+        java.nio.file.Path chosen = CompareReportChooser.saveScan(getTabPane().getScene().getWindow(), file,
+                "scan-" + (connection.getValue() == null ? "" : connection.getValue().getName()));
+        if (chosen == null) return;
+        try {
+            com.dbadmin.service.scan.ScanFile.save(chosen, snapshot());
+            file = chosen;
+            status.setText("Saved to " + chosen.getFileName());
+        } catch (java.io.IOException e) {
+            status.setText("Could not save: " + e.getMessage());
+        }
+    }
+
+    /** The file this scan was opened from or saved to, or null. */
+    java.nio.file.Path file() {
+        return file;
+    }
+
+    /**
+     * Shows a saved scan: the form (its ticks applied once the connection's schemas and tables are listed) and what
+     * it found. A connection that is not here any more leaves the form empty; the findings are still shown.
+     */
+    void showSaved(com.dbadmin.service.scan.ScanFile saved, java.nio.file.Path from) {
+        file = from;
+        opening = saved;
+        values.setText(saved.values);
+        match.setValue(saved.wholeValue ? "whole value" : "contains");
+        ignoreCase.setSelected(saved.ignoreCase);
+        timeout.setText(saved.timeoutSeconds);
+        bigRows.setText(saved.bigTableRows);
+        ConnectionConfig c = connection.getItems().stream().filter(x -> x.getId().equals(saved.connectionId)).findFirst()
+                .or(() -> connection.getItems().stream().filter(x -> x.getName().equals(saved.connectionName)).findFirst()).orElse(null);
+        if (c != null && c != connection.getValue()) {
+            connection.setValue(c); // lists the schemas and tables, then showOpened()
+        } else if (c != null) {
+            loadSchemas();
+        } else {
+            showOpened();
+            status.setText(from.getFileName() + ": the connection " + saved.connectionName + " is not here; findings as saved");
+        }
+    }
+
+    /** The saved scan's findings, once the form is filled. */
+    private void showOpened() {
+        com.dbadmin.service.scan.ScanFile saved = opening;
+        opening = null;
+        results.clear();
+        results.addAll(saved.results);
+        lastRequest = saved.request;
+        showFindings();
+        ended("Opened " + (file == null ? "" : file.getFileName() + " · ") + "scanned " + saved.created.replace('T', ' ') + " · " + summary());
+        setText("Scan · " + (file == null ? saved.connectionName : file.getFileName().toString()));
     }
 
     private long bigLimit() {

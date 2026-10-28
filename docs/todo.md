@@ -3,11 +3,10 @@
 ## Open
 
 7. [ ] **Background tasks panel**: a small panel you can hide that lists everything running in the background (queries, compares, scans, exports / imports), with a way to stop each one.
-10. [ ] **Scan: save and reopen** a scan's settings and its report as a .dbscan file (phase 5 of #1, see docs/scan-plan.md).
 
 ## Done
 
-1. [x] **Scan Data** (v0.2.0): Tools → Scan Data… finds values in every table and column (findings, coverage, matching rows), and Replace… writes the script that replaces them (see docs/scan-plan.md). Save and reopen is #10.
+1. [x] **Scan Data** (v0.2.0): Tools → Scan Data… finds values in every table and column (findings, coverage, matching rows), and Replace… writes the script that replaces them (see docs/scan-plan.md). Save and reopen: #10.
 2. [x] **One data view everywhere**: the table tab and the script results both use DataView (grid, value panel, editing).
 3. [x] **Add, duplicate, edit and delete rows** in the data view. Right-click a row: Add Row, Duplicate Row(s), Delete Row(s) / Keep Row(s), and Set DEFAULT on a new row's cell. New rows are green with [DEFAULT] cells (left to the database: serial ids, defaults), deleted rows red and struck out. Nothing is written until Save, which shows every DELETE / UPDATE / INSERT and runs them in one transaction. The table tab reloads after saving; in script results the new rows stay but can be edited only after running the query again. No keyboard shortcut for delete.
 4. [x] **Warning level per connection**: "Warn before" in the connection form (0 nothing, 1 drop / truncate / update or delete without WHERE, 2 any change, 3 inserts too; old connections get 1). Scripts and the table query box ask before running, naming the connection; Cancel is the default. Saving table edits and importing already ask every time, with the SQL.
@@ -28,3 +27,4 @@
 21. [x] **Data Compare: record mode and boolean check boxes**: the results bar has the Record toggle: one compared row at a time, its shown columns down the page, changed values marked. Boolean columns (from the database type, kept in the report) show check boxes, "☑ → ☐" when the sides differ, in the grid and in record mode; reports saved before show text as before.
 23. [x] **Sequences**: (a) a Sequences folder per schema in the navigator ("name · last value"; MySQL: the AUTO_INCREMENT counters, read without the 24 h cache; SQLite: sqlite_sequence). Right-click: Copy Name, Copy nextval(…) on PostgreSQL, and Reset Sequence… where Truncate / Reset are offered (writable, warning level 0): it suggests the column's highest value + 1 and shows the statement, Cancel the default. (b) Properties → Sequences: the ones the table's columns use, with last value, increment, start. Checked on PostgreSQL 16, MySQL 8.4 and SQLite.
 20. [x] **Data grid: preview the row a foreign key points to**: for a cell of a foreign key column (rows of one table: the table tab, and script results of one table), the value panel shows "→ m_product (id = 7)" and that row as column / value pairs underneath; the key's other columns come from the same row; NULL and a missing row are said so. Checked on PostgreSQL.
+10. [x] **Scan: save and reopen** (phase 5 of #1): Save… in the Scan tab writes a .dbscan file (format version 1): the form (connection, values, options, ticked schemas / tables / columns) and the findings and coverage. Tools → Open Scan…, dropping the file on the window, Ctrl+Shift+T and the tabs reopened at startup open it again without scanning; Replace… works on the opened findings.

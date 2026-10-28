@@ -75,6 +75,20 @@ final class CompareReportChooser {
                 ".xlsx", "Excel workbooks", null)).orElse(null);
     }
 
+    /** Asks where to save a scan (.dbscan); null if cancelled. */
+    static Path saveScan(Window owner, Path current, String name) {
+        return current != null ? save(owner, current, current.getFileName().toString().replace(com.dbadmin.service.scan.ScanFile.EXTENSION, ""),
+                com.dbadmin.service.scan.ScanFile.EXTENSION, "Save Scan", "scan files")
+                : save(owner, null, name, com.dbadmin.service.scan.ScanFile.EXTENSION, "Save Scan", "scan files");
+    }
+
+    /** Asks for a scan to open; null if cancelled. */
+    static Path openScan(Window owner) {
+        Path home = reportDir();
+        return InAppDialogs.showAndWait(new FileDialog(owner, FileDialog.Mode.OPEN, "Open Scan", home, "Reports", home,
+                com.dbadmin.service.scan.ScanFile.EXTENSION, "scan files", null)).orElse(null);
+    }
+
     /** Asks for a report to open; null if cancelled. */
     static Path open(Window owner) {
         Path home = reportDir();

@@ -275,6 +275,18 @@ public class MainWindow implements SessionProvider {
         if (file != null) openCompareReport(file);
     }
 
+    /** Opens a saved scan (.dbscan) in a new Scan tab. */
+    private void openScan(Path file) {
+        try {
+            com.dbadmin.service.scan.ScanFile saved = com.dbadmin.service.scan.ScanFile.open(file);
+            ScanTab tab = new ScanTab(connections, this, null);
+            showTab(tab);
+            tab.showSaved(saved, file);
+        } catch (IOException e) {
+            error("Could not open " + file.getFileName(), e);
+        }
+    }
+
     private void openCompareReport(Path file) {
         try {
             Object report = CompareReportFiles.open(file);
@@ -360,8 +372,13 @@ public class MainWindow implements SessionProvider {
         scanData.setOnAction(e -> {
             if (license.allows("Scan Data")) showTab(new ScanTab(connections, this, selectedConnection().orElse(null)));
         });
+        MenuItem openScan = new MenuItem("Open Scan…");
+        openScan.setOnAction(e -> {
+            Path file = license.allows("Scan Data") ? CompareReportChooser.openScan(stage) : null;
+            if (file != null) openScan(file);
+        });
         Menu tools = new Menu("Tools", null, compareSchema, compareData, new SeparatorMenuItem(), openReport,
-                new SeparatorMenuItem(), scanData);
+                new SeparatorMenuItem(), scanData, openScan);
         return new MenuBar(connection, script, tools);
     }
 
@@ -955,6 +972,8 @@ public class MainWindow implements SessionProvider {
                 list.add(new com.dbadmin.service.OpenTabsStore.OpenTab("COMPARE", dc.file().toString(), null, null, null, null, null, selected));
             } else if (t instanceof SchemaCompareTab sc && sc.file() != null) {
                 list.add(new com.dbadmin.service.OpenTabsStore.OpenTab("COMPARE", sc.file().toString(), null, null, null, null, null, selected));
+            } else if (t instanceof ScanTab st && st.file() != null) {
+                list.add(new com.dbadmin.service.OpenTabsStore.OpenTab("SCAN", st.file().toString(), null, null, null, null, null, selected));
             }
         }
         return list;
@@ -994,6 +1013,12 @@ public class MainWindow implements SessionProvider {
                     Path file = Path.of(o.file());
                     if (!Files.isRegularFile(file) || !license.allowsQuietly()) continue;
                     openCompareReport(file);
+                    if (o.selected()) front[0] = tabs.getSelectionModel().getSelectedItem();
+                }
+                case "SCAN" -> {
+                    Path file = Path.of(o.file());
+                    if (!Files.isRegularFile(file) || !license.allowsQuietly()) continue;
+                    openScan(file);
                     if (o.selected()) front[0] = tabs.getSelectionModel().getSelectedItem();
                 }
                 default -> { }
@@ -1038,6 +1063,9 @@ public class MainWindow implements SessionProvider {
         } else if (t instanceof SchemaCompareTab sc && sc.file() != null) {
             Path file = sc.file();
             closedTabs.add(file.getFileName().toString(), () -> openCompareReport(file));
+        } else if (t instanceof ScanTab st && st.file() != null) {
+            Path file = st.file();
+            closedTabs.add(file.getFileName().toString(), () -> openScan(file));
         }
     }
 
@@ -1080,7 +1108,8 @@ public class MainWindow implements SessionProvider {
     private void installScriptDrop() {
         root.addEventFilter(DragEvent.DRAG_OVER, e -> {
             Dragboard board = e.getDragboard();
-            if (!droppedFiles(board, ".sql").isEmpty() || !droppedFiles(board, CompareReportFiles.EXTENSION).isEmpty()) {
+            if (!droppedFiles(board, ".sql").isEmpty() || !droppedFiles(board, CompareReportFiles.EXTENSION).isEmpty()
+                    || !droppedFiles(board, com.dbadmin.service.scan.ScanFile.EXTENSION).isEmpty()) {
                 e.acceptTransferModes(TransferMode.COPY);
                 e.consume();
             }
@@ -1088,7 +1117,8 @@ public class MainWindow implements SessionProvider {
         root.addEventFilter(DragEvent.DRAG_DROPPED, e -> {
             List<Path> scripts = droppedFiles(e.getDragboard(), ".sql");
             List<Path> reports = droppedFiles(e.getDragboard(), CompareReportFiles.EXTENSION);
-            if (scripts.isEmpty() && reports.isEmpty()) return;
+            List<Path> scans = droppedFiles(e.getDragboard(), com.dbadmin.service.scan.ScanFile.EXTENSION);
+            if (scripts.isEmpty() && reports.isEmpty() && scans.isEmpty()) return;
             e.setDropCompleted(true);
             e.consume();
             // after the drop returns, so the file manager is not held by an error dialog
@@ -1097,6 +1127,7 @@ public class MainWindow implements SessionProvider {
                 if (!reports.isEmpty() && license.allows("Compare Table and Compare Data")) {
                     reports.forEach(this::openCompareReport);
                 }
+                if (!scans.isEmpty() && license.allows("Scan Data")) scans.forEach(this::openScan);
             });
         });
     }
