@@ -63,11 +63,16 @@ class ColumnPicker extends VBox {
     /** Shift-click ranges, within the checkbox column last clicked. */
     private final RangeTicks ticks = new RangeTicks();
     private TableColumn<Choice, ?> anchorColumn;
+    /** The source table's primary key (lower case), for Leave out the primary key. */
+    private Set<String> primaryKey = Set.of();
+    /** Rows are matched by other columns: the primary key is neither Key nor compared (ids differ between the databases). */
+    private final javafx.scene.control.CheckBox withoutKey = new javafx.scene.control.CheckBox("Leave out the primary key");
 
     ColumnPicker() {
         super(6);
         TableColumn<Choice, String> name = new TableColumn<>("Column");
         name.setCellValueFactory(c -> new ReadOnlyStringWrapper(c.getValue().name
+                + (isPrimaryKey(c.getValue()) ? "  (primary key)" : "")
                 + (c.getValue().onBothSides() ? "" : c.getValue().inSource ? "  (only in source)" : "  (only in target)")));
         name.setPrefWidth(125);
         TableColumn<Choice, Boolean> key = new TableColumn<>("Key");
@@ -94,7 +99,8 @@ class ColumnPicker extends VBox {
         table.setPlaceholder(new Label("The table's columns appear here."));
 
         Button all = new Button("Compare all");
-        all.setOnAction(e -> choices.forEach(c -> c.compare.set(c.onBothSides() && !c.key.get() && !c.joined)));
+        all.setOnAction(e -> choices.forEach(c -> c.compare.set(c.onBothSides() && !c.key.get() && !c.joined
+                && !(withoutKey.isSelected() && isPrimaryKey(c)))));
         Button showAll = new Button("Show all");
         showAll.setOnAction(e -> choices.forEach(c -> c.show.set(c.onBothSides())));
         Button none = new Button("Clear");
@@ -105,9 +111,52 @@ class ColumnPicker extends VBox {
         }));
         HBox buttons = new HBox(6, all, showAll, none);
         CompareSide.keepWidth(all, showAll, none);
-        getChildren().addAll(table, buttons);
+        withoutKey.setTooltip(new javafx.scene.control.Tooltip("For ids that differ between the databases: match the rows by the"
+                + " Key columns you pick instead, and do not compare the primary key"));
+        withoutKey.setDisable(true);
+        withoutKey.selectedProperty().addListener((o, was, on) -> {
+            if (on) choices.stream().filter(this::isPrimaryKey).forEach(c -> {
+                c.key.set(false);
+                c.compare.set(false);
+            });
+        });
+        getChildren().addAll(table, buttons, withoutKey);
         setPadding(new Insets(6));
         VBox.setVgrow(table, Priority.ALWAYS);
+    }
+
+    /**
+     * The source table's primary key, marked in the list; enables Leave out the primary key (off again when the
+     * table has none). Ticking such a column as Key or Compare turns the option off.
+     */
+    void setPrimaryKey(Collection<String> columns) {
+        primaryKey = new HashSet<>();
+        columns.forEach(c -> primaryKey.add(c.toLowerCase(Locale.ROOT)));
+        withoutKey.setDisable(primaryKey.isEmpty());
+        if (primaryKey.isEmpty()) withoutKey.setSelected(false);
+        withoutKey.setText(primaryKey.isEmpty() ? "Leave out the primary key" : "Leave out the primary key (" + String.join(", ", columns) + ")");
+        watchPrimaryKey();
+        table.refresh();
+    }
+
+    boolean isLeavingOutPrimaryKey() {
+        return withoutKey.isSelected();
+    }
+
+    private boolean isPrimaryKey(Choice c) {
+        return !c.joined && primaryKey.contains(c.name.toLowerCase(Locale.ROOT));
+    }
+
+    /** A primary key column ticked as Key or Compare by hand turns Leave out the primary key off. */
+    private void watchPrimaryKey() {
+        for (Choice c : choices) {
+            if (!isPrimaryKey(c)) continue;
+            javafx.beans.value.ChangeListener<Boolean> off = (o, was, on) -> {
+                if (on) withoutKey.setSelected(false);
+            };
+            c.key.addListener(off);
+            c.compare.addListener(off);
+        }
     }
 
     /** Every column listed now, by name (the table's own, then "alias.column"). */
@@ -157,6 +206,7 @@ class ColumnPicker extends VBox {
      */
     void setColumns(List<String> srcCols, List<String> dstCols) {
         choices.setAll(merged(choices, srcCols, dstCols));
+        watchPrimaryKey();
     }
 
     /** The choices for these columns, keeping the ticks of {@code previous} by name (see {@link #setColumns}). */

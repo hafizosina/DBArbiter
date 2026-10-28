@@ -475,9 +475,10 @@ class DataCompareTab extends Tab implements UnsavedWork {
         List<TableRef> srcJoins = ready.stream().map(JoinEditor.Ready::table).toList();
         List<TableRef> dstJoins = srcJoins.stream().map(t -> dataTarget.table.getItems().stream()
                 .filter(x -> x.name().equalsIgnoreCase(t.name())).findFirst().orElse(null)).toList();
-        Async.run(s1, () -> columnNames(s1, t1, srcJoins, aliases), first -> Async.run(s2, () -> columnNames(s2, t2, dstJoins, aliases), second -> {
+        Async.run(s1, () -> List.of(columnNames(s1, t1, srcJoins, aliases), s1.primaryKey(t1)), first -> Async.run(s2, () -> columnNames(s2, t2, dstJoins, aliases), second -> {
             if (dataSource.table.getValue() != t1 || dataTarget.table.getValue() != t2) return;
-            setColumns(first, second);
+            picker.setPrimaryKey(first.get(1));
+            setColumns(first.get(0), second);
         }, ex -> dataStatus.setText(ex.getMessage())), ex -> dataStatus.setText(ex.getMessage()));
     }
 

@@ -41,4 +41,57 @@ class ColumnPickerTest {
         assertTrue(find(after, "mpv.code").joined);
         assertFalse(find(after, "mpv.code").key.get());
     }
+
+    @SuppressWarnings("unchecked")
+    private static List<ColumnPicker.Choice> choices(ColumnPicker picker) throws Exception {
+        var f = ColumnPicker.class.getDeclaredField("choices");
+        f.setAccessible(true);
+        return (List<ColumnPicker.Choice>) f.get(picker);
+    }
+
+    private static javafx.scene.control.CheckBox withoutKey(ColumnPicker picker) {
+        return (javafx.scene.control.CheckBox) picker.lookupAll(".check-box").stream()
+                .filter(n -> ((javafx.scene.control.CheckBox) n).getText().startsWith("Leave out")).findFirst().orElseThrow();
+    }
+
+    private static void press(ColumnPicker picker, String button) {
+        picker.lookupAll(".button").stream().map(n -> (javafx.scene.control.Button) n)
+                .filter(b -> b.getText().equals(button)).findFirst().orElseThrow().fire();
+    }
+
+    /** Leave out the primary key: the key is neither Key nor compared, also by Compare all; ticking it by hand turns it off. */
+    @Test
+    void leavesOutThePrimaryKey() throws Exception {
+        Fx.run(() -> {
+            try {
+                ColumnPicker picker = new ColumnPicker();
+                javafx.scene.control.CheckBox without = withoutKey(picker);
+                assertTrue(without.isDisabled(), "no table yet");
+                picker.setPrimaryKey(List.of("id"));
+                picker.setColumns(List.of("id", "code", "name"), List.of("id", "code", "name"));
+                assertFalse(without.isDisabled());
+                assertEquals("Leave out the primary key (id)", without.getText());
+                find(choices(picker), "id").key.set(true);
+                press(picker, "Compare all");
+                assertEquals(List.of("id"), picker.keys());
+                assertEquals(List.of("code", "name"), picker.compared());
+
+                without.setSelected(true);
+                assertEquals(List.of(), picker.keys());
+                find(choices(picker), "code").key.set(true);
+                press(picker, "Compare all");
+                assertEquals(List.of("code"), picker.keys());
+                assertEquals(List.of("name"), picker.compared(), "Compare all skips the primary key");
+
+                find(choices(picker), "id").compare.set(true);
+                assertFalse(without.isSelected(), "the key ticked by hand: the option is off again");
+
+                picker.setPrimaryKey(List.of());
+                assertTrue(without.isDisabled(), "a table without a primary key");
+            } catch (Exception e) {
+                throw new RuntimeException(e);
+            }
+        });
+    }
+
 }

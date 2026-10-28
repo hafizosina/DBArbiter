@@ -30,15 +30,26 @@ import java.util.regex.Pattern;
  */
 public final class MigrationSql {
 
-    /** A target column: its type as the database names it (int8, varchar, timestamp…); generated = serial / identity. */
-    public record Column(String name, String type, boolean generated) {
+    /**
+     * A target column: its type as the database names it (int8, varchar, timestamp…); generated = serial / identity;
+     * primaryKey = part of the table's primary key.
+     */
+    public record Column(String name, String type, boolean generated, boolean primaryKey) {
+        public Column(String name, String type, boolean generated) {
+            this(name, type, generated, false);
+        }
     }
 
     /**
      * @param audit      created_date / created_by = now() / user on insert, modified_* NULL; modified_* = now() / user on update
      * @param softDelete DELETE sets is_deleted = true (when the table has it) instead of deleting the row
+     * @param withoutPrimaryKey INSERT leaves out the primary key, so the target gives the rows their own (its default);
+     *                          a serial / identity key is always left out
      */
-    public record Options(boolean audit, String auditUser, boolean softDelete) {
+    public record Options(boolean audit, String auditUser, boolean softDelete, boolean withoutPrimaryKey) {
+        public Options(boolean audit, String auditUser, boolean softDelete) {
+            this(audit, auditUser, softDelete, false);
+        }
     }
 
     /** Words written in double quotes when used as a name, as in the hand-written scripts ("name", "key"). */
@@ -130,8 +141,12 @@ public final class MigrationSql {
             com.dbadmin.model.TableRef t = s.resolveTable(r.target.schema(), n);
             if (t == null) continue;
             Set<String> generated = s.generatedColumns(t);
+            Set<String> key = new HashSet<>();
+            s.primaryKey(t).forEach(k -> key.add(lower(k)));
             List<Column> columns = new ArrayList<>();
-            for (DatabaseSession.ColumnDef c : s.columnDefs(t)) columns.add(new Column(c.name(), c.type(), generated.contains(c.name())));
+            for (DatabaseSession.ColumnDef c : s.columnDefs(t)) {
+                columns.add(new Column(c.name(), c.type(), generated.contains(c.name()), key.contains(lower(c.name()))));
+            }
             result.put(lower(n), columns);
         }
         return result;
@@ -362,6 +377,15 @@ public final class MigrationSql {
             }
             sql.append('\n');
         }
+        List<String> leftOut = o.withoutPrimaryKey() ? mainColumns.values().stream()
+                .filter(c -> c.primaryKey() && !c.generated()).map(Column::name).filter(c -> sourceIndex.containsKey(lower(c))).toList() : List.of();
+        if (!leftOut.isEmpty()) {
+            sql.append("-- new ").append(String.join(", ", leftOut)).append(": left out of the INSERTs, the target's default gives it\n");
+            if (leftOut.stream().anyMatch(c -> r.keyColumns.stream().anyMatch(k -> k.equalsIgnoreCase(c)))) {
+                review.add("the key " + String.join(", ", leftOut) + " is left out of the INSERTs: inserted rows get new values,"
+                        + " so running the script again inserts them again");
+            }
+        }
         if (o.audit()) {
             sql.append("-- audit columns: created_date = now(), created_by = ").append(text(o.auditUser()))
                     .append(", modified_* = NULL; updated rows: modified_date = now(), modified_by = ").append(text(o.auditUser())).append('\n');
@@ -385,7 +409,7 @@ public final class MigrationSql {
         for (String c : r.sourceColumns) {
             if (KeyJoins.isJoinedColumn(c)) continue;
             Column target = mainColumns.get(lower(c));
-            if (target == null || target.generated()) continue;
+            if (target == null || target.generated() || o.withoutPrimaryKey() && target.primaryKey()) continue;
             if (isBinary(target)) {
                 review.add(c + " (" + target.type() + ") is not copied: binary values are not in the report");
                 continue;

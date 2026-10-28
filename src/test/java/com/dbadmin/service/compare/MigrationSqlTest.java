@@ -182,4 +182,29 @@ class MigrationSqlTest {
         assertEquals("\"Code\"", MigrationSql.name("Code"));
         assertEquals("code", MigrationSql.name("code"));
     }
+
+    /** A primary key the target does not generate (uuid): copied, or left to the target's default with the option. */
+    @Test
+    void insertsCanLeaveOutAPrimaryKeyTheTargetDoesNotGenerate() {
+        List<Column> param = List.of(new Column("id", "uuid", false, true), new Column("code", "varchar", false, false),
+                new Column("value", "varchar", false, false), new Column("is_deleted", "bool", false, false));
+        DataCompareReport r = report("m_param", "mp", List.of(), List.of("code"), List.of("value"), List.of("id", "code", "value", "is_deleted"));
+        r.rows.add(row(RowStatus.ONLY_SOURCE, Verdict.INSERT, "A", values("A", "x"), null, "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11", "A", "x", "false"));
+
+        String copied = MigrationSql.generate(r, Map.of("m_param", param), OPTIONS, null);
+        assertTrue(copied.contains("INSERT INTO brankas_mobile.m_param (id, code, \"value\", is_deleted)"), copied);
+
+        MigrationSql.Options without = new MigrationSql.Options(true, "SYSTEM", true, true);
+        String sql = MigrationSql.generate(r, Map.of("m_param", param), without, null);
+        assertTrue(sql.contains("INSERT INTO brankas_mobile.m_param (code, \"value\", is_deleted)"), sql);
+        assertTrue(sql.contains("-- new id: left out of the INSERTs"), sql);
+        assertFalse(sql.contains("review: the key id"), sql); // matched by code: the script can run again
+
+        DataCompareReport byId = report("m_param", "mp", List.of(), List.of("id"), List.of("code", "value"), List.of("id", "code", "value", "is_deleted"));
+        byId.rows.add(row(RowStatus.ONLY_SOURCE, Verdict.INSERT, "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11",
+                values("a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11", "A", "x"), null, "a0eebc99-9c0b-4ef8-bb6d-6bb9bd380a11", "A", "x", "false"));
+        String again = MigrationSql.generate(byId, Map.of("m_param", param), without, null);
+        assertTrue(again.contains("the key id is left out of the INSERTs"), again);
+    }
+
 }

@@ -54,7 +54,16 @@ class GenerateSqlDialog extends Dialog<String> {
                 && MigrationSql.hasSoftDelete(tables.getOrDefault(report.target.table().toLowerCase(java.util.Locale.ROOT), List.of()));
         soft.setVisible(canSoft);
         soft.setManaged(canSoft);
-        HBox options = new HBox(8, audit, user, soft);
+        // a serial / identity key is never copied; a key the target does not generate can be left to its default
+        List<String> plainKey = tables.getOrDefault(report.target.table().toLowerCase(java.util.Locale.ROOT), List.of()).stream()
+                .filter(c -> c.primaryKey() && !c.generated()).map(MigrationSql.Column::name).toList();
+        CheckBox withoutKey = new CheckBox("INSERT without " + String.join(", ", plainKey));
+        withoutKey.setTooltip(new Tooltip("Leave the primary key out of the INSERTs: the target gives the new rows their own"
+                + " (its default for the column, which must have one)"));
+        boolean canLeaveOut = report.count(Verdict.INSERT) > 0 && !plainKey.isEmpty();
+        withoutKey.setVisible(canLeaveOut);
+        withoutKey.setManaged(canLeaveOut);
+        HBox options = new HBox(8, audit, user, soft, withoutKey);
         options.setAlignment(Pos.CENTER_LEFT);
 
         area.setEditable(false);
@@ -79,7 +88,8 @@ class GenerateSqlDialog extends Dialog<String> {
 
         Runnable refresh = () -> {
             String name = user.getText() == null || user.getText().isBlank() ? "SYSTEM" : user.getText().strip();
-            String sql = MigrationSql.generate(report, tables, new MigrationSql.Options(audit.isSelected(), name, soft.isSelected()), file);
+            String sql = MigrationSql.generate(report, tables, new MigrationSql.Options(audit.isSelected(), name, soft.isSelected(),
+                    withoutKey.isSelected()), file);
             area.replaceText(sql);
             area.setStyleSpans(0, SqlHighlighter.highlight(sql, DbType.POSTGRESQL));
             area.moveTo(0);
@@ -93,6 +103,7 @@ class GenerateSqlDialog extends Dialog<String> {
         audit.selectedProperty().addListener((o, a, b) -> refresh.run());
         user.textProperty().addListener((o, a, b) -> refresh.run());
         soft.selectedProperty().addListener((o, a, b) -> refresh.run());
+        withoutKey.selectedProperty().addListener((o, a, b) -> refresh.run());
         refresh.run();
 
         VBox content = new VBox(8, options, head, findable);
