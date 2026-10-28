@@ -116,6 +116,7 @@ class DataView extends BorderPane {
             edits.clear();
             inserted.clear();
             editTarget = null;
+            grid.setSqlCopier(null);
             notEditable = false;
             editInfo.setText("");
             updateEditBar();
@@ -370,6 +371,7 @@ class DataView extends BorderPane {
                 Platform.runLater(inspector::focusText);
             }
         });
+        grid.setSqlCopier(sqlCopier(target, names, pk, keyShown));
         // a cell selected before editing was on becomes editable in the value panel too
         showCell(grid.selectedCellProperty().get());
         if (target.readOnlyConnection()) {
@@ -378,6 +380,50 @@ class DataView extends BorderPane {
             editInfo.setText("Not editable: the primary key (" + String.join(", ", target.primaryKey()) + ") is not in the result.");
         }
         updateEditBar();
+    }
+
+    /**
+     * Copy as SQL for the rows of {@code target}'s table, with their values as shown (edits included): INSERT of
+     * every table column in the result (cells left to the database are left out), UPDATE of the other columns by
+     * the primary key, DELETE by it. New rows have no row to update or delete yet, so only INSERT writes them.
+     */
+    private DataGrid.SqlCopier sqlCopier(TableEditing.Target target, List<String> names, Set<String> pk, boolean keyShown) {
+        return new DataGrid.SqlCopier() {
+            @Override
+            public boolean hasKey() {
+                return keyShown;
+            }
+
+            @Override
+            public List<String> statements(DataGrid.SqlKind kind, List<List<Object>> rows) throws java.sql.SQLException {
+                List<java.util.Map<String, Object>> deletes = new ArrayList<>();
+                List<DatabaseSession.RowUpdate> updates = new ArrayList<>();
+                List<java.util.Map<String, Object>> inserts = new ArrayList<>();
+                for (List<Object> row : rows) {
+                    java.util.Map<String, Object> all = new java.util.LinkedHashMap<>();
+                    java.util.Map<String, Object> key = new java.util.LinkedHashMap<>();
+                    java.util.Map<String, Object> values = new java.util.LinkedHashMap<>();
+                    for (int i = 0; i < names.size(); i++) {
+                        String n = names.get(i);
+                        Object v = row.get(i);
+                        if (!target.columns().contains(n.toLowerCase()) || v == PendingEdits.Default.VALUE) continue;
+                        all.put(n, v);
+                        (pk.contains(n.toLowerCase()) ? key : values).put(n, v);
+                    }
+                    boolean isNew = edits.isAdded(row);
+                    switch (kind) {
+                        case INSERT -> inserts.add(all);
+                        case UPDATE -> {
+                            if (!isNew && keyShown && !values.isEmpty()) updates.add(new DatabaseSession.RowUpdate(key, values));
+                        }
+                        case DELETE -> {
+                            if (!isNew && keyShown) deletes.add(key);
+                        }
+                    }
+                }
+                return target.session().describeChanges(target.table(), new DatabaseSession.RowChanges(deletes, updates, inserts));
+            }
+        };
     }
 
     /** Says why the rows shown cannot be edited, until other rows are shown. */

@@ -254,8 +254,71 @@ class DataGrid extends TableView<List<Object>> {
         this.editor = on ? editor : null;
         setEditable(on);
         for (TableColumn<List<Object>, ?> col : getColumns()) col.setEditable(this.newRowColumns.contains((Integer) col.getUserData()));
-        setContextMenu(on ? editMenu() : null);
+        updateMenu();
         refresh();
+    }
+
+    /** The statements of Copy as SQL: the selected rows as INSERT, UPDATE or DELETE of their table. */
+    enum SqlKind { INSERT, UPDATE, DELETE }
+
+    /** Writes rows as SQL for Copy as SQL (see {@link #setSqlCopier}). */
+    interface SqlCopier {
+        /** One statement per row (without ";"); rows it cannot write (e.g. a new row for UPDATE) are left out. */
+        List<String> statements(SqlKind kind, List<List<Object>> rows) throws Exception;
+
+        /** Whether the rows hold the whole primary key, which UPDATE and DELETE need. */
+        boolean hasKey();
+    }
+
+    private static final java.util.logging.Logger LOG = com.dbadmin.service.AppLog.get(DataGrid.class);
+    private SqlCopier copier;
+
+    /** Adds Copy as INSERT / UPDATE / DELETE to the right-click menu (also when the rows cannot be edited); null removes it. */
+    void setSqlCopier(SqlCopier copier) {
+        this.copier = copier;
+        updateMenu();
+    }
+
+    private void updateMenu() {
+        ContextMenu menu = editor != null ? editMenu() : null;
+        if (copier != null) {
+            if (menu == null) menu = new ContextMenu();
+            else menu.getItems().add(new javafx.scene.control.SeparatorMenuItem());
+            menu.getItems().add(copySqlMenu());
+        }
+        setContextMenu(menu);
+    }
+
+    private javafx.scene.control.Menu copySqlMenu() {
+        javafx.scene.control.Menu copy = new javafx.scene.control.Menu("Copy as SQL");
+        for (SqlKind kind : SqlKind.values()) {
+            MenuItem item = new MenuItem(kind.name());
+            item.setOnAction(e -> copySql(kind));
+            copy.getItems().add(item);
+        }
+        copy.setOnShowing(e -> {
+            boolean key = copier != null && copier.hasKey();
+            copy.getItems().get(SqlKind.UPDATE.ordinal()).setDisable(!key);
+            copy.getItems().get(SqlKind.DELETE.ordinal()).setDisable(!key);
+        });
+        return copy;
+    }
+
+    /** Puts the selected rows on the clipboard as statements, one per line; nothing is run. */
+    void copySql(SqlKind kind) {
+        List<List<Object>> rows = selectedRows();
+        if (copier == null || rows.isEmpty()) return;
+        List<String> sql;
+        try {
+            sql = copier.statements(kind, rows);
+        } catch (Exception ex) {
+            LOG.log(java.util.logging.Level.WARNING, "Copy as SQL failed", ex);
+            return;
+        }
+        if (sql.isEmpty()) return;
+        javafx.scene.input.ClipboardContent content = new javafx.scene.input.ClipboardContent();
+        content.putString(String.join(";\n", sql) + ";\n");
+        javafx.scene.input.Clipboard.getSystemClipboard().setContent(content);
     }
 
     private ContextMenu editMenu() {
