@@ -451,12 +451,18 @@ class ScriptTab extends Tab implements UnsavedWork {
         return file != null ? file.getFileName().toString() : untitledName;
     }
 
-    /** "*name · connection", so the tab says which database the script runs on. */
+    /** "*name · conn": the first 4 characters of the connection, so the tab says where it runs and stays short (the tooltip has it all). */
     private void updateTitle() {
         ConnectionConfig c = connection.getValue();
-        String on = c == null ? "" : " · " + c.getName();
+        String on = c == null ? "" : " · " + shortName(c.getName());
         setText((dirty ? "*" : "") + displayName() + on);
         setTooltip(new Tooltip((file != null ? file.toString() : "Unsaved script") + (c == null ? "" : "\nConnection: " + c.getName())));
+    }
+
+    /** The first 4 characters (leading spaces dropped). */
+    static String shortName(String name) {
+        String n = name.strip();
+        return n.length() <= 4 ? n : n.substring(0, 4);
     }
 
     private Window window() {
