@@ -8,7 +8,7 @@ SQLite where it touches a database.
 
 - Nothing changes the database by itself. The only new writing action is **Reset Sequence…**, offered only where
   Truncate / Reset Table already are (writable connection, warning level 0), and it always asks with the SQL.
-- Default behaviour that is different now: **#16** (typing a quote or bracket over a selection wraps it),
+- Default behaviour that is different now: **#16** (typing a quote, e.g. `'`, or an opening bracket over a selection wraps it),
   **#22** (Data Compare hides columns without differences), **#11 / #14** (tab title and header look).
 - New background reads: **#20** (one SELECT per focused foreign key cell), **#23** (sequences, only when the folder
   or the Properties section is opened), **#8** (the table's columns when the Export dialog opens).
@@ -42,9 +42,12 @@ SQLite where it touches a database.
   their green / red, a shade darker.
 - **Impact:** look only. Not seen on screen: the darker green / red of a focused new / deleted row.
 
-## #16 Wrap a selection in brackets
-- **Done:** in the SQL editor, typing `( [ { ' " \`` over selected text wraps it; the text stays selected; one undo.
-- **Impact (behaviour change):** before, typing a quote over a selection replaced it. Closing brackets still replace.
+## #16 Wrap a selection in brackets and quotes
+- **Done:** in the SQL editor, typing `( [ { ' " \`` over selected text wraps it: select `abc`, type `'` and it becomes
+  `'abc'` (a value made a string literal in one key). The text stays selected, so `(` then gives `('abc')`; one Undo
+  takes a wrap back.
+- **Impact:** wanted change: typing one of these over a selection used to replace it. Closing brackets and every
+  other key still replace the selection.
 
 ## #15 Ctrl+F in every text view
 - **Done:** value panel, diff view, Scan's matching rows, and the SQL of Generate SQL, Replace and Compare queries
